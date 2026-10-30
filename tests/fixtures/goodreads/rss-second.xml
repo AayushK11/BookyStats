@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Reader's bookshelf: to-read</title>
+    <link>https://www.goodreads.com/review/list/4242?shelf=to-read</link>
+    <item>
+      <title><![CDATA[The <em>Quiet</em> Map]]></title>
+      <book_id>1003</book_id>
+      <author_name>René Bel</author_name>
+      <user_shelves>to-read</user_shelves>
+      <user_date_added>2022</user_date_added>
+    </item>
+  </channel>
+</rss>

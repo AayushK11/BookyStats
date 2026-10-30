@@ -1,0 +1,29 @@
+{
+  "kind": "books#volumes",
+  "totalItems": 1,
+  "items": [
+    {
+      "kind": "books#volume",
+      "id": "testVolume_1",
+      "selfLink": "https://unsafe.example/api?key=DO-NOT-CACHE-KEY",
+      "volumeInfo": {
+        "title": "Matilda",
+        "authors": ["Roald Dahl"],
+        "industryIdentifiers": [
+          {"type": "ISBN_10", "identifier": "0140328726"},
+          {"type": "ISBN_13", "identifier": "9780140328721"}
+        ],
+        "publishedDate": "1988-10",
+        "description": "<p>Synthetic catalog fixture, <b>not publisher copy</b>.</p>",
+        "pageCount": 240,
+        "categories": ["Juvenile Fiction"],
+        "language": "en",
+        "averageRating": 4.2,
+        "ratingsCount": 120,
+        "imageLinks": {"thumbnail": "https://unsafe.example/DO-NOT-CACHE-IMAGE"},
+        "canonicalVolumeLink": "javascript:DO-NOT-CACHE-LINK"
+      },
+      "userInfo": {"review": {"text": "DO-NOT-CACHE-REVIEW"}}
+    }
+  ]
+}

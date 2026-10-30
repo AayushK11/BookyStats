@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import tempfile
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from platformdirs import user_data_path
+from pydantic import Field, ValidationError
+
+from bookystats import constants as C
+from bookystats import strings as S
+from bookystats.errors import ConfigurationError
+from bookystats.models import Account, Model, Source
+
+
+class MetadataSettings(Model):
+    google_books: bool = C.TRUE
+    open_library: bool = C.FALSE
+    max_books_per_run: int = Field(
+        default=C.METADATASETTINGS_MAX_BOOKS_PER_RUN_DEFAULT,
+        ge=C.ONE,
+        le=C.METADATASETTINGS_MAX_BOOKS_PER_RUN_LE,
+    )
+    max_age_days: int = Field(
+        default=C.METADATASETTINGS_MAX_AGE_DAYS_DEFAULT,
+        ge=C.ONE,
+        le=C.METADATASETTINGS_MAX_AGE_DAYS_LE,
+    )
+    contact: str | None = C.NONE
+
+
+class WeeklySettings(Model):
+    enabled: bool = C.FALSE
+    weekday: str | None = C.NONE
+    time: str | None = C.NONE
+    timezone: str | None = C.NONE
+
+    @C.AFTER_MODEL_VALIDATOR
+    def schedule_requires_explicit_time(self) -> WeeklySettings:
+        if self.weekday is not C.NONE and self.weekday not in {
+            S.MON,
+            S.TUE,
+            S.WED,
+            S.THU,
+            S.FRI,
+            S.SAT,
+            S.SUN,
+        }:
+            raise ValueError(S.CONFIG_WEEKLYSETTINGS_SCHEDULE_REQUIRES_EXPLICIT_BE_MON_THROUGH_SUN)
+        if self.time is not C.NONE and (
+            not re.fullmatch(S.CONFIG_WEEKLYSETTINGS_SCHEDULE_REQUIRES_EXPLICIT_TIME_D_D, self.time)
+        ):
+            raise ValueError(S.CONFIG_WEEKLYSETTINGS_SCHEDULE_REQUIRES_EXPLICIT_TIME_MUST_BE_HH_MM)
+        if self.enabled and (not (self.weekday and self.time and self.timezone)):
+            raise ValueError(S.CONFIG_WEEKLYSETTINGS_SCHEDULE_REQUIRES_AN_EXPLICIT_DAY_TIME)
+        return self
+
+
+def default_accounts() -> tuple[Account, ...]:
+    return (
+        Account(
+            source=Source.STORYGRAPH,
+            account_id=S.DEFAULT_STORYGRAPH_ACCOUNT,
+            profile_url=S.DEFAULT_STORYGRAPH_PROFILE,
+        ),
+        Account(
+            source=Source.GOODREADS,
+            account_id=S.DEFAULT_GOODREADS_ACCOUNT,
+            profile_url=S.DEFAULT_GOODREADS_PROFILE,
+        ),
+    )
+
+
+class Settings(Model):
+    schema_version: int = Field(default=C.ONE, ge=C.ONE, le=C.ONE)
+    accounts: tuple[Account, ...] = Field(default_factory=default_accounts)
+    max_pages: int = Field(
+        default=C.SETTINGS_MAX_PAGES_DEFAULT, ge=C.ONE, le=C.SETTINGS_MAX_PAGES_LE
+    )
+    http_timeout_seconds: float = Field(
+        default=C.SETTINGS_HTTP_TIMEOUT_SECONDS_DEFAULT,
+        gt=C.ZERO,
+        le=C.SETTINGS_HTTP_TIMEOUT_SECONDS_LE,
+    )
+    browser_timeout_seconds: float = Field(
+        default=C.SETTINGS_BROWSER_TIMEOUT_SECONDS_DEFAULT,
+        gt=C.ZERO,
+        le=C.SETTINGS_BROWSER_TIMEOUT_SECONDS_LE,
+    )
+    metadata: MetadataSettings = Field(default_factory=MetadataSettings)
+    weekly: WeeklySettings = Field(default_factory=WeeklySettings)
+
+    @C.AFTER_MODEL_VALIDATOR
+    def one_account_per_source(self) -> Settings:
+        if len({account.source for account in self.accounts}) != len(self.accounts):
+            raise ValueError(S.CONFIG_SETTINGS_ONE_ACCOUNT_PER_SOURCE_CAN_HAVE_ONLY_ONE_READER)
+        return self
+
+    @property
+    def account_fingerprint(self) -> str:
+        encoded = json.dumps(
+            sorted((account.source.value, account.account_id) for account in self.accounts),
+            separators=(S.COMMA, S.COLON),
+        ).encode()
+        return hashlib.sha256(encoded).hexdigest()
+
+
+def data_directory(override: str | Path | None = C.NONE) -> Path:
+    configured = override or os.environ.get(S.BOOKYSTATS_DATA_DIR)
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return user_data_path(S.BOOKYSTATS, appauthor=C.FALSE).resolve()
+
+
+def account_from_url(source: Source, url: str) -> Account:
+    path = urlsplit(url.strip()).path
+    if source == Source.STORYGRAPH:
+        matched = re.fullmatch(S.CONFIG_ACCOUNT_FROM_URL_MATCHED_PROFILE_A_ZA_Z0_A_ZA_Z0, path)
+    elif source == Source.GOODREADS:
+        matched = re.fullmatch(S.CONFIG_ACCOUNT_FROM_URL_MATCHED_USER_SHOW_D, path)
+    else:
+        raise ConfigurationError(
+            S.CONFIG_ACCOUNT_FROM_URL_ONLY_STORYGRAPH_AND_GOODREADS_CAN_BE_READER
+        )
+    if matched is C.NONE:
+        raise ConfigurationError(S.CONFIG_ACCOUNT_FROM_URL_TEMPLATE.format(v0=source.value))
+    try:
+        return Account(source=source, account_id=matched[C.ONE], profile_url=url.strip())
+    except (ValueError, ValidationError):
+        raise ConfigurationError(
+            S.CONFIG_ACCOUNT_FROM_URL_TEMPLATE_2.format(v0=source.value)
+        ) from C.NONE
+
+
+def load_settings(directory: Path) -> Settings:
+    path = directory / S.CONFIG_JSON
+    if path.exists():
+        try:
+            settings = Settings.model_validate_json(path.read_bytes())
+        except (ValueError, ValidationError):
+            raise ConfigurationError(
+                S.CONFIG_LOAD_SETTINGS_CONFIG_JSON_IS_INVALID_CHECK_ITS_FIELDS
+            ) from C.NONE
+    else:
+        settings = Settings()
+    accounts: dict[Source, Account] = {account.source: account for account in settings.accounts}
+    for source, variable in (
+        (Source.STORYGRAPH, S.BOOKYSTATS_STORYGRAPH_PROFILE),
+        (Source.GOODREADS, S.BOOKYSTATS_GOODREADS_PROFILE),
+    ):
+        value = os.environ.get(variable)
+        if value:
+            accounts[source] = account_from_url(source, value)
+    return settings.model_copy(update={S.ACCOUNTS: tuple(accounts.values())})
+
+
+def atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=S.ATOMIC_WRITE_PREFIX_TEMPLATE.format(v0=path.name), dir=path.parent
+    )
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, S.W, encoding=S.UTF_8, newline=S.NEWLINE) as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_path, C.CONFIG_ATOMIC_WRITE)
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=C.TRUE)
+
+
+def save_settings(directory: Path, settings: Settings) -> None:
+    atomic_write(directory / S.CONFIG_JSON, settings.model_dump_json(indent=C.TWO) + S.NEWLINE)
+
+
+def browser_profile(directory: Path, account: Account) -> Path:
+    identifier = hashlib.sha256(account.account_id.encode()).hexdigest()[
+        : C.CONFIG_BROWSER_PROFILE_IDENTIFIER
+    ]
+    return directory / S.PROFILES / account.source.value / identifier

@@ -1,0 +1,37 @@
+{
+  "numFound": 1,
+  "start": 0,
+  "numFoundExact": true,
+  "docs": [
+    {
+      "key": "/works/OL45883W",
+      "title": "Matilda",
+      "author_name": ["Roald Dahl"],
+      "isbn": ["0140328726", "9780140328721", "9780142410370"],
+      "subject": ["Juvenile fiction"],
+      "language": ["eng", "fre"],
+      "first_publish_year": 1988,
+      "number_of_pages_median": 240,
+      "ratings_average": 4.1,
+      "ratings_count": 77,
+      "editions": {
+        "numFound": 12,
+        "start": 0,
+        "numFoundExact": true,
+        "docs": [
+          {
+            "key": "/books/OL999M",
+            "title": "Matilda",
+            "isbn": ["9780142410370"],
+            "language": ["fre"],
+            "number_of_pages": 144,
+            "publish_date": "2007-08"
+          }
+        ]
+      },
+      "cover_i": 123456,
+      "url": "https://unsafe.example/DO-NOT-CACHE-LINK",
+      "reader_note": "DO-NOT-CACHE-REVIEW"
+    }
+  ]
+}

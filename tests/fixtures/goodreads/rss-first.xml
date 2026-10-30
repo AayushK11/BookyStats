@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title><![CDATA[Reader's bookshelf: to-read]]></title>
+    <link><![CDATA[https://www.goodreads.com/review/list/4242?shelf=to-read]]></link>
+    <atom:link rel="self" href="https://www.goodreads.com/review/list_rss/4242?shelf=to-read"/>
+    <item>
+      <title><![CDATA[Órbita &amp; café]]></title>
+      <link><![CDATA[https://www.goodreads.com/review/show/9001?utm_source=rss&key=not-a-real-secret]]></link>
+      <guid><![CDATA[https://www.goodreads.com/review/show/9001]]></guid>
+      <book_id>1001</book_id>
+      <book id="1001"><num_pages>210</num_pages></book>
+      <author_name>María Sáenz</author_name>
+      <isbn>0-14-032872-6</isbn>
+      <average_rating>4.03</average_rating>
+      <user_rating>0</user_rating>
+      <book_published>1988</book_published>
+      <user_shelves>to-read, ficción, owned</user_shelves>
+      <user_date_added><![CDATA[Mon, 27 Jul 2026 20:47:23 -0700]]></user_date_added>
+      <description><![CDATA[<img src="https://untrusted.invalid/never-fetch">
+        <p>Source description, not a user review to ingest.</p>]]></description>
+    </item>
+    <item>
+      <title>Les îles</title>
+      <book_id>1002</book_id>
+      <author_name>Léa Noël</author_name>
+      <isbn/>
+      <user_rating>5</user_rating>
+      <book_published/>
+      <user_shelves>to-read</user_shelves>
+      <user_date_added>2024-06</user_date_added>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bookystats"
+version = "0.1.0"
+description = "Local-first reading data ingestion from StoryGraph and Goodreads."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.12,<5",
+    "defusedxml>=0.7,<1",
+    "httpx>=0.28,<1",
+    "platformdirs>=4.3,<5",
+    "playwright>=1.49,<2",
+    "pydantic>=2.10,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2,<2",
+    "mypy>=1.14,<2",
+    "pytest>=8.3,<10",
+    "ruff>=0.9,<1",
+    "types-beautifulsoup4",
+    "types-defusedxml",
+]
+
+[project.scripts]
+booky = "bookystats.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bookystats"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "browser: local browser integration tests, requiring an installed Playwright browser",
+    "live: explicitly enabled tests against an account or external provider",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src/bookystats"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
