@@ -90,3 +90,22 @@ def test_complete_snapshot_requires_real_termination_and_identity() -> None:
             state=SyncState.COMPLETE,
             started_at=utc_now(),
         )
+
+
+def test_file_completion_requires_raw_lineage_and_eof_not_claimed_account_identity() -> None:
+    snapshot = CollectionSnapshot(
+        source=Source.GOODREADS,
+        account_id=S.DEFAULT_GOODREADS_ACCOUNT,
+        collection=S.LIBRARY,
+        state=SyncState.COMPLETE,
+        started_at=utc_now(),
+        input_kind=S.INPUT_FILE,
+        raw_document_id=S.INPUT_TEST_RAW_ID,
+        processing_version=S.INPUT_TEST_VERSION,
+        termination_verified=C.TRUE,
+        expected_count=C.ZERO,
+    )
+    assert not snapshot.identity_verified
+    for update in C.INPUT_INVALID_LINEAGE_UPDATES:
+        with pytest.raises(ValidationError):
+            CollectionSnapshot.model_validate(snapshot.model_copy(update=update).model_dump())

@@ -4,6 +4,77 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
+type InputKind = Literal["live", "file"]
+INPUT_LIVE: Final = "live"
+INPUT_FILE: Final = "file"
+INPUT_KIND: Final = "input_kind"
+INPUT_PROCESSING_VERSION: Final = "processing_version"
+TERMINATION_VERIFIED: Final = "termination_verified"
+INPUT_TEST_RAW_ID: Final = "fixture-capture"
+INPUT_TEST_VERSION: Final = "fixture-v1"
+INPUT_RAW_FIELDS: Final = "raw_fields"
+INPUT_RAW_DOCUMENT_ID: Final = "raw_document_id"
+CLI_STORYGRAPH_FILE: Final = "--storygraph-file"
+CLI_GOODREADS_FILE: Final = "--goodreads-file"
+CLI_METADATA: Final = "--metadata"
+CLI_METADATA_NONE: Final = "none"
+CLI_METADATA_GOOGLE: Final = "google-books"
+CLI_METADATA_LIBRARY: Final = "open-library"
+CLI_METADATA_BOTH: Final = "both"
+CLI_RAW_DATABASE: Final = "raw.sqlite3"
+CLI_FILE_HELP: Final = "Archive and process an official CSV export for the configured account."
+CLI_METADATA_HELP: Final = "Select metadata providers; none processes the source files offline."
+CLI_FILE_MODE_CONFLICT: Final = (
+    "File input cannot be combined with interactive or scheduled capture."
+)
+CLI_STATUS_FILE_CONFLICT: Final = "File input and metadata selection are only valid for sync."
+CLI_NO_RAW_INPUT: Final = (
+    "No archived exports are available for the configured accounts. Supply "
+    "--storygraph-file and/or --goodreads-file. Plain sync reprocesses saved exports."
+)
+CLI_UNCONFIGURED_FILE: Final = "Configure the source account before supplying its export."
+CLI_FILE_SCOPE: Final = (
+    "File processing only: source account ownership and full account coverage are not verified."
+)
+CLI_RAW_ARCHIVE: Final = "raw_archive"
+CLI_TEST_STORYGRAPH_NAME: Final = "storygraph.csv"
+CLI_TEST_GOODREADS_NAME: Final = "goodreads.csv"
+CLI_TEST_EXTRA_COLUMN: Final = "Unmapped Field"
+CLI_TEST_EXTRA_VALUE: Final = "kept"
+CLI_TEST_STORYGRAPH_CSV: Final = (
+    "Title,Authors,ISBN/UID,Read Status,Star Rating,Review,Last Date Read,"
+    "Read Count,Unmapped Field\n"
+    'Matilda,Roald Dahl,9780140328721,read,4.25,"Great,\nreally great",2025-06-01,1,kept\n'
+)
+CLI_TEST_GOODREADS_CSV: Final = (
+    "Book Id,Title,Author,ISBN13,Exclusive Shelf,My Rating,Date Read,My Review,Unmapped Field\n"
+    "123,Matilda,Roald Dahl,9780140328721,to-read,0,,,kept\n"
+)
+CLI_TEST_BROKEN_CSV: Final = 'Title,Authors,ISBN/UID,Read Status\n"unterminated'
+CLI_TEST_UNEXPECTED_NETWORK: Final = "Manual offline processing must not make network requests."
+CLI_TEST_FETCH: Final = "fetch"
+CLI_TEST_RECORD_LIVE: Final = "record_live_run"
+CLI_TEST_ENABLE_WEEKLY: Final = "enable_weekly"
+CLI_TEST_MANUAL_SCHEDULE: Final = (
+    "Manual imports must not record live evidence or activate scheduling."
+)
+CLI_TEST_CAPTURE: Final = "capture"
+CLI_TEST_REQUIRE_ACTIVATION: Final = "require_activation"
+CLI_TEST_SCHEDULE_GUARD: Final = "Scheduled collection remained noninteractive."
+CLI_TEST_GOOGLE_KEY: Final = "fixture-google-key"
+CLI_TEST_METADATA_BODY: Final = (
+    '{"totalItems":1,"items":[{"id":"fixture-volume","volumeInfo":{"title":"Matilda",'
+    '"authors":["Roald Dahl"],"industryIdentifiers":[{"type":"ISBN_13",'
+    '"identifier":"9780140328721"}],"description":"A synthetic catalog description.",'
+    '"pageCount":240,"publishedDate":"1988","language":"en",'
+    '"publisher":"Fixture Publisher","futureField":{"label":"kept"}}}]}'
+)
+PROVIDER_FULL_RESPONSE: Final = "full-public-records"
+PROVIDER_ALL_FIELDS: Final = "*"
+INPUT_MISSING_RAW_DOCUMENT: Final = (
+    "A file snapshot must reference its stored raw document and processing version."
+)
+
 SOURCE_FOLDER: Final = "src"
 PYTHON_PATTERN: Final = "*.py"
 STRINGS_MODULE_FILE: Final = "strings.py"
@@ -336,9 +407,8 @@ CLI_MAIN_WEEKLY_SCHEDULING_IS_DISABLED_NO_SOURCE_REQUESTS: Final = (
     "Weekly scheduling is disabled; no source requests were made."
 )
 CLI_MAIN_CONFIGURE_READER_PROFILE_URLS_IN_CONFIG_JSON: Final = (
-    "Configure reader profile URLs in config.json or BOOKYSTATS_STORYGRAPH_PROFIL"
-    "E / BOOKYSTATS_GOODREADS_PROFILE, then run booky sync. No exports are needed"
-    "."
+    "Configure reader profile URLs in config.json or BOOKYSTATS_STORYGRAPH_PROFILE "
+    "/ BOOKYSTATS_GOODREADS_PROFILE before importing their files."
 )
 SCHEDULED: Final = "scheduled"
 MANUAL: Final = "manual"
@@ -2322,7 +2392,6 @@ DO_NOT_PRINT_THIS: Final = "do-not-print-this"
 TEST_CLI_UNATTENDED_WITHOUT_INPUT_UNATTENDED_EXECUTION_PROMPTED: Final = (
     "unattended execution prompted"
 )
-TEST_CLI_UNATTENDED_WITHOUT_ACCOUNTS_NEVER_PROMPTS_NO_EXPORTS: Final = "No exports"
 DISABLED: Final = "disabled"
 TEST_CONFIG_SETTINGS_ROUND_TRIP_GOODREADS_COM_USER_SHOW_READER: Final = (
     "https://www.goodreads.com/user/show/123-reader"
@@ -3225,3 +3294,397 @@ UNKNOWN_2: Final = "unknown"
 ObservationScope = Literal["reader", "work", "edition"]
 
 DatePrecision = Literal["year", "month", "day"]
+
+IMPORT_TITLE: Final = "Title"
+IMPORT_PROCESSING_VERSION: Final = "csv-v1"
+IMPORT_AUTHOR: Final = "Author"
+IMPORT_AUTHORS: Final = "Authors"
+IMPORT_BOOK_ID: Final = "Book Id"
+IMPORT_AUTHOR_SORT: Final = "Author l-f"
+IMPORT_ADDITIONAL_AUTHORS: Final = "Additional Authors"
+IMPORT_ISBN: Final = "ISBN"
+IMPORT_ISBN13: Final = "ISBN13"
+IMPORT_UID: Final = "ISBN/UID"
+IMPORT_MY_RATING: Final = "My Rating"
+IMPORT_AVERAGE_RATING: Final = "Average Rating"
+IMPORT_PUBLISHER: Final = "Publisher"
+IMPORT_BINDING: Final = "Binding"
+IMPORT_PAGES: Final = "Number of Pages"
+IMPORT_YEAR: Final = "Year Published"
+IMPORT_ORIGINAL_YEAR: Final = "Original Publication Year"
+IMPORT_DATE_READ: Final = "Date Read"
+IMPORT_DATE_ADDED: Final = "Date Added"
+IMPORT_BOOKSHELVES: Final = "Bookshelves"
+IMPORT_POSITIONS: Final = "Bookshelves with positions"
+IMPORT_EXCLUSIVE_SHELF: Final = "Exclusive Shelf"
+IMPORT_MY_REVIEW: Final = "My Review"
+IMPORT_SPOILER: Final = "Spoiler"
+IMPORT_PRIVATE_NOTES: Final = "Private Notes"
+IMPORT_READ_COUNT: Final = "Read Count"
+IMPORT_OWNED_COPIES: Final = "Owned Copies"
+IMPORT_FORMAT: Final = "Format"
+IMPORT_READ_STATUS: Final = "Read Status"
+IMPORT_LAST_DATE_READ: Final = "Last Date Read"
+IMPORT_DATES_READ: Final = "Dates Read"
+IMPORT_STAR_RATING: Final = "Star Rating"
+IMPORT_REVIEW: Final = "Review"
+IMPORT_MOODS: Final = "Moods"
+IMPORT_PACE: Final = "Pace"
+IMPORT_TAGS: Final = "Tags"
+IMPORT_WARNINGS: Final = "Content Warnings"
+IMPORT_PUBLISHER_FIELD: Final = "publisher"
+IMPORT_ORIGINAL_PUBLICATION_FIELD: Final = "original_publication_date"
+IMPORT_AUTHOR_SORT_FIELD: Final = "author_sort_name"
+IMPORT_PRIVATE_NOTES_FIELD: Final = "private_notes"
+IMPORT_SPOILER_FIELD: Final = "review_contains_spoilers"
+IMPORT_OWNED_COPIES_FIELD: Final = "owned_copies"
+IMPORT_POSITIONS_FIELD: Final = "shelf_positions"
+IMPORT_IDENTITY_FIELD: Final = "import_identity_kind"
+IMPORT_NATIVE_IDENTITY: Final = "native"
+IMPORT_ISBN_IDENTITY: Final = "isbn"
+IMPORT_SYNTHETIC_IDENTITY: Final = "synthetic"
+IMPORT_ISBN_ID: Final = "isbn:{isbn}"
+IMPORT_SYNTHETIC_ID: Final = "synthetic:{digest}"
+IMPORT_EVENT_ID: Final = "{source_id}:finished:{date}"
+IMPORT_GOODREADS_URL: Final = "https://www.goodreads.com/book/show/{source_id}"
+IMPORT_STORYGRAPH_URL: Final = "https://app.thestorygraph.com/books/{source_id}"
+IMPORT_INTEGER_PATTERN: Final = r"[0-9]+"
+IMPORT_DECIMAL_PATTERN: Final = r"[0-9]+(?:\.[0-9]+)?"
+IMPORT_ISBN_WRAPPER_PATTERN: Final = r'="([^"]*)"'
+IMPORT_ISBN_SHAPE_PATTERN: Final = r"(?:[0-9]{9}[0-9Xx]|[0-9]{13})"
+IMPORT_UID_PATTERN: Final = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+IMPORT_LIST_SEPARATOR_PATTERN: Final = r"\s*[,;]\s*"
+IMPORT_NUMERIC_DATE_PATTERN: Final = (
+    r"(?:[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?|[0-9]{4}/[0-9]{2}/[0-9]{2})"
+)
+IMPORT_DATE_LIST_PATTERN: Final = (
+    r"\s*(?:[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?|[0-9]{4}/[0-9]{2}/[0-9]{2})"
+    r"(?:\s*[,;]\s*(?:[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?|"
+    r"[0-9]{4}/[0-9]{2}/[0-9]{2}))+\s*"
+)
+IMPORT_POSITION_PATTERN: Final = r"(.+?)\s+\(#([0-9]+)\)"
+IMPORT_YEAR_TEMPLATE: Final = "{year:04d}"
+IMPORT_NUL: Final = "\x00"
+IMPORT_QUOTE: Final = '"'
+IMPORT_CARRIAGE_RETURN: Final = "\r"
+IMPORT_ENCODING_ERROR: Final = "export_encoding_unsupported"
+IMPORT_SCHEMA_ERROR: Final = "export_schema_unsupported"
+IMPORT_CSV_ERROR: Final = "export_csv_malformed"
+IMPORT_SOURCE_ERROR: Final = "export_source_mismatch"
+IMPORT_ACCOUNT_ERROR: Final = "export_account_mismatch"
+IMPORT_DUPLICATE_ID: Final = "export_duplicate_identity"
+IMPORT_UNKNOWN_COLUMN: Final = "export_unmapped_column"
+IMPORT_UNKNOWN_STATUS: Final = "export_unknown_status"
+IMPORT_SYNTHETIC_NOTICE: Final = "export_synthetic_identity"
+IMPORT_HISTORY_UNMAPPED: Final = "export_history_unmapped"
+IMPORT_HISTORY_INCOMPLETE: Final = "export_history_incomplete"
+IMPORT_HISTORY_CONFLICT: Final = "export_history_conflict"
+IMPORT_UNKNOWN_NUMBER: Final = "export_unknown_numeric_value"
+IMPORT_ENCODING_MESSAGE: Final = "The export must be UTF-8 CSV, optionally with a UTF-8 BOM."
+IMPORT_SOURCE_MESSAGE: Final = "The raw document source does not match the configured account."
+IMPORT_ACCOUNT_MESSAGE: Final = "The raw document account does not match the configured account."
+IMPORT_SCHEMA_MESSAGE: Final = (
+    "The export needs nonblank, unique headers, Title, and an Author/Authors or "
+    "source identifier column."
+)
+IMPORT_CSV_MESSAGE: Final = "The export contains malformed CSV quoting or record structure."
+IMPORT_WIDTH_MESSAGE: Final = (
+    "Export record {row} has {actual} fields; the header defines {expected}. No rows were imported."
+)
+IMPORT_INVALID_MESSAGE: Final = "Export record {row} has an invalid {field} field."
+IMPORT_DUPLICATE_MESSAGE: Final = (
+    "Export records {first} and {second} have the same source identity; "
+    "separate rows cannot be safely reconciled."
+)
+IMPORT_UNKNOWN_COLUMN_MESSAGE: Final = (
+    "Export column {column} is preserved verbatim in raw_fields but has no typed mapping."
+)
+IMPORT_UNKNOWN_STATUS_MESSAGE: Final = (
+    "Export record {row} has an unrecognized reading status; its original value is preserved."
+)
+IMPORT_SYNTHETIC_MESSAGE: Final = (
+    "Export record {row} lacks a native ID or valid ISBN. Its deterministic source-local "
+    "identity is synthetic, not evidence of a cross-source match."
+)
+IMPORT_HISTORY_UNMAPPED_MESSAGE: Final = (
+    "Export record {row} has unsupported Dates Read text. Only a single parse_date date or "
+    "comma/semicolon-separated ISO partial dates and YYYY/MM/DD dates are mapped; "
+    "ranges and other history notation remain verbatim in raw_fields."
+)
+IMPORT_HISTORY_INCOMPLETE_MESSAGE: Final = (
+    "Export record {row} reports more reads than dated events. Undated reads were not invented."
+)
+IMPORT_UNKNOWN_NUMBER_MESSAGE: Final = (
+    "Export record {row} uses zero for {field}; this is unavailable metadata, not a known value."
+)
+IMPORT_FILE_COMPLETE_MESSAGE: Final = (
+    "The complete offline export was parsed; account identity was not verified."
+)
+IMPORT_STATUS_TO_READ: Final = "to read"
+IMPORT_STATUS_CURRENT: Final = "currently reading"
+IMPORT_STATUS_DNF: Final = "did not finish"
+IMPORT_STATUS_DNF_APOSTROPHE: Final = "didn't finish"
+IMPORT_BOOLEAN_YES: Final = "yes"
+IMPORT_BOOLEAN_NO: Final = "no"
+IMPORT_BOOLEAN_ONE: Final = "1"
+IMPORT_BOOLEAN_ZERO: Final = "0"
+
+TEST_IMPORT_DOCUMENT_ID: Final = "synthetic-raw-document"
+TEST_IMPORT_ORIGIN: Final = "synthetic-fixture.csv"
+TEST_IMPORT_CAPTURED_AT: Final = "2026-10-30T10:00:00+00:00"
+TEST_IMPORT_CSV_MEDIA: Final = "text/csv"
+TEST_IMPORT_READER: Final = "export-reader"
+TEST_IMPORT_STORYGRAPH_PROFILE: Final = "https://app.thestorygraph.com/profile/export-reader"
+TEST_IMPORT_GOODREADS_READER: Final = "123"
+TEST_IMPORT_GOODREADS_PROFILE: Final = "https://www.goodreads.com/user/show/123"
+TEST_IMPORT_OTHER_READER: Final = "456"
+TEST_IMPORT_TITLE: Final = "A Synthetic Book"
+TEST_IMPORT_OTHER_TITLE: Final = "A Different Synthetic Book"
+TEST_IMPORT_AUTHOR: Final = "Ada Example"
+TEST_IMPORT_SECOND_AUTHOR: Final = "Bea Example"
+TEST_IMPORT_REVIEW: Final = 'First line, with a comma.\nSecond line has "quotes".'
+TEST_IMPORT_UNKNOWN_HEADER: Final = "Future Detail"
+TEST_IMPORT_UNKNOWN_VALUE: Final = " original, spelling \nunchanged "
+TEST_IMPORT_UNKNOWN_SPELLING: Final = "  FuTuRe Detail  "
+TEST_IMPORT_NATIVE_ID: Final = "101"
+TEST_IMPORT_SECOND_ID: Final = "102"
+TEST_IMPORT_THIRD_ID: Final = "103"
+TEST_IMPORT_UID: Final = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+TEST_IMPORT_ISBN: Final = "9780140328721"
+TEST_IMPORT_ISBN_WRAPPED: Final = '="0140328726"'
+TEST_IMPORT_EMPTY_WRAPPER: Final = '=""'
+TEST_IMPORT_FORMULA: Final = '=SUM("0140328726")'
+TEST_IMPORT_BAD_WRAPPER: Final = '="0140328726"+""'
+TEST_IMPORT_INVALID_ISBN: Final = "9780140328720"
+TEST_IMPORT_INVALID_ISBN_X: Final = "030640615X"
+TEST_IMPORT_OTHER_ISBN: Final = "9780306406157"
+TEST_IMPORT_RATING: Final = "4"
+TEST_IMPORT_QUARTER_RATING: Final = "4.25"
+TEST_IMPORT_COMMUNITY_RATING: Final = "3.75"
+TEST_IMPORT_ZERO: Final = "0"
+TEST_IMPORT_TWO: Final = "2"
+TEST_IMPORT_ONE: Final = "1"
+TEST_IMPORT_PAGES: Final = "240"
+TEST_IMPORT_YEAR: Final = "2020"
+TEST_IMPORT_MONTH: Final = "2024-03"
+TEST_IMPORT_DATE: Final = "2025-04-06"
+TEST_IMPORT_DATE_SLASH: Final = "2025/04/06"
+TEST_IMPORT_DATE_TEXT: Final = "April 6, 2025"
+TEST_IMPORT_HISTORY: Final = "2024-03, 2025/04/06"
+TEST_IMPORT_RANGE_HISTORY: Final = "2024/01/01-2024/01/31, 2025/04/01-2025/04/06"
+TEST_IMPORT_DUPLICATE_HISTORY: Final = "2025-04-06, 2025-04-06"
+TEST_IMPORT_INVALID_HISTORY: Final = "2025-02-30, 2025-04-06"
+TEST_IMPORT_OVERLAPPING_HISTORY: Final = "2025, 2025-04-06"
+TEST_IMPORT_INVALID_DATE: Final = "2025-02-30"
+TEST_IMPORT_AMBIGUOUS_DATE: Final = "04/06/2025"
+TEST_IMPORT_INVALID_NUMBER: Final = "not-a-number"
+TEST_IMPORT_NEGATIVE_NUMBER: Final = "-1"
+TEST_IMPORT_NAN: Final = "NaN"
+TEST_IMPORT_HIGH_RATING: Final = "6"
+TEST_IMPORT_FRACTIONAL_COUNT: Final = "1.5"
+TEST_IMPORT_NON_QUARTER_RATING: Final = "4.3"
+TEST_IMPORT_UNKNOWN_STATUS: Final = "an unfamiliar source status"
+TEST_IMPORT_PUBLISHER: Final = "Example Press"
+TEST_IMPORT_PAPERBACK: Final = "Paperback"
+TEST_IMPORT_SORT_AUTHOR: Final = "Example, Ada"
+TEST_IMPORT_SHELVES: Final = "favorites, owned"
+TEST_IMPORT_FAVORITES: Final = "favorites"
+TEST_IMPORT_SHELF_POSITIONS: Final = "to-read (#7), favorites (#2)"
+TEST_IMPORT_BROKEN_POSITIONS: Final = "to-read (position seven)"
+TEST_IMPORT_MOODS: Final = "hopeful, reflective"
+TEST_IMPORT_PACE: Final = "medium"
+TEST_IMPORT_NOTES: Final = "Synthetic private notes only."
+TEST_IMPORT_BLANK_HEADER: Final = "Title,Author,\n"
+TEST_IMPORT_DUPLICATE_HEADER: Final = "Title,Author,Title\n"
+TEST_IMPORT_CASE_DUPLICATE_HEADER: Final = "Title,Author, title \n"
+TEST_IMPORT_NO_SCHEMA: Final = "Name,Writer\n"
+TEST_IMPORT_NO_GOODREADS_AUTHOR: Final = "Title,Book Id\nA Synthetic Book,101\n"
+TEST_IMPORT_NO_STORYGRAPH_AUTHOR: Final = (
+    "Title,ISBN/UID\nA Synthetic Book,aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n"
+)
+TEST_IMPORT_PARAM_SOURCE_BODY: Final = "source,body"
+TEST_IMPORT_EXTRA_FIELD: Final = "Title,Author\nA,Writer,extra\n"
+TEST_IMPORT_MISSING_FIELD: Final = "Title,Author\nA\n"
+TEST_IMPORT_BLANK_RECORD: Final = "Title,Author\n\n"
+TEST_IMPORT_UNTERMINATED_QUOTE: Final = 'Title,Author\n"Unfinished,Writer\n'
+TEST_IMPORT_BAD_QUOTE: Final = 'Title,Author\nUn"quoted,Writer\n'
+TEST_IMPORT_AFTER_QUOTE: Final = 'Title,Author\n"A"extra,Writer\n'
+TEST_IMPORT_INVALID_UTF8: Final = b"\xff\xfeTitle,Author\n"
+TEST_IMPORT_NUL_BODY: Final = b"Title,Author\nA\x00,Writer\n"
+TEST_IMPORT_PARAM_SOURCE: Final = "source"
+TEST_IMPORT_PARAM_BODY_CODE: Final = "body,code"
+TEST_IMPORT_PARAM_HEADER_VALUE: Final = "header,value"
+TEST_IMPORT_PARAM_RATING_STATE_VALUE: Final = "source,rating,state,expected"
+
+RAW_OPEN_ERROR: Final = "The raw archive could not be opened safely."
+RAW_UNSUPPORTED_ERROR: Final = "The database is not a supported BookyStats raw archive."
+RAW_CORRUPT_ERROR: Final = "The raw archive contains a damaged capture or payload."
+RAW_READ_ERROR: Final = "The raw archive could not be read safely."
+RAW_WRITE_ERROR: Final = "The raw capture could not be stored safely."
+RAW_CLOSE_ERROR: Final = "The raw archive could not be closed safely."
+RAW_CLOSED_ERROR: Final = "The raw archive is closed."
+RAW_MISSING_ERROR: Final = "The requested raw capture does not exist."
+RAW_INVALID_ERROR: Final = "Raw captures require a source, account, bytes, and provenance."
+RAW_FILE_ERROR: Final = "The export file could not be read for raw capture."
+RAW_PROVIDER_ERROR: Final = "Only public catalog metadata fetches may use the recording adapter."
+RAW_PROVENANCE_ERROR: Final = "The metadata response has invalid URL provenance."
+RAW_CREDENTIAL_ERROR: Final = (
+    "Raw capture refused: the metadata response echoes a supplied credential."
+)
+RAW_CATALOG_ACCOUNT: Final = "raw:public-catalog-metadata"
+RAW_CSV_MEDIA_TYPE: Final = "text/csv"
+RAW_BINARY_MEDIA_TYPE: Final = "application/octet-stream"
+RAW_CSV_SUFFIX: Final = ".csv"
+RAW_AT: Final = "@"
+RAW_SEMICOLON: Final = ";"
+RAW_EQUALS: Final = "="
+RAW_QUOTES: Final = "\"'"
+RAW_BASIC: Final = "basic"
+RAW_COOKIE: Final = "cookie"
+RAW_AUTHORIZATION: Final = "authorization"
+RAW_SECRET_NAME_PATTERN: Final = "[^a-z0-9]"
+RAW_SECRET_KEY: Final = "key"
+RAW_SECRET_TOKEN: Final = "token"
+RAW_SECRET_SECRET: Final = "secret"
+RAW_SECRET_PASSWORD: Final = "password"
+RAW_SECRET_PASSWD: Final = "passwd"
+RAW_SECRET_AUTH: Final = "auth"
+RAW_SECRET_AUTHENTICATION: Final = "authentication"
+RAW_SECRET_CREDENTIAL: Final = "credential"
+RAW_SECRET_CREDENTIALS: Final = "credentials"
+RAW_SECRET_USERNAME: Final = "username"
+RAW_UTF_16_LE: Final = "utf-16-le"
+RAW_UTF_16_BE: Final = "utf-16-be"
+RAW_PRAGMA_APPLICATION: Final = "PRAGMA application_id"
+RAW_PRAGMA_VERSION: Final = "PRAGMA user_version"
+RAW_PRAGMA_APPLICATION_SET: Final = "PRAGMA application_id = {value}"
+RAW_PRAGMA_VERSION_SET: Final = "PRAGMA user_version = {value}"
+RAW_PRAGMA_FOREIGN_KEYS: Final = "PRAGMA foreign_keys = ON"
+RAW_PRAGMA_SYNCHRONOUS: Final = "PRAGMA synchronous = FULL"
+RAW_PRAGMA_INTEGRITY: Final = "PRAGMA quick_check"
+RAW_PRAGMA_FOREIGN_CHECK: Final = "PRAGMA foreign_key_check"
+RAW_BEGIN: Final = "BEGIN IMMEDIATE"
+RAW_SCHEMA_OBJECTS: Final = (
+    "SELECT type, name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+)
+RAW_TABLE_TYPE: Final = "table"
+RAW_INDEX_TYPE: Final = "index"
+RAW_PAYLOAD_TABLE: Final = "raw_payloads"
+RAW_CAPTURE_TABLE: Final = "raw_captures"
+RAW_CAPTURE_INDEX: Final = "raw_capture_account"
+RAW_PAYLOAD_SCHEMA: Final = (
+    "CREATE TABLE raw_payloads (sha256 TEXT PRIMARY KEY NOT NULL, body BLOB NOT NULL)"
+)
+RAW_CAPTURE_SCHEMA: Final = (
+    "CREATE TABLE raw_captures (sequence INTEGER PRIMARY KEY, "
+    "id TEXT NOT NULL UNIQUE, source TEXT NOT NULL, account_id TEXT NOT NULL, "
+    "media_type TEXT NOT NULL, origin TEXT NOT NULL, captured_at TEXT NOT NULL, "
+    "sha256 TEXT NOT NULL REFERENCES raw_payloads(sha256), checksum TEXT NOT NULL)"
+)
+RAW_INDEX_SCHEMA: Final = (
+    "CREATE INDEX raw_capture_account ON raw_captures(source, account_id, sequence DESC)"
+)
+RAW_INSERT_PAYLOAD: Final = (
+    "INSERT INTO raw_payloads(sha256, body) VALUES (?, ?) ON CONFLICT(sha256) DO NOTHING"
+)
+RAW_SELECT_PAYLOAD: Final = "SELECT body FROM raw_payloads WHERE sha256 = ?"
+RAW_INSERT_CAPTURE: Final = (
+    "INSERT INTO raw_captures(sequence, id, source, account_id, media_type, origin, captured_at, "
+    "sha256, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+RAW_SELECT_CAPTURE: Final = (
+    "SELECT c.sequence, c.id, c.source, c.account_id, p.body, c.media_type, c.origin, "
+    "c.captured_at, c.sha256, c.checksum FROM raw_captures c "
+    "LEFT JOIN raw_payloads p ON p.sha256 = c.sha256 "
+)
+RAW_GET_CAPTURE: Final = RAW_SELECT_CAPTURE + "WHERE c.id = ?"
+RAW_LATEST_CAPTURE: Final = (
+    RAW_SELECT_CAPTURE + "WHERE c.source = ? AND c.account_id = ? ORDER BY c.sequence DESC LIMIT 1"
+)
+RAW_CHECK_SCHEMA: Final = RAW_SELECT_CAPTURE + "LIMIT 0"
+RAW_HASH_PATTERN: Final = "[0-9a-f]{64}"
+
+TEST_RAW_FILENAME: Final = "raw.sqlite3"
+TEST_RAW_FILE: Final = "export.csv"
+TEST_RAW_PRIVATE_FOLDER: Final = "private-folder"
+TEST_RAW_ACCOUNT: Final = "raw-test-reader"
+TEST_RAW_OTHER_ACCOUNT: Final = "raw-other-reader"
+TEST_RAW_PROFILE: Final = "https://app.thestorygraph.com/profile/raw-test-reader"
+TEST_RAW_MALFORMED: Final = b'Title,Author\r\n"unfinished,\xff\x00\x80\r\n'
+TEST_RAW_NEXT_BODY: Final = b"Title,Author\r\nAnother,Someone\r\n"
+TEST_RAW_BOM_BODY: Final = b"\xef\xbb\xbfTitle,Author\r\nExact,Bytes\r\n"
+TEST_RAW_UNKNOWN_BODY: Final = b"\x00\xff\xfe\x80\x81\r\n"
+TEST_RAW_MISSING: Final = "missing-capture"
+TEST_RAW_OTHER_ORIGIN: Final = "another.csv"
+TEST_RAW_CLOCK: Final = "bookystats.raw.utc_now"
+TEST_RAW_FIRST_TIME: Final = "2026-10-30T10:00:00+00:00"
+TEST_RAW_SECOND_TIME: Final = "2026-10-30T10:01:00+00:00"
+TEST_RAW_PARAM_BODY: Final = "body"
+TEST_RAW_PARAM_SOURCE: Final = "source"
+TEST_RAW_PARAM_SQL: Final = "sql"
+TEST_RAW_PARAM_ECHO: Final = "echo"
+TEST_RAW_PAYLOAD_COUNTS: Final = "SELECT COUNT(*) FROM raw_payloads"
+TEST_RAW_CAPTURE_COUNTS: Final = "SELECT COUNT(*) FROM raw_captures"
+TEST_RAW_TAMPER_BODY: Final = "UPDATE raw_payloads SET body = X'626164'"
+TEST_RAW_TAMPER_ACCOUNT: Final = "UPDATE raw_captures SET account_id = 'other'"
+TEST_RAW_TAMPER_SOURCE: Final = "UPDATE raw_captures SET source = 'goodreads'"
+TEST_RAW_TAMPER_TIME: Final = "UPDATE raw_captures SET captured_at = '2026-10-31T10:00:00+00:00'"
+TEST_RAW_TAMPER_CHECKSUM: Final = "UPDATE raw_captures SET checksum = 'not-a-checksum'"
+TEST_RAW_REMOVE_PAYLOAD: Final = "DELETE FROM raw_payloads"
+TEST_RAW_FOREIGN_SCHEMA: Final = "CREATE TABLE unrelated (id INTEGER)"
+TEST_RAW_NEW_VERSION: Final = "PRAGMA user_version = 999"
+TEST_RAW_FOREIGN_APPLICATION: Final = "PRAGMA application_id = 999"
+TEST_RAW_CORRUPT_FILE: Final = b"not a database; never echo private contents"
+TEST_RAW_PROVIDER_URL: Final = "https://www.googleapis.com/books/v1/volumes"
+TEST_RAW_PROVIDER_PRIVATE_URL: Final = (
+    "https://fixture-user:fixture-password@www.googleapis.com/books/v1/volumes"
+    "?key=fixture-url-key#fixture-fragment"
+)
+TEST_RAW_METADATA_BODY: Final = (
+    b'{"items":[{"id":"fixture-volume","unknown":{"raw":[1,null,{"extra":true}]}}]}'
+)
+TEST_RAW_METADATA_INVALID: Final = b'{"error":"not finished"\xff\x00'
+TEST_RAW_MEDIA_TYPE: Final = "application/json"
+TEST_RAW_RESPONSE_COOKIE: Final = "fixture-response-cookie"
+TEST_RAW_REQUEST_KEY: Final = "fixture-parameter-key"
+TEST_RAW_AUTH: Final = "Bearer fixture-header-token"
+TEST_RAW_AUTH_TOKEN: Final = "fixture-header-token"
+TEST_RAW_REQUEST_COOKIE: Final = "session=fixture-cookie-token; other=fixture-cookie-two"
+TEST_RAW_COOKIE_TOKEN: Final = "fixture-cookie-token"
+TEST_RAW_COOKIE_TWO: Final = "fixture-cookie-two"
+TEST_RAW_URL_KEY: Final = "fixture-url-key"
+TEST_RAW_URL_USER: Final = "fixture-user"
+TEST_RAW_URL_PASSWORD: Final = "fixture-password"
+TEST_RAW_FRAGMENT: Final = "fixture-fragment"
+TEST_RAW_QUERY: Final = "isbn:9780140328721"
+TEST_RAW_ECHO_TEMPLATE: Final = '{{"error":"request contained {value}"}}'
+TEST_RAW_TRANSPORT_ERROR: Final = "Fixture transport failed."
+TEST_RAW_INSERT_ABORT: Final = (
+    "CREATE TRIGGER fail_capture BEFORE INSERT ON raw_captures "
+    "BEGIN SELECT RAISE(ABORT, 'fixture failure'); END"
+)
+RAW_QUERY_START_INDEX: Final = "startIndex"
+RAW_QUERY_MAX_RESULTS: Final = "maxResults"
+RAW_QUERY_BIBKEYS: Final = "bibkeys"
+RAW_QUERY_FORMAT: Final = "format"
+RAW_QUERY_JSCMD: Final = "jscmd"
+RAW_QUERY_OFFSET: Final = "offset"
+TEST_RAW_PARAM_STATUS: Final = "status"
+TEST_RAW_UNKNOWN_QUERY: Final = "unknown-request-value"
+TEST_RAW_OPEN_LIBRARY_URL: Final = "https://openlibrary.org/api/books"
+TEST_RAW_BIBKEYS: Final = "ISBN:9780140328721"
+TEST_RAW_DATA: Final = "data"
+TEST_RAW_SEARCH_URL: Final = "https://openlibrary.org/search.json"
+RAW_NEXT_SEQUENCE: Final = "SELECT COALESCE(MAX(sequence), 0) + 1 FROM raw_captures"
+TEST_RAW_TAMPER_SEQUENCE: Final = "UPDATE raw_captures SET sequence = sequence + 100"
+TEST_RAW_BASIC_HEADER: Final = "Basic {value}"
+TEST_RAW_BASIC_TEMPLATE: Final = "{username}:{password}"
+TEST_RAW_SPECIAL_SECRET: Final = "fixture-parameter-with&punctuation"
+TEST_RAW_ESCAPE_CASES: Final = "body,secret"
+TEST_RAW_UTF16_ECHO: Final = TEST_RAW_REQUEST_KEY.encode(RAW_UTF_16_LE)
+TEST_RAW_JSON_ECHO: Final = b'"fixture-parameter-with\\u0026punctuation"'
+TEST_RAW_HTML_ECHO: Final = b"fixture-parameter-with&amp;punctuation"
+TEST_RAW_URL_ECHO: Final = b"fixture-parameter-with%26punctuation"
+RAW_UNICODE_ESCAPE_PATTERN: Final = rb"\\u([0-9a-fA-F]{4})"
+RAW_SURROGATEPASS: Final = "surrogatepass"
+TEST_RAW_FETCH_METHOD: Final = "fetch"

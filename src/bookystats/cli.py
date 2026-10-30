@@ -5,15 +5,17 @@ import json
 import os
 import sqlite3
 import sys
+from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from pydantic import JsonValue, ValidationError
 
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.config import (
+    MetadataSettings,
     Settings,
     account_from_url,
     browser_profile,
@@ -34,6 +36,9 @@ from bookystats.scheduling import (
     schedule_status,
 )
 from bookystats.sync import SyncReceipt, SyncService
+
+if TYPE_CHECKING:
+    from bookystats.raw import RawDocument, RawStore
 
 
 def parser() -> argparse.ArgumentParser:
@@ -62,6 +67,9 @@ def parser() -> argparse.ArgumentParser:
         help=S.CLI_PARSER_HELP_NEVER_PROMPT_OR_WAIT_FOR_SIGN_IN,
     )
     result.add_argument(S.CLI_PARSER_SCHEDULED, action=S.STORE_TRUE, help=argparse.SUPPRESS)
+    result.add_argument(S.CLI_STORYGRAPH_FILE, type=Path, help=S.CLI_FILE_HELP)
+    result.add_argument(S.CLI_GOODREADS_FILE, type=Path, help=S.CLI_FILE_HELP)
+    result.add_argument(S.CLI_METADATA, choices=C.CLI_METADATA_CHOICES, help=S.CLI_METADATA_HELP)
     return result
 
 
@@ -84,7 +92,13 @@ def _setup(directory: Path, settings: Settings) -> Settings:
 
 
 def _build_service(
-    directory: Path, settings: Settings, stack: ExitStack, *, interactive: bool
+    directory: Path,
+    settings: Settings,
+    stack: ExitStack,
+    *,
+    interactive: bool,
+    inputs: Mapping[Source, RawDocument] | None = C.NONE,
+    archive: RawStore | None = C.NONE,
 ) -> SyncService:
     from bookystats.browser import BrowserClient, BrowserRuntime
     from bookystats.cache import MetadataCache, MetadataCacheError
@@ -92,41 +106,49 @@ def _build_service(
     from bookystats.connectors.storygraph import StoryGraphConnector
     from bookystats.providers.google_books import GoogleBooksProvider
     from bookystats.providers.open_library import OpenLibraryProvider
+    from bookystats.raw import RecordingFetcher
     from bookystats.storage import Database
 
     store = Database(directory / S.LIBRARY_SQLITE3)
     store.initialize()
     stack.callback(store.close)
-    browser_runtime = stack.enter_context(BrowserRuntime())
     connectors: dict[Source, SourceConnector] = {}
-    for account in settings.accounts:
-        hosts = (
-            (S.APP_THESTORYGRAPH_COM,)
-            if account.source == Source.STORYGRAPH
-            else (S.WWW_GOODREADS_COM, S.GOODREADS_COM)
-        )
-        browser = stack.enter_context(
-            BrowserClient(
-                browser_profile(directory, account),
-                allowed_hosts=hosts,
-                interactive=interactive,
-                timeout_seconds=settings.browser_timeout_seconds,
-                runtime=browser_runtime,
+    if inputs is not C.NONE:
+        from bookystats.imports import ExportConnector
+
+        connectors = {source: ExportConnector(document) for source, document in inputs.items()}
+    else:
+        browser_runtime = stack.enter_context(BrowserRuntime())
+        for account in settings.accounts:
+            hosts = (
+                (S.APP_THESTORYGRAPH_COM,)
+                if account.source == Source.STORYGRAPH
+                else (S.WWW_GOODREADS_COM, S.GOODREADS_COM)
             )
-        )
-        if account.source == Source.STORYGRAPH:
-            connectors[account.source] = StoryGraphConnector(browser, max_pages=settings.max_pages)
-        else:
-            http = stack.enter_context(
-                HttpClient(
+            browser = stack.enter_context(
+                BrowserClient(
+                    browser_profile(directory, account),
                     allowed_hosts=hosts,
-                    timeout=settings.http_timeout_seconds,
-                    max_requests=settings.max_pages + C.TEN,
+                    interactive=interactive,
+                    timeout_seconds=settings.browser_timeout_seconds,
+                    runtime=browser_runtime,
                 )
             )
-            connectors[account.source] = GoodreadsConnector(
-                http, browser, max_pages=settings.max_pages
-            )
+            if account.source == Source.STORYGRAPH:
+                connectors[account.source] = StoryGraphConnector(
+                    browser, max_pages=settings.max_pages
+                )
+            else:
+                http = stack.enter_context(
+                    HttpClient(
+                        allowed_hosts=hosts,
+                        timeout=settings.http_timeout_seconds,
+                        max_requests=settings.max_pages + C.TEN,
+                    )
+                )
+                connectors[account.source] = GoodreadsConnector(
+                    http, browser, max_pages=settings.max_pages
+                )
     providers: dict[Source, MetadataProvider] = {}
     provider_issues: dict[Source, Issue] = {}
     key = os.environ.get(S.GOOGLE_BOOKS_API_KEY, S.EMPTY).strip()
@@ -156,7 +178,13 @@ def _build_service(
                 max_requests=settings.metadata.max_books_per_run * C.FOUR,
             )
         )
-        providers[Source.GOOGLE_BOOKS] = GoogleBooksProvider(google_http, api_key=key, cache=cache)
+        providers[Source.GOOGLE_BOOKS] = GoogleBooksProvider(
+            RecordingFetcher(google_http, archive, source=Source.GOOGLE_BOOKS)
+            if archive is not C.NONE
+            else google_http,
+            api_key=key,
+            cache=cache,
+        )
     if settings.metadata.open_library and cache is not C.NONE:
         user_agent = S.CLI_BUILD_SERVICE_USER_AGENT_BOOKYSTATS
         if settings.metadata.contact:
@@ -170,7 +198,12 @@ def _build_service(
                 user_agent=user_agent,
             )
         )
-        providers[Source.OPEN_LIBRARY] = OpenLibraryProvider(library_http, cache=cache)
+        providers[Source.OPEN_LIBRARY] = OpenLibraryProvider(
+            RecordingFetcher(library_http, archive, source=Source.OPEN_LIBRARY)
+            if archive is not C.NONE
+            else library_http,
+            cache=cache,
+        )
 
     def progress(event: CollectionProgress) -> None:
         if event.pages_seen == C.ONE or event.pages_seen % C.TEN == C.ZERO:
@@ -235,7 +268,9 @@ def _print_receipt(receipt: SyncReceipt, output: TextIO, *, as_json: bool) -> No
             print(
                 S.CLI_PRINT_RECEIPT_TEMPLATE_4.format(v0=issue.code, v1=issue.message), file=output
             )
-    if not receipt.account_sync_complete:
+    if any(source.input_kind == S.INPUT_FILE for source in receipt.sources):
+        print(S.CLI_FILE_SCOPE, file=output)
+    elif not receipt.account_sync_complete:
         print(S.CLI_PRINT_RECEIPT_LAST_GOOD_SOURCE_SNAPSHOTS_REMAIN_AVAILABLE_THIS, file=output)
 
 
@@ -261,6 +296,8 @@ def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
     report[S.CONFIGURED_SOURCES] = [account.source.value for account in settings.accounts]
     report[S.SCHEDULE] = schedule_status(directory, settings)
     report[S.GOOGLE_BOOKS_KEY_CONFIGURED] = bool(os.environ.get(S.GOOGLE_BOOKS_API_KEY))
+    raw_path = directory / S.CLI_RAW_DATABASE
+    report[S.CLI_RAW_ARCHIVE] = str(raw_path) if raw_path.exists() else C.NONE
     return report
 
 
@@ -278,19 +315,33 @@ def _print_status(report: dict[str, JsonValue], *, as_json: bool) -> None:
 
 
 def main(argv: list[str] | None = C.NONE) -> int:
-    args = parser().parse_args(argv)
+    arguments = parser()
+    args = arguments.parse_args(argv)
+    file_input = bool(args.storygraph_file or args.goodreads_file)
+    if file_input and (args.interactive or args.scheduled):
+        arguments.error(S.CLI_FILE_MODE_CONFLICT)
+    if args.command == S.STATUS and (file_input or args.metadata is not C.NONE):
+        arguments.error(S.CLI_STATUS_FILE_CONFLICT)
     directory = data_directory(args.data_dir)
     try:
         settings = load_settings(directory)
+        if args.metadata is not C.NONE:
+            metadata = MetadataSettings(
+                google_books=args.metadata in C.CLI_GOOGLE_CHOICES,
+                open_library=args.metadata in C.CLI_LIBRARY_CHOICES,
+                max_books_per_run=settings.metadata.max_books_per_run,
+                max_age_days=settings.metadata.max_age_days,
+                contact=settings.metadata.contact,
+            )
+            settings = settings.model_copy(update={S.METADATA: metadata})
         if args.command == S.STATUS:
             _print_status(_status(directory, settings), as_json=args.json)
             return C.ZERO
         if args.scheduled and (not settings.weekly.enabled):
             print(S.CLI_MAIN_WEEKLY_SCHEDULING_IS_DISABLED_NO_SOURCE_REQUESTS)
             return C.ZERO
-        interactive = not (args.unattended or args.scheduled) and (
-            args.interactive or sys.stdin.isatty()
-        )
+        interactive = args.interactive and not args.scheduled
+        manual = not (args.interactive or args.scheduled)
         if not settings.accounts and interactive:
             settings = _setup(directory, settings)
         if not settings.accounts:
@@ -298,18 +349,57 @@ def main(argv: list[str] | None = C.NONE) -> int:
         with SyncLock(directory), ExitStack() as stack:
             if args.scheduled:
                 require_activation(directory, Path(sys.executable), settings)
-            service = _build_service(directory, settings, stack, interactive=interactive)
+            inputs: dict[Source, RawDocument] | None = C.NONE
+            archive: RawStore | None = C.NONE
+            if manual:
+                from bookystats.raw import RawStore
+
+                archive = RawStore(directory / S.CLI_RAW_DATABASE)
+                stack.callback(archive.close)
+                inputs = {}
+                files = {
+                    Source.STORYGRAPH: args.storygraph_file,
+                    Source.GOODREADS: args.goodreads_file,
+                }
+                configured = {account.source for account in settings.accounts}
+                if any(
+                    path is not C.NONE and source not in configured
+                    for source, path in files.items()
+                ):
+                    raise ConfigurationError(S.CLI_UNCONFIGURED_FILE)
+                for account in settings.accounts:
+                    path = files[account.source]
+                    document = (
+                        archive.capture_file(account, path)
+                        if path is not C.NONE
+                        else archive.latest(account.source, account.account_id)
+                    )
+                    if document is not C.NONE:
+                        inputs[account.source] = document
+                if not inputs:
+                    raise ConfigurationError(S.CLI_NO_RAW_INPUT)
+            service = _build_service(
+                directory,
+                settings,
+                stack,
+                interactive=interactive,
+                inputs=inputs,
+                archive=archive,
+            )
             receipt = service.run(
                 interactive=interactive,
-                trigger=S.SCHEDULED
+                trigger=S.INPUT_FILE
+                if manual
+                else S.SCHEDULED
                 if args.scheduled
                 else S.MANUAL
                 if interactive
                 else S.UNATTENDED,
             )
-            record_live_run(directory, settings, receipt, unattended=not interactive)
+            if not manual:
+                record_live_run(directory, settings, receipt, unattended=not interactive)
             _print_receipt(receipt, sys.stdout, as_json=args.json)
-            if settings.weekly.enabled and (not args.scheduled):
+            if settings.weekly.enabled and (not args.scheduled) and not manual:
                 enable_weekly(directory, Path(sys.executable), settings, service.store.status())
             return C.ZERO if receipt.state == SyncState.COMPLETE else C.THREE
     except AlreadyRunning as exc:

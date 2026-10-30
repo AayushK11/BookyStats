@@ -124,7 +124,7 @@ def test_isbn_search_extracts_scoped_catalog_without_private_fields(
     assert S.GOODREADS_SAFE_URL_TEXT not in url and S.SECRET_API_KEY not in url
     assert params[S.Q] == S.TEST_CACHE_PERSISTENT_CACHE_IS_AND_RETURNS_DETACHED_DATA_ISBN
     assert params[S.KEY] == S.SECRET_API_KEY
-    assert S.IMAGE not in params[S.FIELDS] and S.USERINFO not in params[S.FIELDS]
+    assert S.FIELDS not in params
     assert S.PRIVATE_READER_REVIEW not in json.dumps(http.calls)
     assert S.ORIGINAL_READER_BOOK_ID not in json.dumps(http.calls)
     assert S.AUTHORIZATION not in headers

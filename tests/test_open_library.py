@@ -113,11 +113,7 @@ def test_work_search_never_promotes_aggregate_or_partial_edition_data_to_exact_e
         int(params[S.LIMIT])
         <= C.TEST_OPEN_LIBRARY_WORK_SEARCH_NEVER_EDITION_DATA_TO_EXACT_EDITION_5
     )
-    assert (
-        S.TEST_OPEN_LIBRARY_WORK_SEARCH_NEVER_DATA_TO_EXACT_EDITION_TEXT_2 not in params[S.FIELDS]
-        and S.COVER not in params[S.FIELDS]
-    )
-    assert S.EDITIONS not in params[S.FIELDS]
+    assert params[S.FIELDS] == S.PROVIDER_ALL_FIELDS
     assert headers == {S.ACCEPT: S.GOOGLE_BOOKS_HTTP_PAYLOAD_APPLICATION_JSON}
     assert S.PRIVATE_SHELF not in json.dumps(http.calls)
     assert S.ORIGINAL_WATCHLIST_BOOK not in json.dumps(http.calls)

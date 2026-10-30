@@ -110,6 +110,7 @@ class BookRecord(Model):
     observations: tuple[Observation, ...] = ()
     reading_events: tuple[ReadingEvent, ...] = ()
     detail_checked_at: str | None = C.NONE
+    raw_fields: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator(S.URL)
     @classmethod
@@ -176,16 +177,25 @@ class CollectionSnapshot(Model):
     termination_verified: bool = C.FALSE
     capabilities: dict[str, FieldState] = Field(default_factory=dict)
     issues: tuple[Issue, ...] = ()
+    input_kind: S.InputKind = S.INPUT_LIVE
+    raw_document_id: str | None = C.NONE
+    processing_version: str | None = C.NONE
 
     @C.AFTER_MODEL_VALIDATOR
     def complete_means_complete(self) -> CollectionSnapshot:
+        if self.input_kind == S.INPUT_FILE and (
+            not self.raw_document_id or not self.processing_version
+        ):
+            raise ValueError(S.INPUT_MISSING_RAW_DOCUMENT)
         ids = [record.source_id for record in self.records]
         if len(ids) != len(set(ids)):
             raise ValueError(S.MODELS_COLLECTIONSNAPSHOT_COMPLETE_MEANS_MUST_BE_RECONCILED_BEFORE)
         if any(record.source != self.source for record in self.records):
             raise ValueError(S.MODELS_COLLECTIONSNAPSHOT_COMPLETE_MEANS_RECORD_FROM_ANOTHER_SOURCE)
         if self.state == SyncState.COMPLETE:
-            if not self.identity_verified or not self.termination_verified:
+            if (
+                self.input_kind == S.INPUT_LIVE and not self.identity_verified
+            ) or not self.termination_verified:
                 raise ValueError(S.MODELS_COLLECTIONSNAPSHOT_COMPLETE_MEANS_IDENTITY_AND_PAGINATION)
             if self.expected_count is not C.NONE and len(ids) != self.expected_count:
                 raise ValueError(

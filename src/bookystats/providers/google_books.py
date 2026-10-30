@@ -442,9 +442,9 @@ class GoogleBooksProvider:
     def _search(self, query: str) -> _Search:
         key = json.dumps(
             [
-                C.ONE,
+                C.METADATA_CAPTURE_VERSION,
                 query,
-                S.GOOGLE_BOOKS_FIELDS_TOTALITEMS_TITLE_AUTHORS_INDUSTRYIDENTIFIERS,
+                S.PROVIDER_FULL_RESPONSE,
                 C.FIVE,
             ],
             separators=(S.COMMA, S.COLON),
@@ -458,7 +458,6 @@ class GoogleBooksProvider:
             params={
                 S.Q: query,
                 S.KEY: cast(str, self._api_key),
-                S.FIELDS: S.GOOGLE_BOOKS_FIELDS_TOTALITEMS_TITLE_AUTHORS_INDUSTRYIDENTIFIERS,
                 S.MAXRESULTS: str(C.FIVE),
                 S.PRINTTYPE: S.BOOKS,
                 S.PRETTYPRINT: S.FALSE_2,

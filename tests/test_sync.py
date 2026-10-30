@@ -130,6 +130,39 @@ class AuthRequiredConnector:
         )
 
 
+def test_complete_file_processing_never_counts_as_complete_account_capture() -> None:
+    storage = MemoryStorage()
+    configured = accounts()
+    connectors = {
+        account.source: FixtureConnector(
+            complete_snapshot(account).model_copy(
+                update={
+                    S.COLLECTION: S.LIBRARY,
+                    S.INPUT_KIND: S.INPUT_FILE,
+                    S.INPUT_RAW_DOCUMENT_ID: S.INPUT_TEST_RAW_ID,
+                    S.INPUT_PROCESSING_VERSION: S.INPUT_TEST_VERSION,
+                    S.IDENTITY_VERIFIED: C.FALSE,
+                    S.CAPABILITIES: {},
+                }
+            )
+        )
+        for account in configured
+    }
+    receipt = SyncService(
+        storage,
+        Settings(
+            accounts=configured,
+            metadata=MetadataSettings(google_books=C.FALSE, open_library=C.FALSE),
+        ),
+        connectors,
+        {},
+    ).run()
+    assert receipt.state == SyncState.COMPLETE
+    assert not receipt.account_sync_complete
+    assert len(storage.published) == C.TWO
+    assert all(source.raw_document_id == S.INPUT_TEST_RAW_ID for source in receipt.sources)
+
+
 def test_sources_publish_independently_on_auth_failure() -> None:
     _storygraph, goodreads = accounts()
     storage = MemoryStorage()

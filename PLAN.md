@@ -1,19 +1,141 @@
-# BookyStats — revised detailed plan
+# BookyStats
+
+Delivery progress is tracked in [TODO.md](TODO.md).
+
+## Architecture
+
+Four stages, with a durable database handoff between each. A manual request or
+weekly job starts ingestion; downstream stages consume stored snapshots rather
+than fetching the accounts again. SQLite remains the local storage layer.
+
+```mermaid
+flowchart TD
+    Manual["Manual request"]
+    Weekly["Scheduled weekly job"]
+    Capture["1. Ingest Goodreads + StoryGraph"]
+    Raw[("Raw data")]
+    Process["2. Cleanse, match and structure"]
+    Catalog["Google Books / Open Library"]
+    Processed[("Processed data")]
+    Analyse["3. Analyse reading history"]
+    Analysis[("Reusable analysis + preference weights")]
+    Rank["4. Rank the next read"]
+    Rankings[("Ranked watchlist + explanations")]
+
+    Manual --> Capture
+    Weekly --> Capture
+    Capture --> Raw
+    Raw --> Process
+    Catalog --> Process
+    Process --> Processed
+    Processed --> Analyse
+    Analyse --> Analysis
+    Analysis --> Rank
+    Processed -->|"Goodreads watchlist"| Rank
+    Rank --> Rankings
+```
+
+Cylinders are persistent database datasets, not separate database servers.
+Each downstream stage is triggered only after its input snapshot is committed.
+The diagram is the target architecture, not a claim that all four stages exist.
+
+| Stage | Responsibility | Stored output |
+|---|---|---|
+| **1. Ingest** | Accept manual exports from both sources first. Add authorized automatic collection for manual requests and weekly jobs next. Preserve the original content before parsing. | Immutable raw payloads, source/account binding, capture time, content hash, and batch lineage. |
+| **2. Process** | Parse raw data, normalize fields, reconcile works and editions conservatively, and enrich using Google Books, Open Library, or another suitable provider. | Versioned source observations, structured books/editions, reading events, ratings/reviews, Goodreads watchlist, metadata provenance, and unresolved/missing fields. |
+| **3. Analyse** | Run the agreed statistics and learn preferences from processed reading history. Keep evidence and confidence alongside findings. | Reusable statistics, features, preference weights, input snapshot references, and calculation/configuration versions. |
+| **4. Rank** | Combine the saved preference weights with the processed Goodreads watchlist. | Ranked next reads, score components, explanations, confidence, and the exact input versions used. |
+
+### Data rules
+
+- **Raw means original:** retain every supplied source field, including fields
+  that today's parser does not understand. Archive full metadata responses too,
+  before selecting fields; a disposable response cache is not the raw archive.
+- **Processing is replayable:** parser, cleansing, or matching improvements
+  operate on the stored raw data without another account fetch.
+- **Completeness is explicit:** importing every row of a file does not prove that
+  the export contains every account field. Preserve missing, unsupported,
+  conflicting, and failed values separately. Never invent personal history.
+- **Keep provenance:** do not overwrite her ratings with community averages or
+  merge editions on a title guess. Retain both sources' observations; StoryGraph
+  remains authoritative for her reading history and Goodreads for her watchlist.
+- **Publish safely:** retain the last usable processed snapshot when new input
+  cannot be parsed or validated. Store failed-run evidence without publishing it.
+- **Reuse derived work:** compare relevant input content and pipeline/configuration
+  versions before recalculating. A changed watchlist can reuse unchanged taste
+  weights; changed reading history invalidates affected analysis and rankings.
+- **Read from the database:** viewing statistics or recommendations must not
+  trigger fresh scraping or an unconditional analysis run.
+
+### Delivery scope
+
+**Implement stages 1 and 2 now, with manual file intake.** A user downloads the
+official StoryGraph and Goodreads exports and supplies them locally; BookyStats
+does not need to manage website login for that path. File ownership is explicitly
+bound to the configured account, not independently verified by the CSV.
+
+**Everything is CLI-driven.** For this initial priority, the user manually
+supplies the files and explicitly runs their processing; there is no scheduled
+fetch, automatic export, website, or background pipeline service to set up.
+Pipeline stages are application-service boundaries with database handoffs, not a
+requirement for separate servers.
+
+**Next in queue, not P0:** the weekly scheduler/cron job and automatic source
+capture or auto-export. Research those routes now, implement them later, and feed
+the same raw-data boundary. On Windows the scheduler can use Task Scheduler.
+Enable scheduling only after the acquisition route works reliably; reprocessing
+an old export is not fresh weekly ingestion.
+
+Stages 3 and 4 are planned next. **Personal Year in Review and Calendar Year in
+Books are deferred** and can later consume these stored datasets.
+
+This architecture and manual-first decision supersede the earlier
+direct-collection-first sequencing. The detailed feature research below remains
+the design reference for later statistics, ranking, and annual reviews.
+
+## Automatic capture research
+
+Research recorded on 2026-10-30 for the next priority, **not implemented or
+live-verified as part of the manual pipeline**. Existing browser collection
+attempts did not complete. The Goodreads RSS request already used the correct
+numeric account ID and `shelf=to-read`; its HTTP 404 remains unexplained.
+
+| Candidate | Evidence and limits | Next decision |
+|---|---|---|
+| **Goodreads official auto-export** | The library export is described by a [third-party guide](https://gist.github.com/kaayru/87385f85ec577b8e3d9613ecb09c90ca). It could feed the existing CSV processor unchanged. Download timing, session lifetime, frequency limits, and unattended operation have not been verified here. | A promising first candidate to validate against the owner's actual export flow; not a claim that a weekly job already works. |
+| **StoryGraph official auto-export** | [Ryot's import guide](https://docs.ryot.io/importing/storygraph) and [Endleaf's guide](https://getendleaf.com/blog/how-to-export-your-storygraph-data/) describe export generation and email notification. These are third-party descriptions. Whether email access is essential, or an on-page link can be polled, remains unknown. | Inspect the manually supplied file and owner-visible flow before designing acquisition. Do not assume mailbox access or that login resolves the existing block. |
+| **Goodreads native RSS** | A [third-party account](https://www.jordankatzen.com/posts/notes/goodreads-rss/) documents the feed mechanism. This is separate from the old developer API. This reader's feed failed; pagination and large-shelf completeness remain unverified. No fixed row cap is established by this research. | Compare accessible feed pages with known export counts before making RSS authoritative. Surface failures explicitly. |
+| **Owner-authorized page capture** | Existing browser adapters can parse authorized pages, but real-account acquisition is unresolved. Saved sessions can expire. A successful ordinary-browser visit would not establish why another client was blocked. | Validate access and personal-field coverage before scheduling; preserve source controls and report reauthentication needs. |
+| **Local browser extension/helper** | A possible user-triggered way to capture authorized rendered pages or structured responses in the owner's browser. It grants no additional access and does not inherently solve blocking, pagination, or missing fields. No such helper exists in BookyStats. | Consider only if it materially improves reliable capture over export/browser adapters. Weekly unattended operation is unverified. |
+| **Official account API/OAuth** | StoryGraph's [API roadmap request](https://roadmap.thestorygraph.com/features/posts/an-api) remains the relevant public reference. Comments about export omissions are user testimony, not official field guarantees. Goodreads' [archived API page](https://web.archive.org/web/20210301235127/https://www.goodreads.com/api) describes historical access, not a new-app integration available today. | No usable public account-API integration was established. Do not treat private partner integrations or internal endpoints as an available public API. |
+
+Before implementation, confirm the actual export schemas and owner-visible
+download behavior, evaluate the applicable source terms (including
+[Goodreads' terms](https://www.goodreads.com/about/terms)), and measure whether an
+authorized session can complete repeat captures. Exact ownership, field coverage,
+pagination, export readiness, and failure behavior matter more than a scraper's
+feature list. No security-control evasion, credential extraction, remote sharing
+of browser sessions, or silent fallback is part of this plan.
+
+The preferred evaluation order is official auto-export into the same raw
+boundary, then RSS or authorized page capture where needed for missing coverage.
+Only after a route is reliable should the CLI register the weekly job. Keep
+manual input available as an explicitly chosen mode.
 
 ## Status and later decisions — 2026-10-30
 
-This is the full, final revised plan agreed in the planning conversation, recovered
-with all 45 numbered sections intact. It replaces the earlier export-first draft.
-The roadmap below is a design and delivery plan, **not a statement that every
-capability exists or that collection has succeeded against the real accounts**.
+The detailed roadmap below preserves the earlier feature research, with intake
+and delivery order revised to match the architecture above. It is **not a
+statement that every capability exists or that real-account collection has
+succeeded**.
 
 | Phase | Current position |
 |---|---|
-| 1 — Collection and persistence | Implementation exists; offline fixtures and local-browser checks pass. Real-account ingestion is still blocked, so the phase's completion gate has **not** been met. |
+| 1 — Collection and persistence | Raw-first manual capture and processing are the current implementation scope. Real exports still require reconciliation; automatic account access remains unresolved. |
 | 2 — Statistical engine | Planned; not implemented. |
 | 3 — Watchlist recommendations | Planned; not implemented. |
-| 4 — Personal Year in Review | Planned; not implemented. |
-| 5 — Calendar Year in Books | Planned; not implemented. |
+| 4 — Personal Year in Review | Deferred; not implemented. |
+| 5 — Calendar Year in Books | Deferred; not implemented. |
 
 ### Decisions made after this plan was written
 
@@ -26,7 +148,7 @@ capability exists or that collection has succeeded against the real accounts**.
   These identifiers are not login credentials and do not grant private access.
 - **Current commands and output:** only `booky sync` and `booky status` are public
   commands. Terminal and JSON output exist. CSV reporting below is a future output
-  idea, not an implemented command or an ingestion/export fallback.
+  idea, distinct from the now-approved manual export input.
 - **Credentials:** the current Google Books connector reads its optional key from
   `GOOGLE_BOOKS_API_KEY`, not from `config.json`. Browser sessions remain local and
   isolated by source/account. A shared Playwright runtime does not share cookies
@@ -53,11 +175,13 @@ profile is private, or that signing in will resolve StoryGraph's block.
 
 Anonymous collection can only use genuinely public, accessible data. A saved
 owner session may support later unattended runs, but it can expire or be rejected.
-Neither route may claim a complete account snapshot without evidence. There is
-no export fallback or access-control workaround.
+Neither route may claim a complete account snapshot without evidence. Manual
+exports are now an explicitly selected input route, not a hidden fallback.
+No access-control workaround is permitted.
 
-The next ingestion gate is successful, authorized collection with reconciled
-counts and field coverage, followed by repeat-run and unattended verification.
+The immediate gate is raw-first manual import with reconciled file counts,
+field coverage, durable processing, and replay. Automatic collection later needs
+successful authorized access, repeat-run, and unattended verification.
 Fixtures cannot substitute for that evidence. External links below preserve the
 planning research references; their continued availability and suitability must
 be checked before relying on them.
@@ -69,7 +193,8 @@ rules. The remainder preserves the agreed detailed roadmap.
 
 ---
 
-**This replaces the export-first plan.** The product will collect data directly, persist it locally, and eventually keep it current through a weekly ingestion job.
+**Manual export intake comes first.** Automatic collection later feeds the same
+raw database, followed by processing, cached analysis, and watchlist ranking.
 
 The five phases remain:
 
@@ -92,10 +217,10 @@ Produce a standalone Calendar Year in Books
 | Language | **Python**, primarily for the statistical and recommendation work |
 | Initial interface | A script with only **`booky sync`** and **`booky status`** |
 | Database | **SQLite**, persisted across runs |
-| StoryGraph access | Investigate authenticated, read-only page extraction |
-| Goodreads access | Prefer a usable shelf feed; use authenticated page extraction where necessary |
+| StoryGraph access | Manual official export first; authorized automatic capture next |
+| Goodreads access | Manual official export first; usable shelf feed or authorized page capture next |
 | Metadata | Google Books API, supplemented where useful by other providers |
-| Exports | **Not part of normal ingestion—manual or automated** |
+| Exports | **Explicit manual input for now; preserve originals in the raw database** |
 | Refresh cadence | **Weekly once ingestion is stable**, with on-demand sync available |
 | Normal reads | Use the database, not fresh scraping |
 | Future clients | Website and app call an API built over the same application services |
@@ -124,7 +249,7 @@ The first usable version should:
 - Explain incomplete collection or unavailable fields.
 - Eventually run weekly without needing routine intervention.
 
-**The first milestone is proving the direct collection path on a real account.**
+**The first milestone is a replayable raw-to-processed import of real exports.**
 
 A library list containing book names is not enough. We need to establish access to the actual information the later phases depend on.
 
@@ -132,30 +257,10 @@ A library list containing book names is not enough. We need to establish access 
 
 ## 3. The application structure
 
-```text
-Manual CLI                         Scheduled weekly job
-    │                                      │
-    └───────────────┬───────────────────────┘
-                    │
-              Sync service
-                    │
-        ┌───────────┼──────────────┐
-        │           │              │
-   StoryGraph   Goodreads     Metadata providers
-   connector    connector
-        │           │              │
-        └───────────┼──────────────┘
-                    │
-          Normalize and reconcile
-                    │
-                  SQLite
-                    │
-       Statistics / Recommendations / Reviews
-                    │
-            CLI output for now
-                    │
-          HTTP API when needed later
-```
+The [architecture diagram](#architecture) is the authoritative stage layout.
+Keep capture, raw storage, processing/enrichment, processed storage, analysis,
+and ranking separate. Local execution can orchestrate these stages without a
+message broker or separate hosted services.
 
 The important boundary is between **application logic** and **how it is invoked**.
 
@@ -167,7 +272,9 @@ The CLI should not contain the synchronization or statistical logic. A future AP
 
 ### StoryGraph
 
-**Proposed approach:** authenticated browser extraction using Playwright and a dedicated local browser session.
+**First input:** the user-supplied official export, archived before parsing.
+**Later automatic route:** authenticated browser extraction using Playwright and
+a dedicated local browser session, subject to verified access.
 
 The connector should investigate these surfaces:
 
@@ -189,13 +296,16 @@ The implementation must therefore verify the real page structures and distinguis
 - An absent review from an extraction failure.
 - An unrated book from a rating that could not be retrieved.
 
-**No export button or download workflow will be used as a disguised replacement for scraping.**
-
-If the supported browser session cannot access the required information reliably, that is an unresolved connector issue—not permission to quietly switch back to exports.
+Manual files and automatic collection are explicit modes. An automatic run must
+not pretend an old export is fresh account data or silently change intake modes.
 
 ### Goodreads
 
-Use the least complex reliable route:
+Start with the user-supplied official library export and preserve all its rows
+and columns, including non-watchlist records. Derive the watchlist from its shelf
+membership rather than discarding the rest of the export.
+
+For later automatic collection, use the least complex reliable route:
 
 1. A paginated shelf feed, if accessible and sufficiently complete.
 2. Authenticated page extraction where the feed is unavailable or missing required information.
@@ -315,7 +425,13 @@ This distinction is essential. Otherwise a broken selector can turn an entire co
 
 ## 7. The first full synchronization
 
-The initial sync should perform the following sequence.
+The initial manual sync must archive the original files from both sources before
+parsing, then validate schemas and row counts, process/enrich, and publish a
+processed snapshot with raw lineage. Repeat processing must not require the
+original download paths or website access.
+
+For later automatic collection, the capture stage should perform the following
+source-discovery steps before handing stored raw data to processing.
 
 ### Establish identity
 
@@ -338,6 +454,11 @@ Record:
 Fetch the fields needed beyond the collection listing.
 
 Prioritize correctness over assuming that every visible star value is her rating.
+
+### Commit raw capture
+
+Save source content and collection evidence before parsing or cleansing.
+Processing consumes this durable boundary, not in-memory fetch results alone.
 
 ### Normalize records
 
@@ -1575,15 +1696,17 @@ A changed historical record can legitimately change a regenerated annual report.
 
 | Milestone | Concrete outcome |
 |---|---|
-| **Direct-access feasibility** | Demonstrate access to the required personal and watchlist fields |
-| **Initial persistent collection** | Store complete accounted-for collections and provenance |
-| **Repeat synchronization** | Detect changes without duplicates or destructive partial updates |
-| **Stable unattended execution** | Establish the actual scheduled execution path |
-| **Weekly ingestion** | Enable the agreed cadence and retain clear run receipts |
+| **Manual raw capture** | Archive both official exports and their provenance before parsing |
+| **Processing and enrichment** | Build structured records, preserve all supplied fields, and archive provider responses |
+| **Replay and repeat imports** | Reprocess stored raw input without account access, duplicates, or destructive partial updates |
+| **Automatic capture** | Establish authorized source access feeding the same raw-data boundary |
+| **Weekly ingestion** | Validate unattended execution, then enable the agreed cadence |
 | **Statistical capability inventory** | Determine which analyses are supported |
 | **Statistical engine** | Produce traceable, useful findings |
 | **Watchlist ranking** | Generate explainable next-book recommendations |
-| **Personal annual review** | Assemble a correct reading-year report |
-| **Public annual review** | Build the calendar-year report and discovery bridge |
+| **Personal annual review — deferred** | Assemble a correct reading-year report |
+| **Public annual review — deferred** | Build the calendar-year report and discovery bridge |
 
-**The immediate scope is direct access, persistence, and repeatable synchronization. Weekly scheduling follows demonstrated stability; every later feature builds on the stored data rather than fetching it again on demand.**
+**The immediate implementation scope is raw capture and processing/enrichment
+with manual input. Automatic capture comes next. Analysis and ranking are
+separate later pipelines; annual reviews remain deferred.**

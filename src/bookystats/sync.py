@@ -38,6 +38,8 @@ class SourceReceipt(Model):
     pages: int = C.ZERO
     publication: PublicationResult | None = C.NONE
     issues: tuple[Issue, ...] = ()
+    input_kind: S.InputKind = S.INPUT_LIVE
+    raw_document_id: str | None = C.NONE
 
 
 class MetadataReceipt(Model):
@@ -91,7 +93,11 @@ class SyncService:
 
     @staticmethod
     def _check_snapshot(account: Account, snapshot: CollectionSnapshot) -> CollectionSnapshot:
-        expected_collection = S.LIBRARY if account.source == Source.STORYGRAPH else S.TO_READ
+        expected_collection = (
+            S.LIBRARY
+            if account.source == Source.STORYGRAPH or snapshot.input_kind == S.INPUT_FILE
+            else S.TO_READ
+        )
         if (
             snapshot.source != account.source
             or snapshot.account_id != account.account_id
@@ -107,7 +113,7 @@ class SyncService:
             if snapshot.capabilities.get(field, FieldState.UNSUPPORTED)
             in (FieldState.UNSUPPORTED, FieldState.FAILED)
         ]
-        if snapshot.state == SyncState.COMPLETE and missing:
+        if snapshot.input_kind == S.INPUT_LIVE and snapshot.state == SyncState.COMPLETE and missing:
             return snapshot.model_copy(
                 update={
                     S.STATE: SyncState.PARTIAL,
@@ -181,6 +187,8 @@ class SyncService:
                     *snapshot.issues,
                     Issue(code=S.SNAPSHOT_REJECTED, message=str(exc)),
                 ),
+                input_kind=snapshot.input_kind,
+                raw_document_id=snapshot.raw_document_id,
             )
         return SourceReceipt(
             source=account.source,
@@ -190,6 +198,8 @@ class SyncService:
             pages=snapshot.pages_seen,
             publication=publication,
             issues=snapshot.issues,
+            input_kind=snapshot.input_kind,
+            raw_document_id=snapshot.raw_document_id,
         )
 
     @staticmethod
@@ -324,10 +334,13 @@ class SyncService:
                 metadata.append(self._metadata(Source.GOOGLE_BOOKS))
             if self.settings.metadata.open_library:
                 metadata.append(self._metadata(Source.OPEN_LIBRARY))
-            accounts_complete = all(item.state == SyncState.COMPLETE for item in sources)
+            sources_complete = all(item.state == SyncState.COMPLETE for item in sources)
+            accounts_complete = sources_complete and all(
+                item.input_kind == S.INPUT_LIVE for item in sources
+            )
             state = (
                 SyncState.COMPLETE
-                if accounts_complete and all(item.state == SyncState.COMPLETE for item in metadata)
+                if sources_complete and all(item.state == SyncState.COMPLETE for item in metadata)
                 else SyncState.PARTIAL
             )
             self.store.finish_run(run_id, state)

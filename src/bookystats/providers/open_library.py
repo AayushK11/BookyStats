@@ -500,9 +500,9 @@ class OpenLibraryProvider:
                 continue
             key = json.dumps(
                 [
-                    C.ONE,
+                    C.METADATA_CAPTURE_VERSION,
                     query,
-                    S.OPEN_LIBRARY_FIELDS_KEY_TITLE_AUTHOR_NAME_ISBN_SUBJECT_LANGUAGE,
+                    S.PROVIDER_ALL_FIELDS,
                     C.OPEN_LIBRARY_MAX_RESULTS,
                 ],
                 separators=(S.COMMA, S.COLON),
@@ -551,7 +551,7 @@ class OpenLibraryProvider:
                     S.OPEN_LIBRARY_ENDPOINT_HTTPS_OPENLIBRARY_ORG_SEARCH_JSON,
                     params={
                         S.Q: S.OPEN_LIBRARY_QUERY_OR.join(queries[key] for key in selected),
-                        S.FIELDS: S.OPEN_LIBRARY_FIELDS_KEY_TITLE_AUTHOR_NAME_ISBN_SUBJECT_LANGUAGE,
+                        S.FIELDS: S.PROVIDER_ALL_FIELDS,
                         S.LIMIT: str(C.OPEN_LIBRARY_MAX_RESULTS),
                     },
                     headers={S.ACCEPT: S.GOOGLE_BOOKS_HTTP_PAYLOAD_APPLICATION_JSON},

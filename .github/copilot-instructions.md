@@ -6,6 +6,12 @@
   `booky sync` and `booky status`; `--scheduled` is private task-runner plumbing.
 - Keep CLI, application service, domain contracts, adapters, and storage separate.
   Reuse `interfaces.py` protocols; keep service logic reusable by a future HTTP API.
+- Follow the four-stage architecture in `PLAN.md`: raw capture, processing and
+  enrichment, cached analysis, then watchlist ranking. Implement only capture and
+  processing now. Manual exports come first; automatic capture comes next.
+- P0 is manually supplied exports and explicitly invoked CLI processing.
+  Weekly scheduling/cron and auto-export are next in queue, not part of P0.
+  Do not add a website, background pipeline service, or broker for these stages.
 - Use meaningful names, plain modular folders, and tests organized by module.
 - Keep the detailed phased product roadmap in the root `PLAN.md`. Do not add
   spec, plan, forge, or process-paperwork folders, or phase labels to implementation
@@ -44,8 +50,13 @@
   account browser profiles and reject accidental account replacement.
 - Share the service's lazy Playwright runtime across connectors, but keep
   browser contexts and persistent profiles separate by source/account.
-- Use direct normal-browser/RSS collection, never CSV/export workflows or silent
-  export fallbacks. Sign-in is ordinary visible-browser interaction only.
+- Accept explicitly supplied official exports and store original bytes in the
+  raw database before parsing. Preserve unknown source fields and full provider
+  responses; make processed snapshots replayable with raw lineage.
+- A complete file import is not a verified complete account collection and must
+  never qualify as unattended/weekly collection evidence.
+- Keep manual files and normal-browser/RSS capture explicit; never silently fall
+  back between them. Sign-in is ordinary visible-browser interaction only.
   Do not bypass credential controls, bot protection, navigation guards, or downloads.
 - Protect keys, cookies, profiles, databases, and personal payloads. Do not put
   credentials in chat, logs, fixtures, or source. Status must not fetch source data.

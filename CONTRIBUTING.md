@@ -15,6 +15,7 @@ All application modules live under `src\bookystats`:
 | `interfaces.py` | Protocols for source, metadata, transport, progress, and storage adapters. |
 | `models.py`, `dates.py`, `identifiers.py`, `matching.py` | Data contracts, date precision, identity normalization, conservative matching. |
 | `connectors\` | StoryGraph account data and Goodreads to-read collection. |
+| `raw.py`, `imports.py` | Durable original-input archive and offline export parsing. |
 | `providers\` | Optional Google Books and Open Library metadata. |
 | `browser.py`, `net.py` | Guarded browser/HTTP access and bounded requests. |
 | `storage.py`, `cache.py` | Authoritative SQLite library and separate metadata cache. |
@@ -23,7 +24,10 @@ All application modules live under `src\bookystats`:
 | `strings.py`, `constants.py` | Centralized literals and shared fixed policy declarations. |
 
 Keep console concerns out of the application service, and parsing out of storage.
-Use the existing protocols to inject adapters in tests. This separation is intended
+Use the existing protocols to inject adapters in tests. Raw files must be committed
+before parsing; manual file completion is not verified account completeness.
+Use [TODO.md](TODO.md) to track the current scope and remaining acceptance checks.
+This separation is intended
 to support a future HTTP API; no HTTP API currently exists.
 
 ## Development
