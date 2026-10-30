@@ -7,7 +7,9 @@
 - Keep CLI, application service, domain contracts, adapters, and storage separate.
   Reuse `interfaces.py` protocols; keep service logic reusable by a future HTTP API.
 - Use meaningful names, plain modular folders, and tests organized by module.
-  Do not add spec, plan, forge, or process-paperwork folders, or "Phase N" labels.
+- Keep the detailed phased product roadmap in the root `PLAN.md`. Do not add
+  spec, plan, forge, or process-paperwork folders, or phase labels to implementation
+  modules.
 - Do not implement images, a frontend, statistics, ranking, or annual reviews now.
 
 ## Mandatory literal policy

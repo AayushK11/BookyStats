@@ -3,6 +3,11 @@
 Local-first reading-data ingestion for Python 3.12+. BookyStats collects your
 accounts into a persistent local library; it is not yet a statistics application.
 
+See [the detailed product and delivery plan](PLAN.md) for the full five-phase
+roadmap, statistical methods, recommendation design, both annual reviews, and
+acceptance criteria. Its status note distinguishes implemented work from future
+features and unresolved live-access requirements.
+
 ## What it does
 
 - **StoryGraph:** collects reading history, personal ratings and reviews, rereads,
