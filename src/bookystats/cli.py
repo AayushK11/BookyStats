@@ -26,9 +26,11 @@ from bookystats.config import (
 from bookystats.errors import AlreadyRunning, BookyError, ConfigurationError
 from bookystats.interfaces import MetadataProvider, SourceConnector
 from bookystats.locking import SyncLock
-from bookystats.models import CollectionProgress, Issue, Source, SyncState
+from bookystats.models import CollectionProgress, Issue, Source, SyncState, VerificationResult
 from bookystats.net import HttpClient
 from bookystats.redaction import redact
+from bookystats.report import run_lines, status_lines
+from bookystats.runlog import latest_log, write_failure_log, write_run_log
 from bookystats.scheduling import (
     enable_weekly,
     record_live_run,
@@ -36,6 +38,7 @@ from bookystats.scheduling import (
     schedule_status,
 )
 from bookystats.sync import SyncReceipt, SyncService
+from bookystats.verify import verify_run
 
 if TYPE_CHECKING:
     from bookystats.raw import RawDocument, RawStore
@@ -228,50 +231,17 @@ def _print_receipt(receipt: SyncReceipt, output: TextIO, *, as_json: bool) -> No
     if as_json:
         print(receipt.model_dump_json(indent=C.TWO), file=output)
         return
-    print(
-        S.CLI_PRINT_RECEIPT_TEMPLATE.format(v0=receipt.run_id, v1=receipt.state.value), file=output
-    )
-    for source in receipt.sources:
-        print(
-            S.CLI_PRINT_RECEIPT_TEMPLATE_2.format(
-                v0=source.source.value, v1=source.state.value, v2=source.records, v3=source.pages
-            ),
-            file=output,
-        )
-        if source.publication is not C.NONE:
-            counts = source.publication
-            print(
-                S.CLI_PRINT_RECEIPT_TEMPLATE_3.format(
-                    v0=counts.added, v1=counts.updated, v2=counts.unchanged, v3=counts.removed
-                ),
-                file=output,
-            )
-        for issue in source.issues[: C.FIVE]:
-            print(
-                S.CLI_PRINT_RECEIPT_TEMPLATE_4.format(v0=issue.code, v1=issue.message), file=output
-            )
-        if len(source.issues) > C.FIVE:
-            print(
-                S.CLI_PRINT_RECEIPT_TEMPLATE_5.format(v0=len(source.issues) - C.FIVE), file=output
-            )
-    for metadata in receipt.metadata:
-        print(
-            S.CLI_PRINT_RECEIPT_TEMPLATE_6.format(
-                v0=metadata.provider.value,
-                v1=metadata.state.value,
-                v2=metadata.processed,
-                v3=metadata.deferred,
-            ),
-            file=output,
-        )
-        for issue in metadata.issues[: C.FIVE]:
-            print(
-                S.CLI_PRINT_RECEIPT_TEMPLATE_4.format(v0=issue.code, v1=issue.message), file=output
-            )
-    if any(source.input_kind == S.INPUT_FILE for source in receipt.sources):
-        print(S.CLI_FILE_SCOPE, file=output)
-    elif not receipt.account_sync_complete:
-        print(S.CLI_PRINT_RECEIPT_LAST_GOOD_SOURCE_SNAPSHOTS_REMAIN_AVAILABLE_THIS, file=output)
+    for line in run_lines(receipt, issue_limit=C.FIVE):
+        print(line, file=output)
+    if receipt.log_file is not C.NONE:
+        print(S.REPORT_RUN_LOG_LINE.format(path=receipt.log_file), file=output)
+
+
+def _file_size(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return C.NONE
 
 
 def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
@@ -297,7 +267,13 @@ def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
     report[S.SCHEDULE] = schedule_status(directory, settings)
     report[S.GOOGLE_BOOKS_KEY_CONFIGURED] = bool(os.environ.get(S.GOOGLE_BOOKS_API_KEY))
     raw_path = directory / S.CLI_RAW_DATABASE
+    library_path = directory / S.LIBRARY_SQLITE3
+    newest_log = latest_log(directory)
     report[S.CLI_RAW_ARCHIVE] = str(raw_path) if raw_path.exists() else C.NONE
+    report[S.RAW_ARCHIVE_BYTES] = _file_size(raw_path)
+    report[S.LIBRARY_DATABASE] = str(library_path) if library_path.exists() else C.NONE
+    report[S.LIBRARY_BYTES] = _file_size(library_path)
+    report[S.LATEST_LOG] = str(newest_log) if newest_log is not C.NONE else C.NONE
     return report
 
 
@@ -305,13 +281,80 @@ def _print_status(report: dict[str, JsonValue], *, as_json: bool) -> None:
     if as_json:
         print(json.dumps(report, indent=C.TWO, ensure_ascii=C.FALSE))
         return
-    print(S.CLI_PRINT_STATUS_BOOKYSTATS_STATUS_LOCAL_DATA_NO_SOURCE_REQUESTS)
-    for key, value in report.items():
-        print(
-            S.CLI_PRINT_STATUS_TEMPLATE.format(
-                v0=key.replace(S.UNDERSCORE, S.SPACE), v1=json.dumps(value, ensure_ascii=C.FALSE)
-            )
+    for line in status_lines(report):
+        print(line)
+
+
+def _secrets() -> tuple[str, ...]:
+    return (os.environ.get(S.GOOGLE_BOOKS_API_KEY, S.EMPTY),)
+
+
+def _trigger(args: argparse.Namespace, *, manual: bool, interactive: bool) -> str:
+    if manual:
+        return S.INPUT_FILE
+    if args.scheduled:
+        return S.SCHEDULED
+    return S.MANUAL if interactive else S.UNATTENDED
+
+
+def _succeeded(receipt: SyncReceipt) -> bool:
+    return receipt.state == SyncState.COMPLETE and (
+        receipt.verification is C.NONE or receipt.verification.result == VerificationResult.SUCCESS
+    )
+
+
+def _archive_inputs(
+    directory: Path,
+    settings: Settings,
+    files: Mapping[Source, Path | None],
+    stack: ExitStack,
+) -> tuple[RawStore, dict[Source, RawDocument]]:
+    from bookystats.raw import RawStore
+
+    archive = RawStore(directory / S.CLI_RAW_DATABASE)
+    stack.callback(archive.close)
+    configured = {account.source for account in settings.accounts}
+    if any(path is not C.NONE and source not in configured for source, path in files.items()):
+        raise ConfigurationError(S.CLI_UNCONFIGURED_FILE)
+    inputs: dict[Source, RawDocument] = {}
+    for account in settings.accounts:
+        path = files[account.source]
+        document = (
+            archive.capture_file(account, path)
+            if path is not C.NONE
+            else archive.latest(account.source, account.account_id)
         )
+        if document is not C.NONE:
+            inputs[account.source] = document
+    if not inputs:
+        raise ConfigurationError(S.CLI_NO_RAW_INPUT)
+    return archive, inputs
+
+
+def _record_log(
+    directory: Path,
+    receipt: SyncReceipt,
+    *,
+    trigger: str,
+    inputs: Mapping[Source, RawDocument],
+) -> SyncReceipt:
+    try:
+        path = write_run_log(directory, receipt, trigger=trigger, inputs=inputs, secrets=_secrets())
+    except OSError:
+        print(S.CLI_LOG_WRITE_WARNING, file=sys.stderr)
+        return receipt
+    return receipt.model_copy(update={S.LOG_FILE: str(path)})
+
+
+def _record_failure(directory: Path, command: str, message: str) -> None:
+    if command != S.SYNC:
+        return
+    try:
+        path = write_failure_log(directory, message, secrets=_secrets())
+    except OSError:
+        print(S.CLI_LOG_WRITE_WARNING, file=sys.stderr)
+        return
+    print(S.REPORT_RUN_LOG_LINE.format(path=path), file=sys.stderr)
 
 
 def main(argv: list[str] | None = C.NONE) -> int:
@@ -349,68 +392,54 @@ def main(argv: list[str] | None = C.NONE) -> int:
         with SyncLock(directory), ExitStack() as stack:
             if args.scheduled:
                 require_activation(directory, Path(sys.executable), settings)
-            inputs: dict[Source, RawDocument] | None = C.NONE
+            inputs: dict[Source, RawDocument] = {}
+            files: dict[Source, Path | None] = {}
             archive: RawStore | None = C.NONE
             if manual:
-                from bookystats.raw import RawStore
-
-                archive = RawStore(directory / S.CLI_RAW_DATABASE)
-                stack.callback(archive.close)
-                inputs = {}
                 files = {
                     Source.STORYGRAPH: args.storygraph_file,
                     Source.GOODREADS: args.goodreads_file,
                 }
-                configured = {account.source for account in settings.accounts}
-                if any(
-                    path is not C.NONE and source not in configured
-                    for source, path in files.items()
-                ):
-                    raise ConfigurationError(S.CLI_UNCONFIGURED_FILE)
-                for account in settings.accounts:
-                    path = files[account.source]
-                    document = (
-                        archive.capture_file(account, path)
-                        if path is not C.NONE
-                        else archive.latest(account.source, account.account_id)
-                    )
-                    if document is not C.NONE:
-                        inputs[account.source] = document
-                if not inputs:
-                    raise ConfigurationError(S.CLI_NO_RAW_INPUT)
+                archive, inputs = _archive_inputs(directory, settings, files, stack)
             service = _build_service(
                 directory,
                 settings,
                 stack,
                 interactive=interactive,
-                inputs=inputs,
+                inputs=inputs if manual else C.NONE,
                 archive=archive,
             )
-            receipt = service.run(
-                interactive=interactive,
-                trigger=S.INPUT_FILE
-                if manual
-                else S.SCHEDULED
-                if args.scheduled
-                else S.MANUAL
-                if interactive
-                else S.UNATTENDED,
-            )
-            if not manual:
+            trigger = _trigger(args, manual=manual, interactive=interactive)
+            receipt = service.run(interactive=interactive, trigger=trigger)
+            if archive is not C.NONE:
+                verification = verify_run(
+                    receipt, archive=archive, library=service.store, inputs=inputs, supplied=files
+                )
+                receipt = receipt.model_copy(update={S.VERIFICATION: verification})
+            else:
                 record_live_run(directory, settings, receipt, unattended=not interactive)
+            receipt = _record_log(directory, receipt, trigger=trigger, inputs=inputs)
             _print_receipt(receipt, sys.stdout, as_json=args.json)
             if settings.weekly.enabled and (not args.scheduled) and not manual:
                 enable_weekly(directory, Path(sys.executable), settings, service.store.status())
-            return C.ZERO if receipt.state == SyncState.COMPLETE else C.THREE
+            return C.ZERO if _succeeded(receipt) else C.THREE
     except AlreadyRunning as exc:
         print(str(exc), file=sys.stderr)
         return C.FOUR
     except BookyError as exc:
-        print(redact(str(exc), (os.environ.get(S.GOOGLE_BOOKS_API_KEY, S.EMPTY),)), file=sys.stderr)
+        message = redact(str(exc), _secrets())
+        print(message, file=sys.stderr)
+        _record_failure(directory, args.command, message)
         return C.ONE
-    except (sqlite3.Error, OSError, ValidationError):
+    except (sqlite3.Error, OSError, ValidationError) as exc:
         print(S.CLI_MAIN_A_LOCAL_DATA_CONFIGURATION_OR_RECORD_VALIDATION, file=sys.stderr)
+        _record_failure(
+            directory, args.command, S.RUNLOG_FAILURE_TYPE.format(type=type(exc).__name__)
+        )
         return C.ONE
     except (KeyboardInterrupt, EOFError):
         print(S.CLI_MAIN_SYNC_INTERRUPTED_NO_INCOMPLETE_SOURCE_SNAPSHOT_IS, file=sys.stderr)
+        _record_failure(
+            directory, args.command, S.CLI_MAIN_SYNC_INTERRUPTED_NO_INCOMPLETE_SOURCE_SNAPSHOT_IS
+        )
         return C.CLI_MAIN

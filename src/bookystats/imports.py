@@ -68,6 +68,12 @@ def _csv_rows(body: bytes) -> Iterator[list[str]]:
         raise ConnectorError(S.IMPORT_CSV_MESSAGE, code=S.IMPORT_CSV_ERROR) from exc
 
 
+def count_export_rows(body: bytes) -> int:
+    rows = _csv_rows(body)
+    next(rows, C.NONE)
+    return sum(C.ONE for _ in rows)
+
+
 class _ExportRow:
     def __init__(
         self, raw: dict[str, str], number: int, account: Account, document: RawDocument

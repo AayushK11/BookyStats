@@ -378,14 +378,6 @@ CLI_BUILD_SERVICE_USER_AGENT_BOOKYSTATS: Final = "BookyStats/0.1"
 CLI_BUILD_SERVICE_TEMPLATE: Final = " ({v0})"
 OPENLIBRARY_ORG: Final = "openlibrary.org"
 CLI_BUILD_SERVICE_PROGRESS_TEMPLATE: Final = "{v0}: {v1}, {v2} pages checked"
-CLI_PRINT_RECEIPT_TEMPLATE: Final = "Sync {v0}: {v1}"
-CLI_PRINT_RECEIPT_TEMPLATE_2: Final = "  {v0}: {v1}; {v2} records, {v3} pages"
-CLI_PRINT_RECEIPT_TEMPLATE_3: Final = (
-    "    {v0} added, {v1} updated, {v2} unchanged, {v3} removed from current collection"
-)
-CLI_PRINT_RECEIPT_TEMPLATE_4: Final = "    {v0}: {v1}"
-CLI_PRINT_RECEIPT_TEMPLATE_5: Final = "    {v0} additional issues in the stored receipt."
-CLI_PRINT_RECEIPT_TEMPLATE_6: Final = "  {v0}: {v1}; {v2} lookups completed, {v3} deferred"
 CLI_PRINT_RECEIPT_LAST_GOOD_SOURCE_SNAPSHOTS_REMAIN_AVAILABLE_THIS: Final = (
     "Last good source snapshots remain available; this is not a complete account sync."
 )
@@ -402,7 +394,6 @@ CLI_PRINT_STATUS_BOOKYSTATS_STATUS_LOCAL_DATA_NO_SOURCE_REQUESTS: Final = (
     "BookyStats status (local data; no source requests)"
 )
 UNDERSCORE: Final = "_"
-CLI_PRINT_STATUS_TEMPLATE: Final = "{v0}: {v1}"
 CLI_MAIN_WEEKLY_SCHEDULING_IS_DISABLED_NO_SOURCE_REQUESTS: Final = (
     "Weekly scheduling is disabled; no source requests were made."
 )
@@ -3677,6 +3668,133 @@ TEST_RAW_DATA: Final = "data"
 TEST_RAW_SEARCH_URL: Final = "https://openlibrary.org/search.json"
 RAW_NEXT_SEQUENCE: Final = "SELECT COALESCE(MAX(sequence), 0) + 1 FROM raw_captures"
 TEST_RAW_TAMPER_SEQUENCE: Final = "UPDATE raw_captures SET sequence = sequence + 100"
+
+# Run verification: the checks printed after every manual sync.
+SUCCESS: Final = "success"
+VERIFICATION: Final = "verification"
+LOG_FILE: Final = "log_file"
+VERIFY_NAME_RAW_COPY: Final = "raw_copy"
+VERIFY_NAME_PROCESSING: Final = "processing"
+VERIFY_NAME_ROW_COUNTS: Final = "row_counts"
+VERIFY_MARKER_OK: Final = "[ok]"
+VERIFY_MARKER_PARTIAL: Final = "[partial]"
+VERIFY_MARKER_FAILED: Final = "[FAILED]"
+VERIFY_EXPLANATION_SUCCESS: Final = "Everything in the files was saved and checked."
+VERIFY_EXPLANATION_PARTIAL: Final = (
+    "Nothing failed, but not everything is finished. See the checks above."
+)
+VERIFY_EXPLANATION_FAILED: Final = "Something did not work. See the checks above and the run log."
+VERIFY_NOT_CONFIGURED: Final = (
+    "No reader account is configured for this source, so nothing was checked."
+)
+VERIFY_MISSING_EXPORT: Final = "No export has been added yet. Add one with {flag}."
+VERIFY_RAW_COPY_NEW: Final = (
+    "{origin} was saved unchanged and matches the file you gave "
+    "(fingerprint {digest}, {size} bytes)."
+)
+VERIFY_RAW_COPY_REPLAY: Final = (
+    "Reused the saved copy of {origin} from {captured} (fingerprint {digest}, {size} bytes)."
+)
+VERIFY_RAW_COPY_UNREADABLE: Final = "The saved copy could not be read back intact."
+VERIFY_RAW_COPY_DIFFERS: Final = "The saved copy is not identical to the export that was processed."
+VERIFY_RAW_COPY_FILE_CHANGED: Final = "The saved copy does not match the file on disk."
+VERIFY_RAW_COPY_FILE_UNREADABLE: Final = (
+    "The original file could not be read again to compare it with the saved copy."
+)
+VERIFY_ISSUE: Final = "{code}: {message}"
+VERIFY_PROCESSING_FAILED: Final = "The export was saved but could not be processed. {reason}"
+VERIFY_PROCESSING_NO_ISSUE: Final = "The source finished as {state} without a reported reason."
+VERIFY_ROWS_MATCH: Final = (
+    "{rows} rows in the file = {records} books processed = {library} books in the library."
+)
+VERIFY_ROWS_DIFFER: Final = (
+    "The file has {rows} rows, but {records} books were processed and {library} are in the library."
+)
+VERIFY_ROWS_UNCOUNTABLE: Final = "The saved copy could not be counted: {message}"
+VERIFY_METADATA_OK: Final = "{processed} lookups completed."
+VERIFY_METADATA_PARTIAL: Final = "{state}: {reason}"
+VERIFY_METADATA_NO_ISSUE: Final = "{processed} lookups completed, {deferred} deferred."
+
+# Console and run-log report lines.
+REPORT_RUN_HEADING: Final = "Sync {run_id}: {state}"
+REPORT_SOURCE_LINE: Final = "  {source}: {state}; {records} records, {pages} pages"
+REPORT_PUBLICATION_LINE: Final = (
+    "    {added} added, {updated} updated, {unchanged} unchanged, "
+    "{removed} removed from current collection"
+)
+REPORT_ISSUE_LINE: Final = "    {code}: {message}"
+REPORT_MORE_ISSUES_LINE: Final = "    {count} more issues are listed in the run log."
+REPORT_METADATA_LINE: Final = (
+    "  {provider}: {state}; {processed} lookups completed, {deferred} deferred"
+)
+REPORT_CHECKS_HEADING: Final = "Checks"
+REPORT_CHECK_LINE: Final = "  {marker:<9} {source} {name}: {detail}"
+REPORT_RESULT_LINE: Final = "Result: {result}"
+REPORT_RUN_LOG_LINE: Final = "Run log: {path}"
+
+# Readable status report.
+LATEST_LOG: Final = "latest_log"
+LIBRARY_DATABASE: Final = "library_database"
+RAW_ARCHIVE_BYTES: Final = "raw_archive_bytes"
+LIBRARY_BYTES: Final = "library_bytes"
+STATUS_DATA_FOLDER_LINE: Final = "Data folder: {path}"
+STATUS_RAW_ARCHIVE_LINE: Final = "Raw archive: {location}"
+STATUS_LIBRARY_DATABASE_LINE: Final = "Library database: {location}"
+STATUS_LATEST_LOG_LINE: Final = "Latest log: {location}"
+STATUS_LAST_RUN_LINE: Final = "Last run: {value}"
+STATUS_LAST_RUN_VALUE: Final = "#{run_id} {state}, finished {finished}"
+STATUS_LOCATION_WITH_SIZE: Final = "{path} ({size})"
+STATUS_SIZE: Final = "{megabytes:.1f} MB"
+STATUS_NOT_CREATED: Final = "not created yet"
+STATUS_NONE_YET: Final = "none yet"
+STATUS_NONE_LINE: Final = "  none yet"
+STATUS_SOURCES_HEADING: Final = "Sources"
+STATUS_SOURCE_LINE: Final = "  {source}: {state}, {count} books, last success {success}"
+STATUS_NEVER: Final = "never"
+STATUS_UNKNOWN: Final = "unknown"
+STATUS_LIBRARY_COUNTS_LINE: Final = (
+    "Library: {entries} book entries, {works} distinct works, {editions} editions, "
+    "{events} reading events"
+)
+STATUS_METADATA_HEADING: Final = "Metadata"
+STATUS_METADATA_LINE: Final = (
+    "  {provider}: {matched} books matched, {unmatched} not found, last success {success}"
+)
+STATUS_SCHEDULE_LINE: Final = "Weekly schedule: {state}"
+STATUS_GOOGLE_KEY_LINE: Final = "Google Books key: {state}"
+STATUS_KEY_SET: Final = "set"
+STATUS_KEY_NOT_SET: Final = "not set"
+
+# Run logs written to <data folder>\logs.
+LOGS_FOLDER: Final = "logs"
+EXCLUSIVE_CREATE_MODE: Final = "x"
+RUNLOG_PATTERN: Final = "*.log"
+RUNLOG_STAMP_FORMAT: Final = "%Y-%m-%d_%H-%M-%SZ"
+RUNLOG_FILE_NAME: Final = "{stamp}_run{run_id}.log"
+RUNLOG_FAILED_FILE_NAME: Final = "{stamp}_failed.log"
+RUNLOG_TITLE: Final = "BookyStats run log"
+RUNLOG_FAILED_TITLE: Final = "BookyStats run failed"
+RUNLOG_VERSION_LINE: Final = "Version: {version}"
+RUNLOG_RUN_LINE: Final = "Run: {run_id} (trigger: {trigger})"
+RUNLOG_STATE_LINE: Final = "State: {state}"
+RUNLOG_STARTED_LINE: Final = "Started: {started}"
+RUNLOG_FINISHED_LINE: Final = "Finished: {finished}"
+RUNLOG_TIME_LINE: Final = "Time: {time}"
+RUNLOG_FILES_HEADING: Final = "Files used"
+RUNLOG_FILE_LINE: Final = (
+    "  {source}: {origin}, {size} bytes, sha256 {sha256}, captured {captured}, "
+    "raw document {document}"
+)
+RUNLOG_FAILURE_LINE: Final = "Failure: {message}"
+RUNLOG_FAILURE_TYPE: Final = "{type} (details withheld because they can contain private data)"
+CLI_LOG_WRITE_WARNING: Final = (
+    "Warning: the run log could not be written. The sync itself was not affected."
+)
+
+# Default data folder inside a source checkout (tracked in git).
+CHECKOUT_DATA_FOLDER: Final = "data"
+PYPROJECT_FILE: Final = "pyproject.toml"
+TEST_ISOLATED_DATA_FOLDER: Final = "isolated-data"
 TEST_RAW_BASIC_HEADER: Final = "Basic {value}"
 TEST_RAW_BASIC_TEMPLATE: Final = "{username}:{password}"
 TEST_RAW_SPECIAL_SECRET: Final = "fixture-parameter-with&punctuation"

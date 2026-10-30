@@ -10,11 +10,13 @@ from pydantic import Field, JsonValue, field_validator
 
 from bookystats import constants as C
 from bookystats import strings as S
+from bookystats.constants import CheckName as CheckName
 from bookystats.constants import FieldState as FieldState
 from bookystats.constants import Model as Model
 from bookystats.constants import ReadingStatus as ReadingStatus
 from bookystats.constants import Source as Source
 from bookystats.constants import SyncState as SyncState
+from bookystats.constants import VerificationResult as VerificationResult
 
 
 def utc_now() -> str:
@@ -238,3 +240,15 @@ class PublicationResult(Model):
     removed: int = C.ZERO
     unresolved: int = C.ZERO
     issues: tuple[Issue, ...] = ()
+
+
+class Check(Model):
+    name: CheckName
+    result: VerificationResult
+    source: Source
+    detail: str
+
+
+class Verification(Model):
+    result: VerificationResult
+    checks: tuple[Check, ...] = ()

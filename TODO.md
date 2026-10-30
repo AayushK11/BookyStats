@@ -46,6 +46,11 @@ CLI ingestion and processing; later pipelines are not part of that scope.
 - [x] Run focused raw-storage, parsing, replay, CLI, and enrichment regressions.
 - [x] Run the full test suite, literal-policy checks, Ruff, strict mypy, and package build.
 - [x] Check the final changes against this checklist and the architecture.
+- [x] Verify every sync: raw copy matches the given file, row counts match, one Result line.
+- [x] Write one redacted log per sync to `data\logs`, with file names and sha256 only.
+- [x] Default the data folder to the checkout `data` folder; track the raw archive, library, and logs in git.
+- [x] Pin runtime dependencies in `requirements.txt`.
+- [ ] Add focused tests for `verify.py`, `report.py`, `runlog.py`, the new CLI output, and the data-folder default.
 - [ ] Process the user's actual exports and reconcile supplied rows/fields when files arrive.
 
 ## Next: automatic acquisition

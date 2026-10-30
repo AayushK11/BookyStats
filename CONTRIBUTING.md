@@ -16,6 +16,7 @@ All application modules live under `src\bookystats`:
 | `models.py`, `dates.py`, `identifiers.py`, `matching.py` | Data contracts, date precision, identity normalization, conservative matching. |
 | `connectors\` | StoryGraph account data and Goodreads to-read collection. |
 | `raw.py`, `imports.py` | Durable original-input archive and offline export parsing. |
+| `verify.py`, `report.py`, `runlog.py` | Post-sync checks, console/status report lines, per-run log files. |
 | `providers\` | Optional Google Books and Open Library metadata. |
 | `browser.py`, `net.py` | Guarded browser/HTTP access and bounded requests. |
 | `storage.py`, `cache.py` | Authoritative SQLite library and separate metadata cache. |
@@ -66,6 +67,8 @@ with Python 3.13, including the local Chromium tests. It uses no account credent
 - Keep tests organized by module under `tests`, with sanitized source fixtures in
   `tests\fixtures`. Add focused regression cases for changed behavior, not tests of
   trivial constants or accessors.
+- `tests\conftest.py` points `BOOKYSTATS_DATA_DIR` at a temporary folder for every
+  test, so tests never write to the checkout `data` folder.
 - Fixture/transport tests and the runtime integration test do not validate real
   account access. The runtime integration test uses real local persistence with
   injected source and metadata adapters.

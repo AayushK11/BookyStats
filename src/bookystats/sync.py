@@ -26,6 +26,7 @@ from bookystats.models import (
     PublicationResult,
     Source,
     SyncState,
+    Verification,
     utc_now,
 )
 
@@ -61,6 +62,8 @@ class SyncReceipt(Model):
     account_sync_complete: bool
     sources: tuple[SourceReceipt, ...]
     metadata: tuple[MetadataReceipt, ...]
+    verification: Verification | None = C.NONE
+    log_file: str | None = C.NONE
 
 
 class SyncService:

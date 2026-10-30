@@ -109,10 +109,20 @@ class Settings(Model):
         return hashlib.sha256(encoded).hexdigest()
 
 
+def _checkout_root() -> Path | None:
+    root = Path(__file__).resolve().parents[C.TWO]
+    if (root / S.PYPROJECT_FILE).is_file() and (root / S.SOURCE_FOLDER / S.BOOKYSTATS_2).is_dir():
+        return root
+    return C.NONE
+
+
 def data_directory(override: str | Path | None = C.NONE) -> Path:
     configured = override or os.environ.get(S.BOOKYSTATS_DATA_DIR)
     if configured:
         return Path(configured).expanduser().resolve()
+    checkout = _checkout_root()
+    if checkout is not C.NONE:
+        return checkout / S.CHECKOUT_DATA_FOLDER
     return user_data_path(S.BOOKYSTATS, appauthor=C.FALSE).resolve()
 
 
