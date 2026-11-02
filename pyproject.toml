@@ -10,10 +10,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.12,<5",
-    "defusedxml>=0.7,<1",
     "httpx>=0.28,<1",
     "platformdirs>=4.3,<5",
-    "playwright>=1.49,<2",
     "pydantic>=2.10,<3",
 ]
 
@@ -24,20 +22,27 @@ dev = [
     "pytest>=8.3,<10",
     "ruff>=0.9,<1",
     "types-beautifulsoup4",
-    "types-defusedxml",
 ]
 
 [project.scripts]
-booky = "bookystats.cli:main"
+booky = "bookystats.cli.commands:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bookystats"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/bookystats",
+    "/tests",
+    "/*.md",
+    "/pyproject.toml",
+    "/requirements.txt",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
-    "browser: local browser integration tests, requiring an installed Playwright browser",
     "live: explicitly enabled tests against an account or external provider",
 ]
 

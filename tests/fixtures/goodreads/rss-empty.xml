@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-  <channel>
-    <title>Reader's bookshelf: to-read</title>
-    <link>https://www.goodreads.com/user/show/4242-reader</link>
-    <atom:link rel="self" href="https://www.goodreads.com/review/list_rss/4242?shelf=to-read"/>
-  </channel>
-</rss>

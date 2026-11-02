@@ -1,2 +1,3 @@
 *.sqlite3 binary
 *.log text eol=lf
+/data/inputs/*.csv -text whitespace=cr-at-eol

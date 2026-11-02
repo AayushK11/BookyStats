@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "accounts": [
+    {
+      "source": "storygraph",
+      "account_id": "byte_me",
+      "profile_url": "https://app.thestorygraph.com/profile/byte_me"
+    },
+    {
+      "source": "goodreads",
+      "account_id": "79839274",
+      "profile_url": "https://www.goodreads.com/user/show/79839274"
+    }
+  ],
+  "files": {
+    "storygraph_file": "inputs\\storygraph-library_2026-11-02_08-27-54Z.csv",
+    "goodreads_watchlist_file": "inputs\\goodreads-watchlist_2026-11-02_08-27-54Z.csv",
+    "goodreads_read_file": "inputs\\goodreads-read_2026-11-02_08-58-33Z.csv"
+  },
+  "http_timeout_seconds": 30.0,
+  "metadata": {
+    "google_books": true,
+    "open_library": true,
+    "max_books_per_run": 10000,
+    "max_age_days": 30,
+    "contact": null
+  },
+  "weekly": {
+    "enabled": false,
+    "weekday": null,
+    "time": null,
+    "timezone": null
+  }
+}

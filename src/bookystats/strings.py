@@ -4,6 +4,17 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
+# Live metadata run policy and regression cases.
+META_RUN_LANGUAGE_PATTERN: Final = "[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*"
+META_RUN_HALTED_MESSAGE: Final = (
+    "Provider collection stopped after an authorization, quota, or request-budget failure; "
+    "remaining books are deferred."
+)
+META_RUN_TEST_LANGUAGE: Final = "zh-CN"
+META_RUN_TEST_TIMESTAMP: Final = "2025-07-02T00:00:00+02:00"
+META_RUN_TEST_DATE: Final = "2025-07-02"
+META_RUN_TEST_MALFORMED_WORK_KEY: Final = "/works/OL123M"
+
 type InputKind = Literal["live", "file"]
 INPUT_LIVE: Final = "live"
 INPUT_FILE: Final = "file"
@@ -12,25 +23,19 @@ INPUT_PROCESSING_VERSION: Final = "processing_version"
 TERMINATION_VERIFIED: Final = "termination_verified"
 INPUT_TEST_RAW_ID: Final = "fixture-capture"
 INPUT_TEST_VERSION: Final = "fixture-v1"
-INPUT_RAW_FIELDS: Final = "raw_fields"
 INPUT_RAW_DOCUMENT_ID: Final = "raw_document_id"
 CLI_STORYGRAPH_FILE: Final = "--storygraph-file"
 CLI_GOODREADS_FILE: Final = "--goodreads-file"
 CLI_METADATA: Final = "--metadata"
-CLI_METADATA_NONE: Final = "none"
-CLI_METADATA_GOOGLE: Final = "google-books"
-CLI_METADATA_LIBRARY: Final = "open-library"
-CLI_METADATA_BOTH: Final = "both"
 CLI_RAW_DATABASE: Final = "raw.sqlite3"
 CLI_FILE_HELP: Final = "Archive and process an official CSV export for the configured account."
-CLI_METADATA_HELP: Final = "Select metadata providers; none processes the source files offline."
 CLI_FILE_MODE_CONFLICT: Final = (
     "File input cannot be combined with interactive or scheduled capture."
 )
-CLI_STATUS_FILE_CONFLICT: Final = "File input and metadata selection are only valid for sync."
+CLI_STATUS_FILE_CONFLICT: Final = "File input is only valid for sync."
 CLI_NO_RAW_INPUT: Final = (
     "No archived exports are available for the configured accounts. Supply "
-    "--storygraph-file and/or --goodreads-file. Plain sync reprocesses saved exports."
+    "a source export explicitly or configure its CSV path in config.json."
 )
 CLI_UNCONFIGURED_FILE: Final = "Configure the source account before supplying its export."
 CLI_FILE_SCOPE: Final = (
@@ -127,12 +132,6 @@ MISPLACED_TEXT_SOURCE: Final = "VALUE = 'not centralized'\n"
 MISPLACED_NUMBER_SOURCE: Final = "VALUE = 42\n"
 TEST_BUILD_SERVICE: Final = "_build_service"
 WEEKLY: Final = "weekly"
-TEST_BROWSER_CLASS_NAME: Final = "BrowserClient"
-NAME: Final = "name"
-DEFAULT_STORYGRAPH_ACCOUNT: Final = "byte_me"
-DEFAULT_STORYGRAPH_PROFILE: Final = "https://app.thestorygraph.com/profile/byte_me"
-DEFAULT_GOODREADS_ACCOUNT: Final = "79839274"
-DEFAULT_GOODREADS_PROFILE: Final = "https://www.goodreads.com/user/show/79839274"
 
 FCNTL: Final = "fcntl"
 FLOCK: Final = "flock"
@@ -145,138 +144,18 @@ LK_NBLCK: Final = "LK_NBLCK"
 LK_UNLCK: Final = "LK_UNLCK"
 
 INIT_VERSION_TEXT: Final = "0.1.0"
-BROWSER_LOGIN_PATH_SIGN_IN_LOG_IN_LOGIN: Final = "/(?:sign[_-]?in|log[_-]?in|login)(?:/|$)"
-BROWSER_EXPORT_PATH_EXPORTS_EXPORTING_DOWNLOADS: Final = (
-    "(?:^|[/_.-])(?:exports?|exporting|downloads?)(?:[/_.-]|$)"
-)
 HTML_PARSER: Final = "html.parser"
 SPACE: Final = " "
 EMPTY: Final = ""
-BROWSER_PAGE_ACCESS_PROBLEM_CHALLENGE_CHALLENGE_RUNNING_CF_TURNSTILE: Final = (
-    "#challenge-form, #cf-challenge-running, .cf-turnstile, .g-recaptcha, iframe["
-    "src*='challenges.cloudflare.com'], iframe[src*='/recaptcha/']"
-)
-BROWSER_PAGE_ACCESS_PROBLEM_JUST_A_MOMENT: Final = "just a moment"
-BROWSER_PAGE_ACCESS_PROBLEM_ATTENTION_REQUIRED: Final = "attention required"
-BROWSER_PAGE_ACCESS_PROBLEM_VERIFY_YOU_ARE_HUMAN: Final = "verify you are human"
-BROWSER_PAGE_ACCESS_PROBLEM_THE_SOURCE_BLOCKED_ACCESS_OR_PRESENTED_A: Final = (
-    "The source blocked access or presented a challenge. No bypass was attempted."
-)
-SOURCE_BLOCKED: Final = "source_blocked"
-BROWSER_PAGE_ACCESS_PROBLEM_FORM_INPUT_TYPE_PASSWORD: Final = "form input[type='password']"
-BROWSER_PAGE_ACCESS_PROBLEM_THE_NEEDS_AN_AUTHENTICATED_OWNER_SESSION: Final = (
-    "The source needs an authenticated owner session. Run interactive login, then retry."
-)
 NEEDS_AUTH: Final = "needs_auth"
-BROWSER_PAGE_ACCESS_PROBLEM_THE_AN_UNSUCCESSFUL_PAGE_RESPONSE: Final = (
-    "The source returned an unsuccessful page response."
-)
-SOURCE_HTTP_ERROR: Final = "source_http_error"
-BROWSER_BROWSERCLIENT_INIT_A_Z0_A_Z0_A_Z0: Final = "[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?"
-BROWSER_BROWSERCLIENT_INIT_TEXT: Final = ".."
-BROWSER_BROWSERCLIENT_INIT_ALLOWED_HOSTS_CONTAIN_EXACT_LOWERCASE_DNS: Final = (
-    "allowed_hosts must contain exact lowercase DNS hostnames"
-)
-BROWSER_BROWSERCLIENT_INIT_TIMEOUT_SECONDS_MUST_BE_BETWEEN_ZERO_AND: Final = (
-    "timeout_seconds must be between zero and one hour"
-)
 HTTPS: Final = "https"
-BROWSERCLIENT_CHECKED_URL_VALID_X00_X20: Final = "[\\x00-\\x20\\\\]"
-BROWSER_BROWSERCLIENT_CHECKED_URL_REFUSED_OUTSIDE_THE_CONFIGURED: Final = (
-    "Browser navigation was refused outside the configured HTTPS source."
-)
-UNSAFE_NAVIGATION: Final = "unsafe_navigation"
-BROWSER_BROWSERCLIENT_CHECKED_URL_EXPORT_DOWNLOAD: Final = "(?:^|&)(?:export|download)(?:=|&|$)"
-BROWSER_BROWSERCLIENT_CHECKED_URL_DOWNLOAD_NAVIGATION_IS_DISABLED: Final = (
-    "Export and download navigation is disabled."
-)
-EXPORT_DISABLED: Final = "export_disabled"
-BROWSER_BROWSERCLIENT_PREPARE_PROFILE_THE_PROFILE_MUST_NOT_BE: Final = (
-    "The dedicated browser profile must not be a symbolic link."
-)
-UNSAFE_PROFILE: Final = "unsafe_profile"
 NT: Final = "nt"
-BROWSER_BROWSERCLIENT_PREPARE_PROFILE_THE_PROFILE_COULD_NOT_BE: Final = (
-    "The dedicated browser profile could not be opened. Check its permissions."
-)
-PROFILE_UNAVAILABLE: Final = "profile_unavailable"
-BROWSER_BROWSERCLIENT_START_THIS_BROWSER_SESSION_IS_CLOSED: Final = (
-    "This browser session is closed."
-)
-BROWSER_CLOSED: Final = "browser_closed"
-PLAYWRIGHT_SYNC_API: Final = "playwright.sync_api"
-BROWSER_BROWSERCLIENT_START_BOOKYSTATS_BROWSER_DEPENDENCIES: Final = (
-    "Playwright is unavailable. Install BookyStats browser dependencies and run '"
-    "python -m playwright install chromium' once before retrying."
-)
-BROWSER_DEPENDENCIES_MISSING: Final = "browser_dependencies_missing"
-BLOCK: Final = "block"
-BROWSER_BROWSERCLIENT_START_TEXT: Final = "**/*"
 PAGE: Final = "page"
-BROWSERCLIENT_START_CODE_EXECUTABLE_DOESN_T_EXIST: Final = "Executable doesn't exist"
-BROWSER_NOT_INSTALLED: Final = "browser_not_installed"
-BROWSER_START_FAILED: Final = "browser_start_failed"
-BROWSERCLIENT_START_MESSAGE_CHROMIUM_IS_NOT_INSTALLED_RUN_PYTHON_M: Final = (
-    "Chromium is not installed. Run 'python -m playwright install chromium' once before retrying."
-)
-BROWSERCLIENT_START_MESSAGE_THE_BROWSER_COULD_NOT_START_CHECK_THE: Final = (
-    "The browser could not start. Check the browser installation and profile lock."
-)
-BROWSER_BROWSERCLIENT_START_THE_BROWSER_PROCESS_COULD_NOT_BE_STARTED: Final = (
-    "The browser process could not be started."
-)
-DOWNLOAD: Final = "download"
-POST: Final = "POST"
-BROWSER_BROWSERCLIENT_GUARD_REQUEST_AN_DOWNLOAD_REQUEST_WAS_BLOCKED: Final = (
-    "An export or download request was blocked."
-)
 GET: Final = "GET"
-HEAD: Final = "HEAD"
-OPTIONS: Final = "OPTIONS"
-BLOCKEDBYCLIENT: Final = "blockedbyclient"
 LOCATION: Final = "location"
-BROWSER_BROWSERCLIENT_GUARD_REQUEST_A_REQUIRING_FORM_RESUBMISSION_IS: Final = (
-    "A login redirect requiring form resubmission is not supported."
-)
-LOGIN_REDIRECT_UNSUPPORTED: Final = "login_redirect_unsupported"
-ATTACHMENT: Final = "attachment"
-CONTENT_DISPOSITION: Final = "content-disposition"
-BROWSER_BROWSERCLIENT_GUARD_REQUEST_A_FILE_DOWNLOAD_WAS_BLOCKED: Final = (
-    "A file download was blocked."
-)
-BROWSERCLIENT_GUARD_REQUEST_THE_SOURCE_PAGE_TIMED_OUT: Final = "The source page timed out."
-BROWSER_TIMEOUT: Final = "browser_timeout"
-TIMEDOUT: Final = "timedout"
-BROWSERCLIENT_GUARD_REQUEST_THE_BROWSER_COULD_NOT_LOAD_THE_SOURCE: Final = (
-    "The browser could not load the source page."
-)
-BROWSER_OPERATION_FAILED: Final = "browser_operation_failed"
 FAILED: Final = "failed"
-BROWSER_BROWSERCLIENT_NAVIGATE_A_BROWSER_REDIRECT_REPEATED: Final = "A browser redirect repeated."
 REDIRECT_LOOP: Final = "redirect_loop"
-DOMCONTENTLOADED: Final = "domcontentloaded"
-BROWSER_BROWSERCLIENT_NAVIGATE_THE_REDIRECT_LIMIT_WAS_REACHED: Final = (
-    "The browser redirect limit was reached."
-)
 REDIRECT_LIMIT: Final = "redirect_limit"
-FORM: Final = "form"
-ACTION: Final = "action"
-BROWSER_BROWSERCLIENT_OWNER_LOGIN_TEMPLATE: Final = (
-    "Sign in in the visible source browser window. BookyStats will wait at most {"
-    "v0:g} seconds. Do not enter credentials in this console."
-)
-BROWSER_BROWSERCLIENT_OWNER_LOGIN_OWNER_WAS_NOT_COMPLETED_WITHIN_THE: Final = (
-    "Owner login was not completed within the bounded wait. Run interactive login again."
-)
-LOGIN_WAIT_EXPIRED: Final = "login_wait_expired"
-ATTACHED: Final = "attached"
-BROWSER_BROWSERCLIENT_FETCH_THE_BROWSER_STOPPED_OR_COULD_NOT_LOAD: Final = (
-    "The browser stopped or could not load the source page."
-)
-BROWSER_BROWSERCLIENT_CLOSE_THE_BROWSER_SESSION_COULD_NOT_BE_CLOSED: Final = (
-    "The browser session could not be closed cleanly."
-)
-BROWSER_CLOSE_FAILED: Final = "browser_close_failed"
 CACHE_CHECKSUM_TEMPLATE: Final = "{v0:.17g}\x00{v1}"
 CACHE_METADATACACHE_INIT_PRAGMA_QUICK_CHECK: Final = "PRAGMA quick_check"
 OK: Final = "ok"
@@ -340,11 +219,46 @@ CACHE_METADATACACHE_CLOSE_METADATA_CACHE_COULD_NOT_BE_CLOSED_SAFELY: Final = (
 )
 BOOKY: Final = "booky"
 PARSER_RESULT_DESCRIPTION_READ_ONLY_READING_DATA_SYNC_REPORTS_READ: Final = (
-    "Read-only reading-data sync. Reports read the local database, not the websites."
+    "Process configured reading-data CSVs. Status reads only local state."
 )
 COMMAND: Final = "command"
 SYNC: Final = "sync"
+FETCH: Final = "fetch"
 STATUS: Final = "status"
+FETCH_RESOURCE_PACKAGE: Final = "bookystats.adapters.exports"
+FETCH_RESOURCE_FILE: Final = "goodreads_console.js"
+FETCH_ACCOUNT_PLACEHOLDER: Final = "__BOOKYSTATS_GOODREADS_ACCOUNT_JSON__"
+FETCH_HELPER_FILE: Final = "goodreads-export.txt"
+FETCH_HELPER_PATH: Final = "helper_path"
+FETCH_READ_URL: Final = "read_url"
+FETCH_WATCHLIST_URL: Final = "watchlist_url"
+FETCH_SCOPE_NOTICE: Final = "scope_notice"
+FETCH_ACCOUNT_PATTERN: Final = r"[1-9][0-9]*"
+FETCH_ACCOUNT_REQUIRED: Final = (
+    "Configure a Goodreads profile with a numeric account ID before generating its helper."
+)
+FETCH_TEMPLATE_INVALID: Final = "The packaged Goodreads helper template is invalid."
+FETCH_SCHEDULED_CONFLICT: Final = (
+    "fetch generates a local helper; it cannot run as scheduled collection."
+)
+FETCH_SHELF_URL: Final = (
+    "https://www.goodreads.com/review/list/{account_id}?shelf={shelf}&view=table&per_page=100"
+)
+FETCH_SCOPE_MESSAGE: Final = (
+    "Manual Goodreads shelf capture only, not verified account completeness. "
+    "No source requests, browser session, credentials or CSV inputs are changed by this command."
+)
+FETCH_INSTRUCTIONS: Final = (
+    "Goodreads console helper: {path}\n"
+    "Open Read: {read_url}\n"
+    "Open watchlist: {watchlist_url}\n"
+    "Run the helper separately on each shelf in your normal browser session. "
+    "It downloads one CSV after that shelf's pages finish; source blocking stops it.\n"
+    "Keep original exports. Update the configured CSV paths to refer to new files, or supply "
+    "all required paths to sync with --storygraph-file, --goodreads-read-file and "
+    "--goodreads-watchlist-file.\n"
+    "StoryGraph ratings still require your supplied export. {scope_notice}"
+)
 CLI_PARSER_DATA_DIR: Final = "--data-dir"
 CLI_PARSER_HELP_OVERRIDE_THE_PRIVATE_LOCAL_DATA_DIRECTORY: Final = (
     "Override the private local data directory."
@@ -399,11 +313,10 @@ CLI_MAIN_WEEKLY_SCHEDULING_IS_DISABLED_NO_SOURCE_REQUESTS: Final = (
 )
 CLI_MAIN_CONFIGURE_READER_PROFILE_URLS_IN_CONFIG_JSON: Final = (
     "Configure reader profile URLs in config.json or BOOKYSTATS_STORYGRAPH_PROFILE "
-    "/ BOOKYSTATS_GOODREADS_PROFILE before importing their files."
+    "/ BOOKYSTATS_GOODREADS_PROFILE before syncing."
 )
 SCHEDULED: Final = "scheduled"
 MANUAL: Final = "manual"
-UNATTENDED: Final = "unattended"
 CLI_MAIN_A_LOCAL_DATA_CONFIGURATION_OR_RECORD_VALIDATION: Final = (
     "A local data, configuration, or record-validation operation failed. The run "
     "is not reported as successful; inspect the local status before retrying."
@@ -456,349 +369,38 @@ W: Final = "w"
 UTF_8: Final = "utf-8"
 NEWLINE: Final = "\n"
 PROFILES: Final = "profiles"
-GOODREADS_BASE_HTTPS_WWW_GOODREADS_COM: Final = "https://www.goodreads.com"
-GOODREADS_ATOM_HTTP_WWW_W3_ORG_ATOM: Final = "{http://www.w3.org/2005/Atom}"
-GOODREADS_READER_PATH_USER_SHOW_REVIEW_LIST_RSS: Final = (
-    "/(?:user/show|review/list(?:_rss)?)/([0-9]+)(?:-[^/]+)?/?"
-)
-GOODREADS_BOOK_PATH_BOOK_SHOW: Final = "/book/show/([0-9]+)(?:[.-][^/]+)?/?"
-GOODREADS_REVIEW_PATH_REVIEW_SHOW: Final = "/review/show/[0-9]+/?"
-GOODREADS_AUTHOR_PATH_AUTHOR_SHOW: Final = "/author/show/[0-9]+(?:[.-][^/]+)?/?"
-GOODREADS_LOGIN_PATHS_USER_SIGN_IN: Final = "/user/sign_in"
-GOODREADS_LOGIN_PATHS_USER_SIGN_UP: Final = "/user/sign_up"
-GOODREADS_LOGIN_PATHS_USER_NEW: Final = "/user/new"
-GOODREADS_LOGIN_PATHS_AP_SIGNIN: Final = "/ap/signin"
-GOODREADS_TEXT_A_ZA_Z_W_S: Final = "</?[a-zA-Z][\\w:-]*(?:\\s|/?>)"
-GOODREADS_TEXT_SCRIPT_STYLE: Final = "script, style"
-UNSAFE_LINK: Final = "unsafe_link"
-GOODREADS_SAFE_URL_GOODREADS_SUPPLIED_AN_INVALID_SOURCE_LINK: Final = (
-    "Goodreads supplied an invalid source link."
-)
-HTTP: Final = "http"
-GOODREADS_SAFE_URL_A_GOODREADS_LINK_LEFT_THE_PERMITTED_SOURCE: Final = (
-    "A Goodreads link left the permitted source host."
-)
 GOODREADS_SAFE_URL_TEXT: Final = "?"
-GOODREADS_QUERY_GOODREADS_SUPPLIED_AN_INVALID_QUERY_STRING: Final = (
-    "Goodreads supplied an invalid query string."
-)
 SHELF: Final = "shelf"
 TO_READ: Final = "to-read"
-WRONG_COLLECTION: Final = "wrong_collection"
-GOODREADS_SHELF_QUERY_GOODREADS_DID_NOT_RETURN_THE_REQUESTED_TO: Final = (
-    "Goodreads did not return the requested to-read shelf."
-)
-LIST_RSS: Final = "list_rss"
-LIST: Final = "list"
 PER_PAGE: Final = "per_page"
-GOODREADS_COLLECTION_URL_TEMPLATE: Final = "{v0}/review/{v1}/{v2}?{v3}"
-ACCOUNT_MISMATCH: Final = "account_mismatch"
-GOODREADS_CHECK_DOCUMENT_URL_GOODREADS_A_DIFFERENT_READER_S_PAGE: Final = (
-    "Goodreads returned a different reader's page."
-)
-GOODREADS_CHECK_DOCUMENT_URL_ROUTE_REVIEW_LIST_RSS: Final = "/review/list_rss/"
-GOODREADS_CHECK_DOCUMENT_URL_ROUTE_REVIEW_LIST: Final = "/review/list/"
-UNEXPECTED_PAGE: Final = "unexpected_page"
-GOODREADS_CHECK_DOCUMENT_URL_GOODREADS_RETURNED_AN_UNEXPECTED_PAGE: Final = (
-    "Goodreads returned an unexpected page."
-)
-GOODREADS_CHECK_ACCESS_IS_HTML_S_XML_S_DOCTYPE_S_HTML_HTML: Final = (
-    "\\s*(?:<\\?xml[^>]*>\\s*)?<(?:!doctype\\s+html|html|head|body|form)\\b"
-)
-GOODREADS_CHECK_ACCESS_CHALLENGE_VERIFY_THAT_YOU_ARE_HUMAN: Final = "verify that you are human"
-GOODREADS_CHECK_ACCESS_CHALLENGE_UNUSUAL_TRAFFIC: Final = "unusual traffic"
-GOODREADS_CHECK_ACCESS_CHALLENGE_ACCESS_DENIED: Final = "access denied"
-GOODREADS_CHECK_ACCESS_CHALLENGE_CHECKING_YOUR_BROWSER: Final = "checking your browser"
-GOODREADS_CHECK_ACCESS_CHALLENGE_ENABLE_AND_COOKIES_TO_CONTINUE: Final = (
-    "enable javascript and cookies to continue"
-)
-GOODREADS_CHECK_ACCESS_CHALLENGE_SECURITY_CHALLENGE: Final = "security challenge"
-GOODREADS_CHECK_ACCESS_CHALLENGE_REQUEST_BLOCKED: Final = "request blocked"
-GOODREADS_CHECK_ACCESS_IFRAME_SRC_CAPTCHA_G_RECAPTCHA_H_CAPTCHA: Final = (
-    "iframe[src*='captcha'], .g-recaptcha, .h-captcha, #challenge-form"
-)
-GOODREADS_CHECK_ACCESS_GOODREADS_BLOCKED_NO_ALTERNATIVE_ROUTE_WAS: Final = (
-    "Goodreads blocked access. No alternative route was attempted."
-)
-ACCESS_BLOCKED: Final = "access_blocked"
-GOODREADS_CHECK_ACCESS_PRIVATE_THIS_PROFILE_IS_PRIVATE: Final = "this profile is private"
-GOODREADS_CHECK_ACCESS_PRIVATE_THIS_USER_S_PROFILE_IS_PRIVATE: Final = (
-    "this user's profile is private"
-)
-GOODREADS_CHECK_ACCESS_PRIVATE_THIS_MEMBER_S_PROFILE_IS_PRIVATE: Final = (
-    "this member's profile is private"
-)
-GOODREADS_CHECK_ACCESS_PRIVATE_ONLY_VISIBLE_TO_FRIENDS: Final = "only visible to friends"
-GOODREADS_CHECK_ACCESS_PRIVATE_SIGN_IN_TO_VIEW_THIS: Final = "sign in to view this"
-GOODREADS_CHECK_ACCESS_PRIVATE_LOG_IN_TO_VIEW_THIS: Final = "log in to view this"
-GOODREADS_CHECK_ACCESS_LOGIN_FORM_INPUT_TYPE_PASSWORD: Final = "input[type='password']"
-GOODREADS_CHECK_ACCESS_GOODREADS_CONFIGURED_READER_S_ORDINARY: Final = (
-    "Goodreads requires the configured reader's ordinary signed-in browser session."
-)
-GOODREADS_CHECK_ACCESS_GOODREADS_RSS_UNAVAILABLE_AN_ORDINARY_SIGNED: Final = (
-    "Goodreads RSS is unavailable; an ordinary signed-in browser is needed."
-)
-RSS_UNAVAILABLE: Final = "rss_unavailable"
-GOODREADS_CHECK_ACCESS_GOODREADS_COULD_NOT_SERVE_THE_REQUESTED_PAGE: Final = (
-    "Goodreads could not serve the requested page."
-)
-LINK: Final = "link"
-HREF: Final = "href"
-GOODREADS_RSS_IDENTITY_LINKS_TEMPLATE: Final = "{v0}link"
-REL: Final = "rel"
-SELF: Final = "self"
-GOODREADS_RSS_IDENTITY_THE_RSS_CHANNEL_IDENTIFIES_A_DIFFERENT_READER: Final = (
-    "The RSS channel identifies a different reader."
-)
 TITLE: Final = "title"
-GOODREADS_RSS_IDENTITY_BOOKSHELF_S_TO_READ_S: Final = "bookshelf:\\s*to-read\\s*$"
-IDENTITY_UNVERIFIED: Final = "identity_unverified"
-GOODREADS_RSS_IDENTITY_THE_RSS_CHANNEL_DOES_NOT_IDENTIFY_THE: Final = (
-    "The RSS channel does not identify the configured Goodreads reader."
-)
-GOODREADS_RSS_IDENTITY_THE_RSS_CHANNEL_DOES_NOT_IDENTIFY_THE_2: Final = (
-    "The RSS channel does not identify the to-read shelf."
-)
-GOODREADS_RSS_COUNT_HTTP_A9_COM_SPEC_OPENSEARCH: Final = "http://a9.com/-/spec/opensearch/1.1/"
-GOODREADS_RSS_COUNT_HTTP_A9_COM_SPEC_OPENSEARCH_2: Final = "http://a9.com/-/spec/opensearch/1.0/"
-GOODREADS_RSS_COUNT_TEMPLATE: Final = "{{{v0}}}totalResults"
-GOODREADS_RSS_COUNT_TEXT: Final = "[0-9]{1,18}"
-INVALID_COUNT: Final = "invalid_count"
-GOODREADS_RSS_COUNT_THE_RSS_SHELF_COUNT_IS_INVALID: Final = "The RSS shelf count is invalid."
-CONFLICTING_COUNT: Final = "conflicting_count"
-GOODREADS_RSS_COUNT_GOODREADS_REPORTED_CONFLICTING_SHELF_COUNTS: Final = (
-    "Goodreads reported conflicting shelf counts."
-)
-FIELDS_BAD_MESSAGE_TEMPLATE: Final = "Goodreads supplied an invalid or ambiguous {v0}."
 INVALID_DATE: Final = "invalid_date"
-FIELDS_NUMBER_PATTERN_TEXT: Final = "[0-9]+(?:\\.[0-9]+)?"
-FIELDS_NUMBER_PATTERN_TEXT_2: Final = "(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)"
 INVALID_NUMBER: Final = "invalid_number"
 INVALID_ISBN: Final = "invalid_isbn"
-FIELDS_ISBNS_MESSAGE_GOODREADS_SUPPLIED_AN_INVALID_ISBN: Final = (
-    "Goodreads supplied an invalid ISBN."
-)
 ISBNS: Final = "isbns"
 EDITION: Final = "edition"
 READ: Final = "read"
 CURRENTLY_READING: Final = "currently-reading"
-MEMBERSHIP_CONFLICT: Final = "membership_conflict"
-GOODREADS_SHELVES_A_GOODREADS_ROW_CONTRADICTS_TO_READ_MEMBERSHIP: Final = (
-    "A Goodreads row contradicts to-read membership."
-)
-BOOK_ID: Final = "book_id"
-GOODREADS_RSS_RECORD_TEXT: Final = "[0-9]+"
 INVALID_RECORD: Final = "invalid_record"
-GOODREADS_RSS_RECORD_A_GOODREADS_RSS_ITEM_HAS_NO_VALID: Final = (
-    "A Goodreads RSS item has no valid book ID or title."
-)
-BOOK: Final = "book"
 ID: Final = "id"
-BOOK_ID_MISMATCH: Final = "book_id_mismatch"
-GOODREADS_RSS_RECORD_A_GOODREADS_RSS_ITEM_S_BOOK_IDS: Final = (
-    "A Goodreads RSS item's book IDs disagree."
-)
-GUID: Final = "guid"
-ISPERMALINK: Final = "isPermaLink"
 FALSE_2: Final = "false"
-GOODREADS_RSS_RECORD_A_GOODREADS_RSS_ITEM_LINKS_TO_A: Final = (
-    "A Goodreads RSS item links to a different resource."
-)
-GOODREADS_RSS_RECORD_URL_TEMPLATE: Final = "{v0}/book/show/{v1}"
 ISBN: Final = "isbn"
-ISBN13: Final = "isbn13"
 ADDED_AT: Final = "added_at"
-USER_DATE_ADDED: Final = "user_date_added"
 READER: Final = "reader"
 PUBLICATION_DATE: Final = "publication_date"
-BOOK_PUBLISHED: Final = "book_published"
 PAGE_COUNT: Final = "page_count"
-GOODREADS_RSS_RECORD_BOOK_NUM_PAGES: Final = "book/num_pages"
 COMMUNITY_RATING: Final = "community_rating"
-AVERAGE_RATING: Final = "average_rating"
 WORK: Final = "work"
 GOODREADS_PERSONAL_RATING: Final = "goodreads_personal_rating"
-USER_RATING: Final = "user_rating"
-USER_SHELVES: Final = "user_shelves"
 AUTHOR_NAME: Final = "author_name"
-GOODREADS_CELL_TEMPLATE: Final = "td.field.{v0} .value"
-GOODREADS_BROWSER_IDENTITY_HAS_LOGOUT_USER_SIGN_OUT: Final = "/user/sign_out"
-GOODREADS_BROWSER_IDENTITY_HAS_LOGOUT_GOODREADS_COM_USER_SIGN_OUT: Final = (
-    "https://www.goodreads.com/user/sign_out"
-)
-GOODREADS_BROWSER_IDENTITY_HAS_LOGOUT_GOODREADS_COM_USER_SIGN_OUT_2: Final = (
-    "https://goodreads.com/user/sign_out"
-)
-GOODREADS_BROWSER_IDENTITY_HAS_LOGOUT_A_HREF: Final = "a[href]"
-TR: Final = "tr"
-BOOKALIKE: Final = "bookalike"
-ARIA_LABEL: Final = "aria-label"
-GOODREADS_BROWSER_IDENTITY_OWN_MY_BOOKS: Final = "my books"
-GOODREADS_BROWSER_IDENTITY_OWN_MY_PROFILE: Final = "my profile"
-PROFILE: Final = "profile"
-GOODREADS_BROWSER_IDENTITY_OWN_VIEW_PROFILE: Final = "view profile"
-GOODREADS_BROWSER_IDENTITY_THE_BROWSER_IS_SIGNED_IN_TO_A: Final = (
-    "The browser is signed in to a different Goodreads account."
-)
-AUTH_IDENTITY_UNVERIFIED: Final = "auth_identity_unverified"
-GOODREADS_BROWSER_IDENTITY_THE_BROWSER_PAGE_DOES_NOT_VERIFY_THE: Final = (
-    "The browser page does not verify the configured signed-in Goodreads reader."
-)
-GOODREADS_BROWSER_IDENTITY_H1_H2: Final = "h1, h2"
-GOODREADS_BROWSER_IDENTITY_THE_HEADING_IDENTIFIES_ANOTHER_READER: Final = (
-    "The bookshelf heading identifies another reader."
-)
-GOODREADS_BROWSER_COUNT_TEXT_TEXT: Final = "\u200e"
-GOODREADS_BROWSER_COUNT_TEXT_TEXT_2: Final = "\u200f"
-GOODREADS_BROWSER_COUNT_MATCH_TO_READ_TO_READ_WANT_TO_READ: Final = (
-    "(?:to-read|to read|want to read)\\s*\\(([0-9,]+)\\)"
-)
-GOODREADS_BROWSER_COUNT_THE_IDENTIFIES_ANOTHER_GOODREADS_READER: Final = (
-    "The shelf count identifies another Goodreads reader."
-)
-GOODREADS_BROWSER_COUNT_GOODREADS_SUPPLIED_INVALID_SHELF_BOOK_COUNT: Final = (
-    "Goodreads supplied an invalid shelf book count."
-)
-UNSAFE_PAGINATION: Final = "unsafe_pagination"
-GOODREADS_NEXT_LINK_GOODREADS_PAGINATION_THE_CONFIGURED_READER_S: Final = (
-    "Goodreads pagination left the configured reader's shelf."
-)
-PAGINATION_NO_PROGRESS: Final = "pagination_no_progress"
-GOODREADS_NEXT_LINK_GOODREADS_PAGINATION_DID_NOT_ADVANCE_BY_ONE: Final = (
-    "Goodreads pagination did not advance by one page."
-)
-GOODREADS_NEXT_LINK_TEXT: Final = "[0-9]{1,3}"
-GOODREADS_NEXT_LINK_GOODREADS_PAGINATION_EXCEEDED_THE_PER_PAGE_LIMIT: Final = (
-    "Goodreads pagination exceeded the per-page limit."
-)
-NEXT: Final = "next"
-GOODREADS_BROWSER_NEXT_EXPLICITLY_NEXT_NEXT_S_U203A: Final = "next(?:\\s*[\\u203a\xbb>\u2192]+)?"
-GOODREADS_BROWSER_NEXT_PAGE: Final = "page="
 RATING: Final = "rating"
-GOODREADS_BROWSER_RATING_STARS_STATICSTARS_STATICSTAR: Final = ".staticStars .staticStar"
-P10: Final = "p10"
-CLASS: Final = "class"
-P0: Final = "p0"
-GOODREADS_BROWSER_RATING_TEXT: Final = "[0-5]"
-GOODREADS_BROWSER_RECORD_A_GOODREADS_SHELF_ROW_HAS_NO_BOOK: Final = (
-    "A Goodreads shelf row has no book title link."
-)
-GOODREADS_BROWSER_RECORD_A_GOODREADS_SHELF_ROW_HAS_NO_VALID: Final = (
-    "A Goodreads shelf row has no valid book ID or title."
-)
-AUTHOR: Final = "author"
-DATE_ADDED: Final = "date_added"
-GOODREADS_BROWSER_RECORD_ADDED_SPAN_SPAN_TITLE: Final = "span[title]"
-DATE_PUB: Final = "date_pub"
 FIRST_PUBLICATION_YEAR: Final = "first_publication_year"
-DATE_PUB_EDITION: Final = "date_pub_edition"
-NUM_PAGES: Final = "num_pages"
-GOODREADS_BROWSER_RECORD_PAGES_S_PP_PAGES_S: Final = "\\s*(?:pp|pages)\\.?\\s*$"
-AVG_RATING: Final = "avg_rating"
 COMMUNITY_RATINGS_COUNT: Final = "community_ratings_count"
-NUM_RATINGS: Final = "num_ratings"
 SHELF_POSITION: Final = "shelf_position"
-POSITION: Final = "position"
 SHELVES: Final = "shelves"
-GOODREADS_BROWSER_RECORD_SHELF: Final = "shelf="
-GOODREADS_BROWSER_RECORD_A_SHELF_ROW_IDENTIFIES_A_DIFFERENT_READER: Final = (
-    "A shelf row identifies a different reader."
-)
-GOODREADS_BROWSER_RECORD_A_GOODREADS_ROW_HAS_AN_INVALID_SHELF: Final = (
-    "A Goodreads row has an invalid shelf link."
-)
-FORMAT: Final = "format"
-GOODREADS_GOODREADSCONNECTOR_INIT_MAX_PAGES_BE_A_POSITIVE_INTEGER: Final = (
-    "max_pages must be a positive integer"
-)
-GOODREADS_GOODREADSCONNECTOR_COLLECT_GOODREADS_READER_ACCOUNT: Final = (
-    "GoodreadsConnector requires a Goodreads reader account"
-)
-COUNT_MISMATCH: Final = "count_mismatch"
-GOODREADSCONNECTOR_COLLECT_MESSAGE_THE_COUNT_DOES_NOT_MATCH: Final = (
-    "The collected book count does not match the Goodreads shelf count."
-)
 WATCHLIST: Final = "watchlist"
-REVIEWS: Final = "reviews"
-ORIGINAL_SHELF_TRANSITION_DATE: Final = "original_shelf_transition_date"
-GOODREADS_GOODREADSCONNECTOR_WALK_GOODREADS_A_TRANSPORT_OR_ENCODING: Final = (
-    "Goodreads collection had a transport or encoding failure."
-)
-TRANSPORT_ERROR: Final = "transport_error"
-SHELF_CHANGED: Final = "shelf_changed"
-GOODREADSCONNECTOR_WALK_MESSAGE_THE_COUNT_CHANGED_DURING_PAGING: Final = (
-    "The Goodreads shelf count changed during paging."
-)
-DUPLICATE_RECORD: Final = "duplicate_record"
-GOODREADSCONNECTOR_WALK_MESSAGE_A_GOODREADS_OCCURRED_MORE_THAN_ONCE: Final = (
-    "A Goodreads book occurred more than once while paging."
-)
-EMPTY_PAGE_GAP: Final = "empty_page_gap"
-GOODREADS_GOODREADSCONNECTOR_WALK_AN_EMPTY_PAGE_STILL_LINKS_ONWARD: Final = (
-    "An empty Goodreads page still links onward."
-)
-EMPTY_SHELF_UNVERIFIED: Final = "empty_shelf_unverified"
-GOODREADS_GOODREADSCONNECTOR_WALK_AN_INITIAL_BROWSER_TABLE_HAS_NO: Final = (
-    "An initial empty browser table has no verified zero-book shelf count."
-)
-GOODREADSCONNECTOR_WALK_MESSAGE_GOODREADS_PAGE_OR_SUPPLIED_NO: Final = (
-    "Goodreads repeated a page or supplied no new usable books."
-)
-RSS: Final = "RSS"
-BROWSER: Final = "browser"
-GOODREADSCONNECTOR_WALK_MESSAGE_TEMPLATE: Final = "Checked Goodreads {v0} page {v1}."
-PAGE_LIMIT: Final = "page_limit"
-GOODREADSCONNECTOR_WALK_MESSAGE_GOODREADS_THE_CONFIGURED_PAGE_LIMIT: Final = (
-    "Goodreads collection reached the configured page limit."
-)
-GOODREADSCONNECTOR_RSS_PAGE_URL_TEMPLATE: Final = "{v0}/review/list_rss/{v1}"
 ACCEPT: Final = "Accept"
-RSS_PAGE_RESPONSE_HEADERS_APPLICATION_RSS_XML_APPLICATION_XML_Q: Final = (
-    "application/rss+xml, application/xml;q=0.9"
-)
-PAGE_TOO_LARGE: Final = "page_too_large"
-GOODREADS_GOODREADSCONNECTOR_RSS_PAGE_THE_RESPONSE_SIZE_LIMIT: Final = (
-    "Goodreads RSS exceeded the response-size limit."
-)
 UTF_8_SIG: Final = "utf-8-sig"
-REPLACE: Final = "replace"
-UNSAFE_XML: Final = "unsafe_xml"
-GOODREADS_GOODREADSCONNECTOR_RSS_PAGE_A_FORBIDDEN_XML_DECLARATION: Final = (
-    "Goodreads RSS contained a forbidden XML declaration."
-)
-MALFORMED_XML: Final = "malformed_xml"
-GOODREADS_GOODREADSCONNECTOR_RSS_PAGE_GOODREADS_NOT_WELL_FORMED_XML: Final = (
-    "Goodreads RSS was not well-formed XML."
-)
-RSS_2: Final = "rss"
-CHANNEL: Final = "channel"
-UNSUPPORTED_FEED: Final = "unsupported_feed"
-GOODREADS_GOODREADSCONNECTOR_RSS_PAGE_RETURN_A_RECOGNIZED_RSS: Final = (
-    "Goodreads did not return a recognized RSS channel."
-)
-ITEM: Final = "item"
-GOODREADS_GOODREADSCONNECTOR_RSS_PAGE_GOODREADS_THE_BOOK_PAGE_LIMIT: Final = (
-    "Goodreads RSS exceeded the 100-book page limit."
-)
-GOODREADS_GOODREADSCONNECTOR_BROWSER_PAGE_THE_RESPONSE_SIZE_LIMIT: Final = (
-    "Goodreads HTML exceeded the response-size limit."
-)
-GOODREADSCONNECTOR_BROWSER_PAGE_TABLE_TABLE_BOOKS: Final = "table#books"
-TR_BOOKALIKE: Final = "tr.bookalike"
-GOODREADSCONNECTOR_BROWSER_PAGE_BODY_TABLE_BOOKS_TBODY_BOOKSBODY: Final = (
-    "table#books tbody#booksBody"
-)
-UNKNOWN_MARKUP: Final = "unknown_markup"
-GOODREADS_GOODREADSCONNECTOR_BROWSER_PAGE_TABLE_WAS_NOT_RECOGNIZED: Final = (
-    "The Goodreads shelf table was not recognized."
-)
-GOODREADS_GOODREADSCONNECTOR_BROWSER_PAGE_THE_BOOK_PAGE_LIMIT: Final = (
-    "Goodreads HTML exceeded the 100-book page limit."
-)
-STORYGRAPH_ORIGIN_HTTPS_APP_THESTORYGRAPH_COM: Final = "https://app.thestorygraph.com"
-STORYGRAPH_BOOK_PATH_BOOKS_A_ZA_Z0_A_ZA_Z0: Final = "/books/([A-Za-z0-9][A-Za-z0-9_-]*)/?$"
-STORYGRAPH_PROFILE_PATH_PROFILE: Final = "/profile/([^/]+)/?$"
-BOOKS_READ: Final = "books-read"
 REVIEW: Final = "review"
 READING_EVENTS: Final = "reading_events"
 READ_COUNT: Final = "read_count"
@@ -806,320 +408,28 @@ MOODS: Final = "moods"
 PACE: Final = "pace"
 TAGS: Final = "tags"
 CONTENT_WARNINGS: Final = "content_warnings"
-STORYGRAPH_STATUS_NAMES_BOOKS_READ: Final = "books read"
-STORYGRAPH_STATUS_NAMES_CURRENTLY_READING: Final = "currently reading"
 READING: Final = "reading"
 PAUSED: Final = "paused"
-STORYGRAPH_STATUS_NAMES_PAUSED_BOOKS: Final = "paused books"
-STORYGRAPH_STATUS_NAMES_DID_NOT_FINISH: Final = "did not finish"
-STORYGRAPH_STATUS_NAMES_DIDN_T_FINISH: Final = "didn't finish"
 DNF: Final = "dnf"
-STORYGRAPH_STATUS_NAMES_TO_READ: Final = "to read"
-STORYGRAPH_STATUS_NAMES_TO_BE_READ: Final = "to be read"
-STORYGRAPH_LABELS_STAR_RATING: Final = "star rating"
-STORYGRAPH_LABELS_WRITTEN_REVIEW: Final = "written review"
-MOOD: Final = "mood"
-PACING: Final = "pacing"
-STORYGRAPH_LABELS_CONTENT_WARNINGS: Final = "content warnings"
-STORYGRAPH_LABELS_READ_COUNT: Final = "read count"
-STORYGRAPH_LABELS_TIMES_READ: Final = "times read"
-STORYGRAPH_LABELS_READING_STATUS: Final = "reading status"
 STARTED: Final = "started"
-STORYGRAPH_LABELS_STARTED_ON: Final = "started on"
-STORYGRAPH_LABELS_START_DATE: Final = "start date"
-STORYGRAPH_LABELS_DATE_STARTED: Final = "date started"
 FINISHED: Final = "finished"
-STORYGRAPH_LABELS_FINISHED_ON: Final = "finished on"
-STORYGRAPH_LABELS_FINISH_DATE: Final = "finish date"
-STORYGRAPH_LABELS_DATE_FINISHED: Final = "date finished"
-STORYGRAPH_LABELS_DATE_READ: Final = "date read"
-STORYGRAPH_LABELS_ISBN: Final = "isbn 13"
-STORYGRAPH_LABELS_ISBN_2: Final = "isbn 10"
 LANGUAGE: Final = "language"
 EDITION_FORMAT: Final = "edition_format"
-HIDDEN: Final = "hidden"
-ARIA_HIDDEN: Final = "aria-hidden"
 TRUE_2: Final = "true"
-STORYGRAPH_VISIBLE_DISPLAY_S_S_NONE_VISIBILITY_S_S: Final = (
-    "(?:display\\s*:\\s*none|visibility\\s*:\\s*hidden)"
-)
 STYLE: Final = "style"
 SCRIPT: Final = "script"
-TEMPLATE: Final = "template"
-STORYGRAPH_LABEL_S: Final = "\\s+"
 HYPHEN: Final = "-"
-STORYGRAPH_LABEL_TEXT: Final = " :"
-STORYGRAPH_FIELD_LABEL_PERSONAL_YOUR: Final = "your "
-STORYGRAPH_FIELD_LABEL_PERSONAL_MY: Final = "my "
-STORYGRAPH_SAFE_URL_A_STORYGRAPH_LINK_LEFT_THE_APPROVED_HTTPS: Final = (
-    "A StoryGraph link left the approved HTTPS origin."
-)
-UNSAFE_SOURCE_LINK: Final = "unsafe_source_link"
-STORYGRAPH_SAFE_URL_EXPORTS_DOWNLOADS: Final = "(?:^|[/_.-])(?:exports?|downloads?)(?:[/_.-]|$)"
 EXPORT: Final = "export"
-STORYGRAPH_SAFE_URL_STORYGRAPH_EXPORT_DOWNLOAD_LINKS_ARE_DISABLED: Final = (
-    "StoryGraph export and download links are disabled."
-)
 SLASH: Final = "/"
-STORYGRAPH_IDENTITY_HAS_LOGOUT_LOG_OUT: Final = "log out"
-LOGOUT: Final = "logout"
-STORYGRAPH_IDENTITY_HAS_LOGOUT_SIGN_OUT: Final = "sign out"
-STORYGRAPH_IDENTITY_HAS_LOGOUT_USERS_SIGN_OUT: Final = "/users/sign_out"
-A: Final = "a"
-NAV: Final = "nav"
-HEADER: Final = "header"
-ROLE: Final = "role"
-NAVIGATION: Final = "navigation"
-STORYGRAPH_IDENTITY_YOUR_PROFILE: Final = "your profile"
-STORYGRAPH_IDENTITY_THE_AUTHENTICATED_OWNER_DOES_NOT_MATCH: Final = (
-    "The authenticated StoryGraph owner does not match the configured account."
-)
-WRONG_ACCOUNT: Final = "wrong_account"
-STORYGRAPH_IDENTITY_THE_AUTHENTICATED_STORYGRAPH_OWNER_COULD_NOT_BE: Final = (
-    "The authenticated StoryGraph owner could not be verified. Use interactive ow"
-    "ner login; unknown account markup must be verified before collection."
-)
-OWNER_IDENTITY_UNAVAILABLE: Final = "owner_identity_unavailable"
-USER: Final = "user"
-USERNAME: Final = "username"
-USER_ID: Final = "user_id"
-ACCOUNT: Final = "account"
-OWNER: Final = "owner"
 BOOKS: Final = "books"
 AUTHORS: Final = "authors"
-USERS: Final = "users"
-NEXT_LINK: Final = "next_link"
-GET_2: Final = "get"
-DATA_METHOD: Final = "data-method"
-DATA_TURBO_METHOD: Final = "data-turbo-method"
-STORYGRAPH_DISCOVER_SURFACES_LABEL_S_D_S: Final = "\\s*[\\[(]?\\d+[\\])]?\\s*$"
-STORYGRAPH_DISCOVER_SURFACES_NO_PAUSED_BOOKS_PAUSED_BOOKS_YOU_HAVE: Final = (
-    "(?:no paused books|0 paused books|you have no books paused)[.!]?"
-)
-STORYGRAPH_DISCOVER_SURFACES_NO_DID_NOT_FINISH_BOOKS_DID_NOT: Final = (
-    "(?:no did not finish books|0 did not finish books|no dnf books)[.!]?"
-)
-P: Final = "p"
-H1: Final = "h1"
-H2: Final = "h2"
-H3: Final = "h3"
-TRIX_CONTENT: Final = "trix-content"
-AVERAGE_STAR_RATING: Final = "average-star-rating"
-ITEMPROP: Final = "itemprop"
-REVIEWBODY: Final = "reviewBody"
-COMMENTTEXT: Final = "commentText"
-ARTICLE: Final = "article"
-SECTION: Final = "section"
-H4: Final = "h4"
-COMMUNITY: Final = "community"
-DT: Final = "dt"
-DD: Final = "dd"
 TIME: Final = "time"
-DATETIME: Final = "datetime"
-LI: Final = "li"
-SPAN: Final = "span"
-OUTPUT: Final = "output"
-STORYGRAPH_PAIRS_MATCH_N_S: Final = "([^:\\n]{1,40}):\\s*(.*)"
-UNRATED: Final = "unrated"
-STORYGRAPH_RATING_NOT_RATED: Final = "not rated"
-STORYGRAPH_RATING_NO_RATING: Final = "no rating"
-NONE_2: Final = "none"
-STORYGRAPH_RATING_MATCH_YOUR_MY_STAR_RATING_S_D_D: Final = (
-    "(?:(?:your |my )?(?:star )?rating:?\\s*)?(\\d+(?:\\.\\d+)?)\\s*(?:(?:/|out o"
-    "f)\\s*5)?\\s*(?:stars?)?"
-)
-DIV: Final = "div"
-H5: Final = "h5"
-H6: Final = "h6"
-STORYGRAPH_OWNER_REGIONS_EXPLICIT_RATING_READING_HISTORY_READING: Final = (
-    "(?:your|my) (?:review|rating|reading history|reading activity|reading journa"
-    "l|book details|tags|content warnings)"
-)
-STORYGRAPH_OWNER_REGIONS_AUTHORED_ITEMPROP_REVIEWBODY: Final = "[itemprop='reviewBody']"
-STORYGRAPH_OWNER_REGIONS_AUTHORED_READING_HISTORY: Final = "reading history"
-STORYGRAPH_OWNER_REGIONS_A_PERSONAL_SECTION_BELONGS_TO_ANOTHER: Final = (
-    "A personal StoryGraph section belongs to another reader."
-)
-REVIEW_OWNER_MISMATCH: Final = "review_owner_mismatch"
-TABLE: Final = "table"
-TH: Final = "th"
-TD: Final = "td"
-DL: Final = "dl"
-STORYGRAPH_EVENTS_B_NO_READING_HISTORY_NO_READS_YET: Final = (
-    "\\b(?:no reading history|no reads yet|no reading events)\\b"
-)
-UNKNOWN_READING_STATUS: Final = "unknown_reading_status"
-STORYGRAPH_EVENTS_MESSAGE_A_READING_STATUS_WAS_NOT_RECOGNIZED: Final = (
-    "A reading-history status was not recognized."
-)
-INVALID_READING_DATE: Final = "invalid_reading_date"
-STORYGRAPH_EVENTS_MESSAGE_A_READING_EVENT_HAS_AN_INVALID_AMBIGUOUS: Final = (
-    "A reading event has an invalid, ambiguous, or reversed date."
-)
 JSON: Final = "json"
-STORYGRAPH_PERSONAL_ITEMPROP_RATINGVALUE_ARIA_LABEL: Final = (
-    "[itemprop='ratingValue'], [aria-label]"
-)
-RATINGVALUE: Final = "ratingValue"
-STORYGRAPH_PERSONAL_D_D_OUT_OF_STARS: Final = "\\d+(?:\\.\\d+)? (?:out of 5 )?stars?"
-STORYGRAPH_PERSONAL_BODY_TRIX_CONTENT: Final = ".trix-content"
-STORYGRAPH_PERSONAL_B_NO_WRITTEN_REVIEW_YOU_HAVEN_T: Final = (
-    "\\b(?:no written review|you haven't written a review|you have not written a review)\\b"
-)
-STORYGRAPH_PERSONAL_COUNT_BREAD_D_TIMES_B: Final = "\\bread (\\d+) times?\\b"
-INVALID_PERSONAL_RATING: Final = "invalid_personal_rating"
-STORYGRAPH_PERSONAL_MESSAGE_THE_VISIBLE_PERSONAL_RATING_COULD_NOT_BE: Final = (
-    "The visible personal rating could not be interpreted safely."
-)
-STORYGRAPH_PERSONAL_D: Final = "\\d+"
-INVALID_READ_COUNT: Final = "invalid_read_count"
-STORYGRAPH_PERSONAL_MESSAGE_THE_VISIBLE_READ_COUNT_COULD_NOT: Final = (
-    "The visible personal read count could not be interpreted."
-)
-STORYGRAPH_PERSONAL_EMPTY_NO_TAGS: Final = "no tags"
-STORYGRAPH_PERSONAL_EMPTY_NO_CONTENT_WARNINGS: Final = "no content warnings"
-STORYGRAPH_PERSONAL_EMPTY_NO_MOODS: Final = "no moods"
-STORYGRAPH_PERSONAL_ENTRIES_N: Final = "[,;\\n]"
-STATUSES: Final = "statuses"
 COLLECTIONS: Final = "collections"
-RAW_STATUS: Final = "raw_status"
 OBSERVATIONS: Final = "observations"
 DETAIL_CHECKED_AT: Final = "detail_checked_at"
-STORYGRAPH_MERGE_UPDATE_TEXT: Final = "; "
-STORYGRAPH_BOOK_CARD_BOOK_TITLE_AUTHOR_AND_SERIES: Final = ".book-title-author-and-series"
-STORYGRAPH_PERSONAL_LINKS_YOUR_REVIEW: Final = "your review"
-STORYGRAPH_PERSONAL_LINKS_MY_REVIEW: Final = "my review"
-STORYGRAPH_PERSONAL_LINKS_VIEW_YOUR_REVIEW: Final = "view your review"
-STORYGRAPH_PERSONAL_LINKS_READ_YOUR_REVIEW: Final = "read your review"
-STORYGRAPH_PERSONAL_LINKS_YOUR_READING_HISTORY: Final = "your reading history"
-STORYGRAPH_PERSONAL_LINKS_MY_READING_HISTORY: Final = "my reading history"
-STORYGRAPH_PERSONAL_LINKS_YOUR_READING_JOURNAL: Final = "your reading journal"
-STORYGRAPH_PERSONAL_LINKS_YOUR_READING_ACTIVITY: Final = "your reading activity"
-HISTORY: Final = "history"
-STORYGRAPH_PERSONAL_LINKS_YOUR_BOOK_DETAILS: Final = "your book details"
-STORYGRAPH_PERSONAL_LINKS_MY_BOOK_DETAILS: Final = "my book details"
-DETAILS: Final = "details"
-EDIT: Final = "edit"
 NEW: Final = "new"
-DELETE: Final = "delete"
-STORYGRAPHCONNECTOR_LIST_PAGE_SELECTOR_READ_BOOKS: Final = ".read-books"
-STORYGRAPHCONNECTOR_LIST_PAGE_SELECTOR_TO_READ_BOOKS: Final = ".to-read-books"
-STORYGRAPHCONNECTOR_LIST_PAGE_SELECTOR_PAUSED_BOOKS_READ_BOOKS: Final = ".paused-books, .read-books"
-MAIN: Final = "main"
-STORYGRAPH_STORYGRAPHCONNECTOR_LIST_PAGE_CONTAINER_WAS_MISSING: Final = (
-    "The expected StoryGraph collection container was missing or ambiguous."
-)
-COLLECTION_LAYOUT_UNAVAILABLE: Final = "collection_layout_unavailable"
-BOOK_IDENTITY_MISSING: Final = "book_identity_missing"
-STORYGRAPHCONNECTOR_LIST_PAGE_MESSAGE_A_ENTRY_LACKED_A_BOOK_IDENTITY: Final = (
-    "A list entry lacked a book identity or title."
-)
-STORYGRAPHCONNECTOR_LIST_PAGE_AUTHORS_AUTHORS: Final = "/authors/"
-STORYGRAPH_STORYGRAPHCONNECTOR_LIST_PAGE_B_BOOKS_BOOKS_NO_READS_YET: Final = (
-    "\\b(?:no books|0 books|no reads yet|haven't (?:read|added)|have not (?:read|added))\\b"
-)
-STORYGRAPH_STORYGRAPHCONNECTOR_LIST_PAGE_CONTAINER_DID_NOT_PROVIDE: Final = (
-    "An empty StoryGraph container did not provide an explicit empty-list state."
-)
-EMPTY_COLLECTION_UNVERIFIED: Final = "empty_collection_unverified"
-STORYGRAPHCONNECTOR_NEXT_CANDIDATES_A_NEXT_LINK_HREF_A_REL_NEXT: Final = (
-    "a#next_link[href], a[rel~='next'][href]"
-)
-ARIA_DISABLED: Final = "aria-disabled"
-STORYGRAPH_STORYGRAPHCONNECTOR_NEXT_STORYGRAPH_LINKS_WERE_AMBIGUOUS: Final = (
-    "StoryGraph pagination links were ambiguous."
-)
-PAGINATION_AMBIGUOUS: Final = "pagination_ambiguous"
-STORYGRAPH_STORYGRAPHCONNECTOR_NEXT_A_CHANGED_COLLECTION_OR_ACCOUNT: Final = (
-    "A pagination link changed collection or account."
-)
-PAGINATION_OWNER_MISMATCH: Final = "pagination_owner_mismatch"
-HISTORY_PAGINATION_LIMIT: Final = "history_pagination_limit"
-STORYGRAPHCONNECTOR_DETAIL_MESSAGE_THE_PAGE_LIMIT_WAS_REACHED: Final = (
-    "The reading-history page limit was reached."
-)
 VALUE: Final = "value"
-DETAIL_LINK_LIMIT: Final = "detail_link_limit"
-STORYGRAPHCONNECTOR_DETAIL_MESSAGE_LINKS_REMAIN_UNVERIFIED: Final = (
-    "Additional personal detail links remain unverified."
-)
-STORYGRAPH_STORYGRAPHCONNECTOR_DETAIL_A_LINK_CHANGED_READER_IDENTITY: Final = (
-    "A personal link changed reader identity."
-)
-STORYGRAPH_STORYGRAPHCONNECTOR_DETAIL_A_CHANGED_BOOK_IDENTITY: Final = (
-    "A book detail redirect changed book identity."
-)
-BOOK_IDENTITY_MISMATCH: Final = "book_identity_mismatch"
-STORYGRAPHCONNECTOR_DETAIL_ASSOCIATED_IDS_BOOK_AND_SERIES_A_HREF: Final = (
-    ".book-title-author-and-series a[href]"
-)
-STORYGRAPH_STORYGRAPHCONNECTOR_DETAIL_THE_DID_NOT_VERIFY_BOTH: Final = (
-    "The personal page did not verify both reader and book."
-)
-PERSONAL_PAGE_IDENTITY_UNAVAILABLE: Final = "personal_page_identity_unavailable"
-STORYGRAPH_STORYGRAPHCONNECTOR_DETAIL_A_HISTORY_PAGE_REPEATED: Final = (
-    "A reading-history page repeated."
-)
-HISTORY_REPEATED_PAGE: Final = "history_repeated_page"
-STORYGRAPHCONNECTOR_DETAIL_MESSAGE_A_VISIBLE_ISBN_FAILED_VALIDATION: Final = (
-    "A visible ISBN failed validation."
-)
-STORYGRAPHCONNECTOR_DETAIL_TAGS_BOOK_PAGE_TAG_SECTION_SPAN: Final = ".book-page-tag-section span"
-BOOK_TAGS: Final = "book_tags"
-STORYGRAPHCONNECTOR_DETAIL_COMMUNITY_AVERAGE_STAR_RATING: Final = ".average-star-rating"
-STORYGRAPH_STORYGRAPHCONNECTOR_DETAIL_PAGINATION_WAS_AMBIGUOUS: Final = (
-    "Reading-history pagination was ambiguous."
-)
-HISTORY_PAGINATION_AMBIGUOUS: Final = "history_pagination_ambiguous"
-STORYGRAPH_STORYGRAPHCONNECTOR_DETAIL_READING_CHANGED_ITS_SURFACE: Final = (
-    "Reading-history pagination changed its surface."
-)
-HISTORY_PAGINATION_IDENTITY: Final = "history_pagination_identity"
-STORYGRAPH_STORYGRAPHCONNECTOR_DETAIL_READING_REPEATED_A_CURSOR: Final = (
-    "Reading-history pagination repeated a cursor."
-)
-HISTORY_REPEATED_CURSOR: Final = "history_repeated_cursor"
-COLLECT_PROGRESS_MESSAGE_TEMPLATE: Final = "Collected {v0} distinct books from {v1} list pages."
-STORYGRAPH_STORYGRAPHCONNECTOR_COLLECT_A_STORYGRAPH_ACCOUNT: Final = (
-    "StoryGraph requires a StoryGraph account."
-)
-WRONG_SOURCE: Final = "wrong_source"
-STORYGRAPH_STORYGRAPHCONNECTOR_COLLECT_THE_CHANGED_ACCOUNT_IDENTITY: Final = (
-    "The profile redirect changed account identity."
-)
-STORYGRAPH_STORYGRAPHCONNECTOR_COLLECT_TEMPLATE: Final = "{v0}/{v1}/{v2}"
-PAGINATION_LIMIT: Final = "pagination_limit"
-STORYGRAPHCONNECTOR_COLLECT_MESSAGE_THE_PAGE_LIMIT_WAS_REACHED: Final = (
-    "The configured collection-page limit was reached."
-)
-PAGINATION_REPEATED_CURSOR: Final = "pagination_repeated_cursor"
-STORYGRAPHCONNECTOR_COLLECT_MESSAGE_A_PAGINATION_CURSOR_REPEATED: Final = (
-    "A StoryGraph pagination cursor repeated."
-)
-STORYGRAPH_STORYGRAPHCONNECTOR_COLLECT_A_ACCOUNT_OR_COLLECTION: Final = (
-    "A collection redirect changed account or collection."
-)
-STORYGRAPH_STORYGRAPHCONNECTOR_COLLECT_COLLECTION_PAGE_CONTENT: Final = (
-    "StoryGraph repeated collection-page content."
-)
-PAGINATION_REPEATED_PAGE: Final = "pagination_repeated_page"
-STORYGRAPHCONNECTOR_COLLECT_CURSOR_TEMPLATE: Final = "{v0}:{v1}"
-COLLECTION_NOT_EXPOSED: Final = "collection_not_exposed"
-STORYGRAPHCONNECTOR_COLLECT_MESSAGE_TEMPLATE: Final = (
-    "The {v0} collection or an explicit empty state was not exposed."
-)
-READING_EVENTS_INCOMPLETE: Final = "reading_events_incomplete"
-STORYGRAPHCONNECTOR_COLLECT_MESSAGE_THE_COUNT_DIFFERS_FROM_THE: Final = (
-    "The personal read count differs from the exposed completed reading events; n"
-    "o dates were synthesized."
-)
-STORYGRAPHCONNECTOR_COLLECT_CAPABILITIES_TEMPLATE: Final = "collection.{v0}"
-OWNER_IDENTITY: Final = "owner_identity"
-COVERAGE_INCOMPLETE: Final = "coverage_incomplete"
-STORYGRAPHCONNECTOR_COLLECT_MESSAGE_COLLECTION_COVERAGE_REMAIN: Final = (
-    "Required private fields or collection coverage remain unverified; missing va"
-    "lues are not empty values."
-)
 DATES_PARSE_DATE_D_D_D: Final = "\\d{4}(?:-\\d{2}(?:-\\d{2})?)?"
 DATES_PARSE_DATE_D_D_D_2: Final = "\\d{4}/\\d{2}/\\d{2}"
 DATES_PARSE_DATE_D_D_D_T: Final = "\\d{4}-\\d{2}-\\d{2}T"
@@ -1275,10 +585,6 @@ NET_HTTPCLIENT_FETCH_THE_SOURCE_EXCEEDED_THE_REDIRECT_LIMIT: Final = (
 GOOGLE_BOOKS_ENDPOINT_HTTPS_WWW_GOOGLEAPIS_COM_BOOKS_V1_VOLUMES: Final = (
     "https://www.googleapis.com/books/v1/volumes"
 )
-GOOGLE_BOOKS_FIELDS_TOTALITEMS_TITLE_AUTHORS_INDUSTRYIDENTIFIERS: Final = (
-    "totalItems,items(id,volumeInfo(title,authors,industryIdentifiers,description"
-    ",categories,language,pageCount,publishedDate,averageRating,ratingsCount))"
-)
 RATE_LIMITED: Final = "rate_limited"
 QUOTA_EXCEEDED: Final = "quota_exceeded"
 HTTP_429: Final = "http_429"
@@ -1371,9 +677,6 @@ MAXRESULTS: Final = "maxResults"
 PRINTTYPE: Final = "printType"
 PRETTYPRINT: Final = "prettyPrint"
 GOOGLE_BOOKS_NOT_CONFIGURED: Final = "google_books_not_configured"
-LOOKUP_ISSUES_MESSAGE_GOOGLE_BOOKS_REQUIRES_AN_APPLICATION_API_KEY: Final = (
-    "Google Books requires an application API key for catalog lookup."
-)
 GOOGLEBOOKSPROVIDER_LOOKUP_QUERIES_TEMPLATE: Final = "isbn:{v0}"
 GOOGLE_BOOKS_GOOGLEBOOKSPROVIDER_LOOKUP_TEMPLATE: Final = 'intitle:"{v0}" inauthor:"{v1}"'
 INSUFFICIENT_IDENTITY: Final = "insufficient_identity"
@@ -1407,10 +710,6 @@ GOOGLEBOOKSPROVIDER_LOOKUP_MESSAGE_ADDITIONAL_WERE_DEFERRED_TO_KEEP: Final = (
 SOURCE_ID: Final = "source_id"
 OPEN_LIBRARY_ENDPOINT_HTTPS_OPENLIBRARY_ORG_SEARCH_JSON: Final = (
     "https://openlibrary.org/search.json"
-)
-OPEN_LIBRARY_FIELDS_KEY_TITLE_AUTHOR_NAME_ISBN_SUBJECT_LANGUAGE: Final = (
-    "key,title,author_name,isbn,subject,language,first_publish_year,number_of_pag"
-    "es_median,ratings_average,ratings_count"
 )
 FIELDS_ISSUE_MESSAGE_TEMPLATE_2: Final = (
     "Open Library returned an invalid {v0} value; it was not used."
@@ -1601,10 +900,6 @@ SCHEDULING_ENABLE_WEEKLY_TEMPLATE: Final = (
     "ledTask -TaskName {v2}).TaskName"
 )
 SCHEDULE_JSON: Final = "schedule.json"
-TASK_NAME: Final = "task_name"
-ENABLED_AT: Final = "enabled_at"
-WEEKDAY: Final = "weekday"
-TIMEZONE: Final = "timezone"
 ENABLED_2: Final = "enabled"
 CONFIGURED: Final = "configured"
 NOT_REGISTERED: Final = "not_registered"
@@ -1708,7 +1003,8 @@ STORAGE_SCHEMA_CREATE_TABLE_RUNS_ID_INTEGER_PRIMARY_KEY: Final = (
     "ons(id)\n);\nCREATE TABLE enrichment_attempts (\n    id INTEGER PRIMARY KEY,"
     "\n    record_id INTEGER NOT NULL REFERENCES source_records(id),\n    provide"
     "r TEXT NOT NULL,\n    state TEXT NOT NULL,\n    checked_at TEXT NOT NULL,\n "
-    "   identity_hash TEXT NOT NULL,\n    raw_json TEXT NOT NULL\n);\nCREATE INDE"
+    "   identity_hash TEXT NOT NULL,\n    raw_json TEXT NOT NULL,\n"
+    "    implementation_version INTEGER NOT NULL DEFAULT 0\n);\nCREATE INDE"
     "X enrichment_record ON enrichment_attempts(record_id, provider, id);\nCREATE"
     " TABLE enrichment_candidates (\n    id INTEGER PRIMARY KEY,\n    attempt_id "
     "INTEGER NOT NULL REFERENCES enrichment_attempts(id),\n    provider_id TEXT N"
@@ -2083,7 +1379,7 @@ STORAGE_DATABASE_SAVE_ENRICHMENT_ENRICHMENT_NOT_BEEN_PUBLISHED_FOR: Final = (
 )
 DATABASE_SAVE_ENRICHMENT_ATTEMPT_ID_ATTEMPTS_RECORD_ID_PROVIDER: Final = (
     "INSERT INTO enrichment_attempts(record_id, provider, state, checked_at, iden"
-    "tity_hash, raw_json) VALUES (?, ?, ?, ?, ?, ?)"
+    "tity_hash, raw_json, implementation_version) VALUES (?, ?, ?, ?, ?, ?, ?)"
 )
 IDENTITY_HASH: Final = "identity_hash"
 DATABASE_SAVE_ENRICHMENT_CANDIDATE_ID_CANDIDATES_ATTEMPT_ID_PROVIDER: Final = (
@@ -2108,7 +1404,7 @@ DATABASE_ENRICHMENT_TARGETS_ROWS_SELECT_JSON_FROM_SOURCE_RECORDS: Final = (
     "N a.id = (SELECT MAX(a2.id) FROM enrichment_attempts a2 WHERE a2.record_id ="
     " r.id AND a2.provider = ?) WHERE EXISTS (SELECT 1 FROM memberships m WHERE m"
     ".record_id = r.id) AND (a.id IS NULL OR a.state != ? OR a.checked_at < ? OR "
-    "a.identity_hash != r.identity_hash)"
+    "a.identity_hash != r.identity_hash OR a.implementation_version != ?)"
     " ORDER BY (a.id IS NOT NULL), a.checked_at, a.id,"
     " r.source, r.account_id, r.source_id LIMIT ?"
 )
@@ -2229,127 +1525,15 @@ ACCOUNT_MISSING: Final = "account_missing"
 RUN_ISSUES_MESSAGE_THIS_READER_ACCOUNT_IS_NOT_CONFIGURED: Final = (
     "This reader account is not configured."
 )
-TEST_BROWSER_ORIGIN_TEMPLATE: Final = "https://{v0}"
-TEST_BROWSER_URL_TEMPLATE: Final = "{v0}/profile/alice"
-TEST_BROWSER_LOGIN_HTML_FORM_ACTION_USERS_SIGN_IN_INPUT: Final = (
-    '<html><form action="/users/sign_in"><input type="password"></form></html>'
-)
-TEST_BROWSER_AUTHENTICATED_HTML_NAV_A_HREF_PROFILE_ALICE_YOUR: Final = (
-    '<html><nav><a href="/profile/alice">Your profile</a></nav></html>'
-)
-PAGE_INIT_ABOUT_BLANK: Final = "about:blank"
-TEST_BROWSER_PAGE_GOTO_HTTPS_EXAMPLE_INVALID_TOKEN_DO_NOT_LOG: Final = (
-    "https://example.invalid/?token=DO-NOT-LOG"
-)
-IMPORT_MODULE: Final = "import_module"
-TEST_BROWSER_DRIVER_PREPARE_PROFILE: Final = "_prepare_profile"
 TESTS: Final = "tests"
 FIXTURES: Final = "fixtures"
 STORYGRAPH: Final = "storygraph"
-UNUSED_PROFILE: Final = "unused-profile"
-USER_DATA_DIR: Final = "user_data_dir"
-HEADLESS: Final = "headless"
-ACCEPT_DOWNLOADS: Final = "accept_downloads"
-SERVICE_WORKERS: Final = "service_workers"
-CHROMIUM_SANDBOX: Final = "chromium_sandbox"
-TIMEOUT: Final = "timeout"
-MAX_REDIRECTS: Final = "max_redirects"
-HTML: Final = "html"
-TEST_BROWSER_UNATTENDED_AUTH_AND_TITLE_JUST_A_MOMENT_TITLE: Final = (
-    "<title>Just a moment...</title>"
-)
 BUILTINS_INPUT: Final = "builtins.input"
-TEST_BROWSER_UNATTENDED_AUTH_AND_PROMPT_NO_CONSOLE_INPUT_PERMITTED: Final = (
-    "No console input permitted"
-)
-PRIVATE_CONTENT: Final = "private-content"
-TEST_INTERACTIVE_OWNER_LOGIN_IS_NAVIGATION_LOGGED_IN_TEMPLATE: Final = "{v0}/home"
-TEST_BROWSER_INTERACTIVE_OWNER_NAVIGATION_VISIBLE_SOURCE_BROWSE: Final = "visible source browser"
-MONOTONIC: Final = "monotonic"
-TEST_BROWSER_INTERACTIVE_CHALLENGE_IS_CHALLENGE_FORM_CHALLENGE_FORM: Final = (
-    '<form id="challenge-form">Challenge</form>'
-)
-TEST_BROWSER_UNSAFE_URLS_REJECTED_THESTORYGRAPH_COM_PROFILE_ALICE: Final = (
-    "http://app.thestorygraph.com/profile/alice"
-)
-TEST_BROWSER_UNSAFE_URLS_REJECTED_APP_THESTORYGRAPH_COM_EVIL_EXAMPLE: Final = (
-    "https://app.thestorygraph.com.evil.example/"
-)
-TEST_BROWSER_UNSAFE_URLS_REJECTED_BEFORE_STARTUP_HTTPS_EVIL_EXAMPLE: Final = "https://evil.example/"
-TEST_BROWSER_UNSAFE_URLS_REJECTED_HTTPS_APP_THESTORYGRAPH_COM: Final = (
-    "https://app.thestorygraph.com:444/"
-)
-TEST_BROWSER_UNSAFE_URLS_REJECTED_PASSWORD_APP_THESTORYGRAPH_COM: Final = (
-    "https://user:password@app.thestorygraph.com/"
-)
-TEST_BROWSER_UNSAFE_URLS_REJECTED_APP_THESTORYGRAPH_COM_EVIL_EXAMPLE_2: Final = (
-    "https://app.thestorygraph.com\\@evil.example/"
-)
-TEST_BROWSER_UNSAFE_URLS_REJECTED_HTTPS_APP_THESTORYGRAPH_COM_2: Final = (
-    "https://app.thestorygraph.com./"
-)
-TEST_BROWSER_UNSAFE_URLS_REJECTED_BEFORE_STARTUP_HTTPS_MALFORMED: Final = "https://[malformed"
-TEST_BROWSER_UNSAFE_URLS_REJECTED_BEFORE_STARTUP_TEMPLATE: Final = "{v0}/exports"
-TEST_BROWSER_UNSAFE_URLS_REJECTED_BEFORE_STARTUP_TEMPLATE_2: Final = "{v0}/%65xport"
-TEST_BROWSER_UNSAFE_URLS_REJECTED_BEFORE_STARTUP_TEMPLATE_3: Final = "{v0}/books?download=true"
-TEST_BROWSER_SAFE_REDIRECT_SEPARATELY_VALIDATED_REDIRECTED_TEMPLATE: Final = (
-    "{v0}/profile/alice?ref=normal"
-)
-TEST_EXTERNAL_REDIRECT_IS_BLOCKED_BEFORE_HTTPS_EVIL_EXAMPLE_TOKEN_DO: Final = (
-    "https://evil.example/?token=DO-NOT-LOG"
-)
-DO_NOT_LOG: Final = "DO-NOT-LOG"
-TEST_BROWSER_LATER_REDIRECT_HOP_HOST_VALIDATION_SECOND_TEMPLATE: Final = "{v0}/intermediate"
-TEST_BROWSER_EXPORT_SUBRESOURCES_ARE_BLOCKED_EXPORT_TEMPLATE: Final = "{v0}/export?format=csv"
-TEST_BROWSER_EXPORT_SUBRESOURCES_ARE_BLOCKED_MUTATION_TEMPLATE: Final = "{v0}/reviews/new"
-TEST_EXPORT_SUBRESOURCES_MUTATIONS_AND_HEADERS_ATTACHMENT_FILENAME_L: Final = (
-    "attachment; filename=library.csv"
-)
-TEST_BROWSER_ONLY_DISCOVERED_OWNER_LOGIN_FORM_CAN_SUBMIT_TEMPLATE: Final = "{v0}/users/sign_in"
-TEST_BROWSER_BROWSER_ERRORS_ARE_TYPED_RAW_MESSAGES_TOKEN_DO_NOT_LOG: Final = "token=DO-NOT-LOG"
-TEST_BROWSER_BROWSER_ERRORS_ARE_TYPED_MESSAGES_COOKIES_DO_NOT_LOG: Final = "cookies=DO-NOT-LOG"
-TEST_BROWSER_MISSING_DEPENDENCIES_INSTALLED_UNAVAILABLE_SECRET_DEPEN: Final = (
-    "secret dependency path"
-)
-TEST_BROWSER_MISSING_DEPENDENCIES_INSTALLED_PLAYWRIGHT_INSTALL_CHROM: Final = (
-    "playwright install chromium"
-)
-TEST_BROWSER_MISSING_BROWSER_BINARY_IS_ERROR_EXECUTABLE_DOESN_T_EXIS: Final = (
-    "Executable doesn't exist at private-user-directory"
-)
-PRIVATE_USER_DIRECTORY: Final = "private-user-directory"
-CLOSED: Final = "closed"
-TEST_BROWSER_REAL_BROWSER_LOCAL_SOURCE_NETWORK_INSTALL_CHROMIUM_WITH: Final = (
-    "Install Chromium with python -m playwright install chromium for this check"
-)
-TEST_REAL_BROWSER_LOCAL_REDIRECTS_AND_NETWORK_HANDLER_DO_GET_BOOKY: Final = "booky_test=1"
 COOKIE: Final = "Cookie"
-TEST_REAL_BROWSER_LOCAL_REDIRECTS_AND_NETWORK_HANDLER_DO_GET_START: Final = "/start"
-LOCATION_2: Final = "Location"
-TEST_REAL_BROWSER_LOCAL_REDIRECTS_AND_NETWORK_HANDLER_DO_GET_PAGE: Final = "/page"
 SET_COOKIE: Final = "Set-Cookie"
-TEST_REAL_BROWSER_LOCAL_REDIRECTS_AND_HANDLER_DO_GET_BOOKY_PATH_MAX: Final = (
-    "booky_test=1; Path=/; Max-Age=3600; HttpOnly"
-)
-TEST_REAL_BROWSER_LOCAL_REDIRECTS_AND_NETWORK_HANDLER_DO_GET_UNSAFE: Final = "/unsafe"
-TEST_REAL_BROWSER_LOCAL_REDIRECTS_AND_DO_GET_HTTPS_EVIL_EXAMPLE_T: Final = (
-    "https://evil.example/?token=never-follow"
-)
-HANDLER_DO_GET_BODY_BYTES: Final = b"<html><body><main>Local browser fixture</main></body></html>"
 CONTENT_TYPE_2: Final = "Content-Type"
 TEST_REAL_BROWSER_LOCAL_REDIRECTS_AND_HANDLER_DO_GET_TEXT_HTML: Final = "text/html"
-CONTENT_LENGTH_2: Final = "Content-Length"
-TEST_BROWSER_REAL_BROWSER_LOCAL_WITHOUT_SOURCE_NETWORK_SERVER_TEXT: Final = "127.0.0.1"
-TEST_BROWSER_REAL_BROWSER_LOCAL_SOURCE_NETWORK_ORIGIN_TEMPLATE: Final = "http://127.0.0.1:{v0}"
-TEST_BROWSER_REAL_BROWSER_LOCAL_SOURCE_NETWORK_PROFILE_TEMPLATE: Final = ".browser-check-{v0}"
-TEST_BROWSER_REAL_BROWSER_LOCAL_NETWORK_LOCAL_ONLY_LOCAL_FIXTU: Final = (
-    "Local fixture redirect refused."
-)
-TEST_BROWSER_REAL_BROWSER_LOCAL_WITHOUT_SOURCE_NETWORK_CHECKED_URL: Final = "_checked_url"
-TEST_BROWSER_REAL_BROWSER_LOCAL_SOURCE_NETWORK_DOCUMENT_TEMPLATE: Final = "{v0}/start"
-TEST_BROWSER_REAL_BROWSER_LOCAL_WITHOUT_SOURCE_NETWORK_TEMPLATE: Final = "{v0}/page"
-TEST_BROWSER_REAL_BROWSER_LOCAL_WITHOUT_SOURCE_NETWORK_TEMPLATE_2: Final = "{v0}/unsafe"
-BOOKYSTATS_CACHE_UTC_TIMESTAMP: Final = "bookystats.cache._utc_timestamp"
+BOOKYSTATS_CACHE_UTC_TIMESTAMP: Final = "bookystats.persistence.cache._utc_timestamp"
 CATALOG_SQLITE: Final = "catalog.sqlite"
 TEST_CACHE_PERSISTENT_CACHE_IS_AND_RETURNS_DETACHED_DATA_ISBN: Final = "isbn:9780140328721"
 MATILDA: Final = "Matilda"
@@ -2407,263 +1591,15 @@ TEST_CONFIG_INVALID_CONFIG_DOES_NOT_ECHO_INPUT_UNKNOWN_PRIVATE: Final = (
 )
 TEST_CONFIG_WEEKLY_SCHEDULE_REQUIRES_EXPLICIT_TIME_TIME_TEXT: Final = "26:10"
 UTC: Final = "UTC"
-TEST_GOODREADS_FEED_IDENTITY_TEMPLATE: Final = "{v0}/review/list/4242?shelf={v1}"
-TEST_GOODREADS_FEED_TEMPLATE: Final = (
-    '<rss version="2.0"><channel><title>Reader&apos;s bookshelf: {v0}</title><lin'
-    "k>{v1}</link>{v2}</channel></rss>"
-)
-TEST_GOODREADS_ITEM_BOOK_ID_TEXT: Final = "1001"
-TEST_GOODREADS_ITEM_TITLE_TOILES: Final = "\xc9toiles"
-TEST_GOODREADS_ITEM_TEMPLATE: Final = (
-    "<item><book_id>{v0}</book_id><title>{v1}</title><author_name>Jos\xe9 \xc1lva"
-    "res</author_name>{v2}</item>"
-)
-TEST_GOODREADS_WITH_COUNT_CHANNEL: Final = "</channel>"
-TEST_GOODREADS_WITH_COUNT_TEMPLATE: Final = (
-    '<opensearch:totalResults xmlns:opensearch="http://a9.com/-/spec/opensearch/1'
-    '.1/">{v0}</opensearch:totalResults></channel>'
-)
-TEST_GOODREADS_FAKEHTTP_FETCH_UNEXPECTED_HTTP_FETCH: Final = "unexpected HTTP fetch"
-TEST_GOODREADS_FAKEHTTP_FETCH_APPLICATION_RSS_XML: Final = "application/rss+xml"
-TEST_GOODREADS_FAKEBROWSER_FETCH_UNEXPECTED_BROWSER_FETCH: Final = "unexpected browser fetch"
-TEST_GOODREADS_ACCOUNT_ACCOUNT_ID_TEXT: Final = "4242"
-TEST_GOODREADS_ACCOUNT_PROFILE_URL_TEMPLATE: Final = "{v0}/user/show/4242-reader"
-TEST_GOODREADS_INVALID_PAGE_LIMIT_FETCH_MATCH_POSITIVE_INTEGER: Final = "positive integer"
 TEST_REJECTS_AN_ACCOUNT_FOR_A_APP_THESTORYGRAPH_COM_PROFILE_READER: Final = (
     "https://app.thestorygraph.com/profile/reader"
 )
-TEST_GOODREADS_REJECTS_AN_ACCOUNT_SOURCE_MATCH_GOODREADS_READER: Final = "Goodreads reader"
-RSS_FIRST_XML: Final = "rss-first.xml"
-RSS_SECOND_XML: Final = "rss-second.xml"
-RSS_EMPTY_XML: Final = "rss-empty.xml"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_TEXT: Final = "1002"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_TEXT_2: Final = "1003"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_TEXT_3: Final = "100"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_A_VERIFIED_EMPTY_TAIL_TEMPLATE: Final = (
-    "{v0}/review/list_rss/4242"
-)
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_A_VERIFIED_EMPTY_TAIL_RBITA_CAF: Final = "\xd3rbita & caf\xe9"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_EMPTY_TAIL_MAR_A_S_ENZ: Final = "Mar\xeda S\xe1enz"
 TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_TEXT_4: Final = "9780140328721"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_A_VERIFIED_EMPTY_TAIL_FICCI_N: Final = "ficci\xf3n"
 OWNED: Final = "owned"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_TEXT_5: Final = "2026-07-27"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_A_VERIFIED_EMPTY_TAIL_MON_JUL: Final = (
-    "Mon, 27 Jul 2026 20:47:23 -0700"
-)
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_EMPTY_TAIL_THE_QUIET_MAP: Final = "The Quiet Map"
 TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_TEXT_6: Final = "1988"
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_KEY: Final = "key="
-TEST_GOODREADS_RSS_WALKS_SHORT_PAGES_TO_A_VERIFIED_EMPTY_TAIL_TOKEN: Final = "token="
-TEST_GOODREADS_COMMON_HTTP_CLIENT_NETWORK_RESPOND_REVIEW_LIST_RSS: Final = "/review/list_rss/4242"
-TEST_GOODREADS_CHANNEL_IDENTITY_IS_NOT_BOOKS_OR_AUTHOR_ID_TEMPLATE: Final = (
-    "{v0}/author/show/4242-reader"
-)
-TEST_GOODREADS_CHANNEL_IDENTITY_IS_NOT_BOOKS_OR_AUTHOR_ID_TEMPLATE_2: Final = (
-    "{v0}/review/list/999?shelf=to-read"
-)
-TEST_GOODREADS_CHANNEL_IDENTITY_IS_NOT_WWW_GOODREADS_COM_EVIL_INVA: Final = (
-    "https://www.goodreads.com.evil.invalid/review/list/4242?shelf=to-read"
-)
-TEST_GOODREADS_CHANNEL_IDENTITY_IS_NOT_WWW_GOODREADS_COM_EVIL_INVA_2: Final = (
-    "https://www.goodreads.com@evil.invalid/review/list/4242?shelf=to-read"
-)
-TEST_GOODREADS_CHANNEL_IDENTITY_IS_NOT_OR_AUTHOR_ID_JAVASCRIPT_ALERT: Final = "javascript:alert(1)"
-TEST_GOODREADS_MISSING_CHANNEL_READER_CHANNEL_TITLE_READER_S_BOOKSH: Final = (
-    "<rss><channel><title>Reader's bookshelf: to-read</title>"
-)
-TEST_GOODREADS_MISSING_CHANNEL_READER_IDENTITY_XML_CHANNEL_RSS: Final = "</channel></rss>"
-TEST_GOODREADS_CONFLICTING_ATOM_SELF_IS_REJECTED_XML_LIST_RSS: Final = "list_rss/4242"
-TEST_GOODREADS_CONFLICTING_ATOM_SELF_IS_REJECTED_XML_LIST_RSS_2: Final = "list_rss/999"
-COUNT: Final = "count"
-TEST_GOODREADS_BOOK_PAGE_COUNT_IS_NEVER_ID_NUM_PAGES_NUM_PAGES_BOOK: Final = (
-    "<book id='1001'><num_pages>9876</num_pages></book>"
-)
-TEST_GOODREADS_ACCESS_BLOCK_IS_NOT_HTML_BODY_ACCESS_DENIED_BODY_HTML: Final = (
-    "<html><body>Access denied</body></html>"
-)
-BROWSER_EMPTY_HTML: Final = "browser-empty.html"
-CHALLENGE: Final = "challenge"
-TEST_GOODREADS_SUCCESS_STATUS_CHALLENGE_VERIFY_YOU_ARE_HUMAN_BO: Final = (
-    "<html><body>Verify you are human</body></html>"
-)
-TEST_GOODREADS_SUCCESS_STATUS_CHALLENGE_BODY_FORM_ID_CHALLENGE_FORM: Final = (
-    "<html><body><form id='challenge-form'>Continue</form></body></html>"
-)
-TEST_GOODREADS_SUCCESS_STATUS_CHALLENGE_DIV_CLASS_H_CAPTCHA_DIV: Final = (
-    "<html><body><div class='h-captcha'></div></body></html>"
-)
-TEST_GOODREADS_A_BOOK_TITLE_IS_HTML_ACCESS_DENIED_HTML_DESCRIPT: Final = (
-    "<description><![CDATA[<html>Access denied</html>]]></description>"
-)
-TEST_A_BOOK_TITLE_IS_NOT_AN_ACCESS_BLOCK_XML_TITLE_ACCESS_DENIED: Final = "Access Denied"
-BODY: Final = "body"
-TEST_GOODREADS_PRIVATE_OR_UNAVAILABLE_THIS_PROFILE_IS_PRIVATE_BODY: Final = (
-    "<html><body>This profile is private</body></html>"
-)
-TEST_GOODREADS_PRIVATE_OR_UNAVAILABLE_INPUT_TYPE_PASSWORD_FORM_HTML: Final = (
-    "<html><form><input type='password'></form></html>"
-)
-TEST_GOODREADS_PRIVATE_OR_UNAVAILABLE_FEED_BODY_SIGN_IN_BODY_HTML: Final = (
-    "<html><body>Sign in</body></html>"
-)
-TEST_GOODREADS_PRIVATE_OR_REQUIRES_ORDINARY_AUTH_TEMPLATE: Final = "{v0}/user/sign_in"
-TEST_GOODREADS_ARBITRARY_HTML_OR_HTML_BODY_SOMETHING_CHANGED: Final = (
-    "<html><body>Something changed</body></html>"
-)
-TEST_GOODREADS_ARBITRARY_HTML_OR_IS_NOT_GENUINE_UNAVAILABILITY_RSS: Final = "<rss>"
-DECLARATION: Final = "declaration"
-TEST_GOODREADS_DTD_AND_ENTITIES_WITHOUT_EXPANSION_DOCTYPE_RSS: Final = "<!DOCTYPE rss>"
-TEST_GOODREADS_DTD_AND_ENTITIES_ARE_RSS_ENTITY_XXE_SYSTEM_FILE_C: Final = (
-    '<!DOCTYPE rss [<!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini">]>'
-)
-TEST_GOODREADS_DTD_AND_ENTITIES_ARE_RSS_ENTITY_ONE_ABC_ENTITY_TWO: Final = (
-    '<!DOCTYPE rss [<!ENTITY one "abc"><!ENTITY two "&one;&one;">]>'
-)
-TEST_GOODREADS_INVALID_XML_ENCODING_EXPOSING_PAYLOAD_RESULT_BYTES: Final = b"\xff\xfe\x00"
-TEST_GOODREADS_XML_ENCODING_DECLARATION_XML_XML_VERSION_ENCODING_ISO: Final = (
-    '<?xml version="1.0" encoding="ISO-8859-1"?>'
-)
-ISO_8859_1: Final = "iso-8859-1"
-TEST_GOODREADS_BLOCK_STATUS_SURVIVES_CHALLENGE_REDIRECT_RESULT_BYTES: Final = b"\xff"
-TEST_BLOCK_STATUS_SURVIVES_INVALID_REDIRECT_RESULT_URL_TEMPLATE: Final = "{v0}/sorry"
-TEST_BROWSER_REDIRECT_TO_CHALLENGE_NOT_UNKNOWN_MARKUP_URL_TEMPLATE: Final = "{v0}/challenge"
-DESTINATION: Final = "destination"
-TEST_GOODREADS_UNEXPECTED_FINAL_URL_IS_EVIL_INVALID_REVIEW_LIST_RSS: Final = (
-    "https://evil.invalid/review/list_rss/4242"
-)
-TEST_GOODREADS_UNEXPECTED_FINAL_URL_IS_GOODREADS_COM_REVIEW_LIST_RSS: Final = (
-    "https://www.goodreads.com:8443/review/list_rss/4242"
-)
-TEST_GOODREADS_UNEXPECTED_FINAL_URL_REJECTED_BEFORE_RECORDS_TEMPLATE: Final = (
-    "{v0}/review/list_rss/999"
-)
-TEST_GOODREADS_UNEXPECTED_FINAL_URL_REJECTED_BEFORE_RECORDS_TEMPLATE_2: Final = (
-    "{v0}/author/show/4242"
-)
-TEST_GOODREADS_MALICIOUS_OR_MISMATCHED_HTTPS_EVIL_INVALID_BOOK_SHOW: Final = (
-    "https://evil.invalid/book/show/1001"
-)
-TEST_GOODREADS_MALICIOUS_OR_MISMATCHED_HTTPS_WWW_GOODREADS_COM_EVIL: Final = (
-    "https://www.goodreads.com.evil.invalid/book/show/1001"
-)
-TEST_GOODREADS_MALICIOUS_OR_MISMATCHED_DISCARD_OTHER_ROWS_TEMPLATE: Final = "{v0}/book/show/9999"
-TEST_GOODREADS_MALICIOUS_OR_MISMATCHED_OTHER_ROWS_XML_TEMPLATE: Final = "<link>{v0}</link>"
-EVIL_INVALID: Final = "evil.invalid"
-TEST_GOODREADS_FEED_FAILURE_KEEPS_HTTP_GOODREADS_REQUEST_TIMED: Final = (
-    "Goodreads request timed out."
-)
-TEST_GOODREADS_PROGRESS_PERSISTENCE_FAILING_CALLBACK_THE_LOCAL: Final = (
-    "The local progress store is unavailable."
-)
-TEST_GOODREADS_PROGRESS_PERSISTENCE_MATCH_LOCAL_PROGRESS_STORE: Final = "local progress store"
-TEST_GOODREADS_INVALID_ISBN_IS_NOT_PROMOTED_TO_AN_IDENTIFIER_TEXT: Final = "9780140328720"
-NOT_AN_ISBN: Final = "not-an-isbn"
 TEST_GOODREADS_INVALID_ISBN_IS_NOT_PROMOTED_TO_AN_IDENTIFIER_TEXT_2: Final = "1234567890123"
-TEST_GOODREADS_INVALID_ISBN_IS_NOT_TO_AN_IDENTIFIER_RESULT_TEMPLATE: Final = "<isbn>{v0}</isbn>"
 DATE: Final = "date"
-EXPECTED: Final = "expected"
 TEST_GOODREADS_SOURCE_DATE_PRECISION_IS_RETAINED_TEXT: Final = "2024"
-TEST_GOODREADS_SOURCE_DATE_PRECISION_IS_RETAINED_TEXT_2: Final = "2024-06"
-TEST_GOODREADS_SOURCE_DATE_PRECISION_IS_RETAINED_JUNE: Final = "June 2024"
-TEST_GOODREADS_SOURCE_DATE_PRECISION_IS_RETAINED_JUN: Final = "Jun 02, 2024"
-TEST_GOODREADS_SOURCE_DATE_PRECISION_IS_RETAINED_TEXT_3: Final = "2024-06-02"
-TEST_GOODREADS_SOURCE_DATE_PRECISION_IS_RETAINED_T23: Final = "2024-06-02T23:59:00-07:00"
-TEST_GOODREADS_SOURCE_DATE_PRECISION_IS_RETAINED_RESULT_TEMPLATE: Final = (
-    "<user_date_added>{v0}</user_date_added>"
-)
-TEST_GOODREADS_AMBIGUOUS_OR_IMPOSSIBLE_BECOMES_OBSERVATION_DATE_TEXT: Final = "04/05/2024"
-TEST_GOODREADS_AMBIGUOUS_OR_IMPOSSIBLE_BECOMES_OBSERVATION_DATE_TEXT_2: Final = "2024-02-31"
-TEST_GOODREADS_AMBIGUOUS_OR_IMPOSSIBLE_BECOMES_OBSERVATION_DATE_MAY: Final = "May 4"
-YESTERDAY: Final = "yesterday"
-TEST_GOODREADS_AMBIGUOUS_OR_IMPOSSIBLE_OBSERVATION_DATE_MON_JUL: Final = (
-    "Mon, 27 Jul 9999999999999999999 20:47:23 -0700"
-)
-TEST_GOODREADS_ZERO_PAGE_COUNT_AND_XML_BOOK_NUM_PAGES_NUM_PAGE: Final = (
-    "<book><num_pages>0</num_pages></book><user_rating>0</user_rating>"
-)
-RAW: Final = "raw"
-NAN_2: Final = "NaN"
-TEST_GOODREADS_MALFORMED_NUMERIC_METADATA_IS_ISSUE_NOT_A_CRASH_TEXT: Final = "-1"
-INFINITY: Final = "Infinity"
-TEST_GOODREADS_MALFORMED_NUMERIC_METADATA_IS_ISSUE_NOT_A_CRASH_TEXT_2: Final = "9"
-TEST_GOODREADS_MALFORMED_NUMERIC_METADATA_NOT_A_CRASH_XML_TEMPLATE: Final = (
-    "<book><num_pages>{v0}</num_pages></book>"
-)
-TEST_GOODREADS_MULTIPLE_AUTHORS_PRESERVE_THE_FRAN_OISE_NO_L_AUTHOR: Final = (
-    "<author_name>Fran\xe7oise No\xebl</author_name><author_name>Jos\xe9 \xc1lvares</author_name>"
-)
-TEST_GOODREADS_MULTIPLE_AUTHORS_PRESERVE_SOURCE_SPELLING_JOS_LVARES: Final = "Jos\xe9 \xc1lvares"
-TEST_GOODREADS_MULTIPLE_AUTHORS_PRESERVE_THE_SPELLING_FRAN_OISE_NO_L: Final = "Fran\xe7oise No\xebl"
-BROWSER_TABLE_HTML: Final = "browser-table.html"
-BROWSER_FRAGMENT_HTML: Final = "browser-fragment.html"
-TEST_GOODREADS_BROWSER_FALLBACK_COLLECTS_MEMBERSHIP_S_ENZ_MAR_A: Final = "S\xe1enz, Mar\xeda"
-HARDCOVER: Final = "Hardcover"
-TEST_GOODREADS_BROWSER_FALLBACK_MATCHES_FEED_MEMBERSHIP_TEXT: Final = "2020-06"
-TEST_GOODREADS_BROWSER_FALLBACK_MATCHES_FEED_MEMBERSHIP_TEXT_2: Final = "2"
-TEST_GOODREADS_BROWSER_WITH_NO_EXPECTED_EMPTY_TAIL_FIRST_TO_READ: Final = "to-read (3)"
-TEST_GOODREADS_BROWSER_WITH_NO_EXPECTED_EMPTY_TAIL_EMPTY_TO_READ: Final = "to-read (0)"
-TEST_GOODREADS_BROWSER_REJECTS_LOGGED_IN_A_HREF_REVIEW_LIST_MY_BO: Final = (
-    '<a href="/review/list/4242">My Books</a>'
-)
-TEST_GOODREADS_BROWSER_REJECTS_LOGGED_IN_A_HREF_REVIEW_LIST_MY_BO_2: Final = (
-    '<a href="/review/list/999">My Books</a>'
-)
-TEST_GOODREADS_BROWSER_REQUIRES_AUTH_IS_CORRECT_HTML_MY_BOOKS: Final = "My Books"
-TEST_GOODREADS_BROWSER_REQUIRES_AUTH_IS_CORRECT_HTML_PUBLIC_BOOKS: Final = "Public books"
-PROFILE_2: Final = "Profile"
-TEST_GOODREADS_BROWSER_LOGIN_OR_PRIVATE_FORM_INPUT_TYPE_PASSWORD_FOR: Final = (
-    "<html><body><form><input type='password'></form></body></html>"
-)
-TEST_GOODREADS_BROWSER_LOGIN_OR_PRIVATE_THIS_MEMBER_S_PROFILE_IS: Final = (
-    "<html><body>This member's profile is private.</body></html>"
-)
-REPLACEMENT: Final = "replacement"
-TEST_GOODREADS_UNKNOWN_BROWSER_MARKUP_SHELF_MAIN_NEW_INTERFACE_MAIN: Final = (
-    "<main>New interface</main>"
-)
-TEST_GOODREADS_UNKNOWN_BROWSER_MARKUP_IS_BOOKS_TBODY_ID_BOOKSBODY_TR: Final = (
-    '<table id="books"><tbody id="booksBody"><tr class="new-layout"><td>A book</t'
-    "d></tr></tbody></table>"
-)
-TEST_GOODREADS_UNKNOWN_BROWSER_MARKUP_CLASS_TABLE_STACKED_TBODY: Final = (
-    '<table id="books" class="table stacked"><tbody id="booksBody"></tbody></table>'
-)
-NEXT_URL: Final = "next_url"
-TEST_GOODREADS_BROWSER_PAGINATION_CANNOT_HTTPS_EVIL_INVALID_REVIEW: Final = (
-    "https://evil.invalid/review/list/4242?shelf=to-read&amp;page=2"
-)
-TEST_GOODREADS_BROWSER_PAGINATION_CANNOT_REVIEW_LIST_SHELF_TO_READ: Final = (
-    "/review/list/999?shelf=to-read&amp;page=2"
-)
-TEST_GOODREADS_BROWSER_PAGINATION_CANNOT_REVIEW_LIST_SHELF_READ_AM: Final = (
-    "/review/list/4242?shelf=read&amp;page=2"
-)
-TEST_GOODREADS_BROWSER_PAGINATION_CANNOT_REVIEW_LIST_SHELF_TO_READ_2: Final = (
-    "/review/list/4242?shelf=to-read&amp;page=1"
-)
-TEST_GOODREADS_BROWSER_PAGINATION_CANNOT_REVIEW_LIST_SHELF_TO_READ_3: Final = (
-    "/review/list/4242?shelf=to-read&amp;page=2&amp;per_page=500"
-)
-TEST_GOODREADS_BROWSER_PAGINATION_CANNOT_REVIEW_LIST_SHELF_TO_READ_4: Final = (
-    "/review/list/4242?shelf=to-read&amp;page=2&amp;per_page="
-)
-TEST_GOODREADS_BROWSER_PAGINATION_CANNOT_HTML_REVIEW_LIST_SHELF_TO: Final = (
-    "/review/list/4242?shelf=to-read&amp;page=2&amp;per_page=100&amp;token=not-a-real-secret"
-)
-TEST_GOODREADS_BROWSER_REPEATED_PAGE_BE_COMPLETE_SECOND_REL_NEXT: Final = 'rel="next"'
-TEST_GOODREADS_BROWSER_REPEATED_PAGE_BE_COMPLETE_SECOND_REL_PREV: Final = 'rel="prev"'
-TEST_GOODREADS_BROWSER_REPEATED_PAGE_CANNOT_BE_COMPLETE_SECOND_NEXT: Final = "next \xbb"
-PREVIOUS: Final = "previous"
-TEST_GOODREADS_NUMBER_NAMED_CUSTOM_PAGINATION_LINK_HTML_TO_READ: Final = "to-read (1)"
-TEST_GOODREADS_NUMBER_NAMED_CUSTOM_A_PAGINATION_LINK_HTML_ASIDE: Final = "</aside>"
-TEST_GOODREADS_NUMBER_NAMED_CUSTOM_SHELF_HTML_A_HREF_REVIEW_LIST_SH: Final = (
-    '<a href="/review/list/4242?shelf=2">2</a></aside>'
-)
-TEST_GOODREADS_BROWSER_CHANGING_SHELF_AUTHORITATIVE_CHANGED_TO_READ: Final = "to-read (4)"
-TEST_GOODREADS_BROWSER_FETCHER_COMPLETED_PAGES_SESSION_EXPIRED: Final = "Session expired."
-TEST_GOODREADS_BROWSER_FETCHER_COMPLETED_PAGES_ACCESS_BLOCKED: Final = "Access blocked."
-TEST_GOODREADS_BROWSER_FETCHER_COMPLETED_PAGES_BROWSER_TIMEOUT: Final = "Browser timeout."
 TEST_GOOGLE_BOOKS_FAKEHTTP_FETCH_UNEXPECTED_METADATA_REQUEST: Final = "Unexpected metadata request"
 TEST_GOOGLE_BOOKS_RESPONSE_URL_HTTPS_GOOGLEAPIS_COM_BOOKS_V1_VOLUMES: Final = (
     "https://www.googleapis.com/books/v1/volumes?key=SECRET-RECEIPT-KEY"
@@ -2689,8 +1625,6 @@ TEST_GOOGLE_BOOKS_ISBN_SEARCH_PRIVATE_FIELDS_JUVENILE_FICTION: Final = "Juvenile
 TEST_GOOGLE_BOOKS_ISBN_SEARCH_FIELDS_SYNTHETIC_CATALOG_FIXTURE_NO: Final = (
     "Synthetic catalog fixture, not publisher copy ."
 )
-IMAGE: Final = "image"
-USERINFO: Final = "userInfo"
 AUTHORIZATION: Final = "Authorization"
 TEST_GOOGLE_BOOKS_APPLICATION_KEY_IS_EVEN_FOR_PUBLIC_DATA_TEXT: Final = "   "
 TESTVOLUME_2: Final = "testVolume_2"
@@ -2845,8 +1779,6 @@ TEST_OPEN_LIBRARY_WORK_SEARCH_NEVER_DATA_TO_EXACT_EDITION_TEXT: Final = "9780142
 ENG: Final = "eng"
 FRE: Final = "fre"
 TEST_OPEN_LIBRARY_WORK_SEARCH_NEVER_DATA_TO_EXACT_EDITION_ISBN: Final = "(isbn:9780140328721)"
-TEST_OPEN_LIBRARY_WORK_SEARCH_NEVER_DATA_TO_EXACT_EDITION_TEXT_2: Final = "*"
-COVER: Final = "cover"
 OL123W: Final = "OL123W"
 TEST_OPEN_LIBRARY_DISTINCT_BOOKS_SHARE_HITS_TO_KILL_A_MOCKINGBIRD: Final = "To Kill a Mockingbird"
 TEST_OPEN_LIBRARY_DISTINCT_BOOKS_INDIVIDUAL_CACHE_HITS_HARPER_LEE: Final = "Harper Lee"
@@ -2888,7 +1820,7 @@ TEST_OPEN_LIBRARY_INJECTED_TRANSPORT_AGENT_BOOKYSTATS_OPERATOR_E: Final = (
     "BookyStats/0.1 (operator@example.test)"
 )
 BOOKYSTATS_SCHEDULING_IMPLEMENTATION_FINGERPRINT: Final = (
-    "bookystats.scheduling.implementation_fingerprint"
+    "bookystats.runtime.scheduling.implementation_fingerprint"
 )
 CURRENT: Final = "current"
 TEST_SCHEDULING_WEEKLY_GATE_REQUIRES_EVIDENCE_MATCH_TWO_CONSECUTIVE: Final = "two consecutive"
@@ -3064,198 +1996,7 @@ TEST_STORAGE_PROVIDER_AND_TARGET_WRITES_MATCH_ANOTHER_PROVIDER: Final = "another
 TEST_STORAGE_PROVIDER_AND_TARGET_SELECT_ID_FROM_ENRICHMENT_ATTEMPTS: Final = (
     "SELECT id FROM enrichment_attempts"
 )
-TEST_STORYGRAPH_READ_TEMPLATE: Final = "{v0}/books-read/alice"
-TEST_STORYGRAPH_CURRENT_TEMPLATE: Final = "{v0}/currently-reading/alice"
-TEST_STORYGRAPH_PAUSED_TEMPLATE: Final = "{v0}/paused/alice"
-TEST_STORYGRAPH_DNF_TEMPLATE: Final = "{v0}/did-not-finish/alice"
-TEST_STORYGRAPH_BOOK_TEMPLATE: Final = "{v0}/books/book-a-id"
-ALICE: Final = "alice"
-TEST_STORYGRAPH_OWNED_TEMPLATE: Final = (
-    '<html><body><nav><a href="/profile/{v0}" aria-label="Your profile">Profile</'
-    'a><a href="/users/sign_out">Sign out</a></nav><main>{v1}</main></body></html'
-    ">"
-)
-READ_BOOKS: Final = "read-books"
-TEST_STORYGRAPH_EMPTY_TEMPLATE: Final = '<div class="{v0}"><p>No books in this list.</p></div>'
-TEST_STORYGRAPH_FAKEBROWSER_FETCH_TEMPLATE: Final = "Unexpected fixture request: {v0}"
-PROFILE_HTML: Final = "profile.html"
-READ_PAGE_HTML: Final = "read_page.html"
-PAUSED_BOOKS: Final = "paused-books"
-BOOK_HTML: Final = "book.html"
-BOOK_A_ID: Final = "book-a-id"
-TEST_STORYGRAPH_SOURCE_STRUCTURES_PERSONAL_PRESERVED_THE_FIRST_BOOK: Final = "The First Book"
-TEST_STORYGRAPH_SOURCE_STRUCTURES_PERSONAL_ARE_PRESERVED_AUTHOR_ONE: Final = "Author One"
-TEST_STORYGRAPH_SOURCE_STRUCTURES_PERSONAL_OWNER_S_OWN_REVIEW: Final = "owner's own review"
-TEST_STORYGRAPH_SOURCE_STRUCTURES_PERSONAL_PRESERVED_SOMEONE_ELSE_S: Final = "Someone else's"
-REFLECTIVE: Final = "reflective"
-HOPEFUL: Final = "hopeful"
-SLOW: Final = "slow"
-FAVOURITES: Final = "favourites"
 GRIEF: Final = "grief"
-READ_ONE: Final = "read-one"
-READ_TWO: Final = "read-two"
-TEST_STORYGRAPH_SOURCE_STRUCTURES_REREADS_ARE_PRESERVED_TEXT: Final = "2025-04"
-HIDDEN_BOOK: Final = "hidden-book"
-TEST_STORYGRAPH_PERSONAL_ZERO_QUARTER_EXPLICIT_BLANK_RATINGS_STARS: Final = "0 stars"
-TEST_STORYGRAPH_PERSONAL_ZERO_QUARTER_EXPLICIT_BLANK_RATINGS_STARS_2: Final = "0.25 stars"
-TEST_STORYGRAPH_PERSONAL_ZERO_QUARTER_EXPLICIT_BLANK_RATINGS_TEXT: Final = "4.75 / 5"
-TEST_STORYGRAPH_PERSONAL_ZERO_QUARTER_BLANK_RATINGS_NOT_RATED: Final = "Not rated"
-TEST_STORYGRAPH_PERSONAL_ZERO_QUARTER_EXPLICIT_BLANK_RATINGS_STARS_3: Final = "4.3 stars"
-TEST_STORYGRAPH_PERSONAL_ZERO_QUARTER_BLANK_RATINGS_SIX_STARS: Final = "six stars"
-TEST_STORYGRAPH_PERSONAL_ZERO_QUARTER_EXPLICIT_BLANK_RATINGS_STARS_4: Final = "4.25 stars"
-TEST_STORYGRAPH_COMMUNITY_AVERAGE_AND_FIELDS_DIV_CLASS_STANDARD: Final = (
-    '<div class="standard-pane"><span class="average-star-rating">4.25</span></di'
-    'v><section><h2>Community reviews</h2><article itemprop="review"><a href="/pr'
-    'ofile/bob">bob</a><span itemprop="ratingValue">5</span><div class="trix-cont'
-    'ent"><p>Your rating: 1</p>Not yours.</div></article></section>'
-)
-DOCUMENT: Final = "document"
-TEST_STORYGRAPH_AUTHENTICATION_AND_OWNER_INPUT_TYPE_PASSWORD_FORM: Final = (
-    '<form><input type="password"></form>'
-)
-DENIED: Final = "Denied"
-TEST_STORYGRAPH_AUTHENTICATION_AND_OWNER_ARE_REQUIRED_RATE_LIMITED: Final = "Rate limited"
-TEST_STORYGRAPH_AUTHENTICATION_AND_OWNER_ARE_REQUIRED_H1_ALICE_H1: Final = "<h1>alice</h1>"
-BOB: Final = "bob"
-TEST_STORYGRAPH_AUTHENTICATION_AND_OWNER_H1_A_HREF_PROFILE_ALICE: Final = (
-    '<h1>alice</h1><a href="/profile/alice">alice</a>'
-)
-TEST_STORYGRAPH_WRONG_OWNER_MID_COLLECTION_BOOKS_DIV_CLASS_READ_BOOK: Final = (
-    '<div class="read-books"></div>'
-)
-SOURCE_2: Final = "source_value"
-TEST_STORYGRAPH_INVALID_AMBIGUOUS_OR_READING_DATES_ARE_FAILED_TEXT: Final = "03/04/2024"
-TEST_STORYGRAPH_INVALID_AMBIGUOUS_OR_READING_DATES_ARE_FAILED_TEXT_2: Final = "2030-01-01"
-TEST_STORYGRAPH_INVALID_AMBIGUOUS_OR_READING_DATES_ARE_FAILED_TEXT_3: Final = "2024-01-02"
-TEST_STORYGRAPH_READ_COUNT_DOES_NOT_INVENT_COUNT_DT_READ_COUNT_DT_DD: Final = (
-    "<dt>Read count</dt><dd>2"
-)
-TEST_STORYGRAPH_READ_COUNT_DOES_NOT_INVENT_COUNT_DT_READ_COUNT_DT_DD_2: Final = (
-    "<dt>Read count</dt><dd>5"
-)
-TEST_STORYGRAPH_UNKNOWN_OPTIONAL_FIELDS_DT_DD_REFLECTIVE_HOPEFUL: Final = (
-    "<dt>Moods</dt><dd>reflective, hopeful</dd>"
-)
-TEST_STORYGRAPH_DUPLICATE_APPEARANCES_MERGE_HISTORY_CLASS_READ_BOOKS: Final = 'class="read-books"'
-TEST_STORYGRAPH_DUPLICATE_APPEARANCES_HISTORY_CLASS_PAUSED_BOOKS: Final = 'class="paused-books"'
-TEST_STORYGRAPH_DISCOVERED_DNF_AND_PAUSED_SECTION_H2_YOUR_REVIEW_H: Final = (
-    "<section><h2>Your review</h2><dl><dt>Rating</dt><dd></dd><dt>Review</dt><dd>"
-    "</dd></dl></section><section><h2>Your reading history</h2><p>No reads yet</p"
-    "></section>"
-)
-BOOK_B_ID: Final = "book-b-id"
-TEST_STORYGRAPH_DISCOVERED_DNF_AND_NOT_CLASSIFIED_AS_READ_TEMPLATE: Final = "{v0}/books/book-b-id"
-COLLECTION_PAUSED: Final = "collection.paused"
-COLLECTION_DID_NOT_FINISH: Final = "collection.did-not-finish"
-TEST_STORYGRAPH_ACTUAL_NEXT_LINKS_ARE_IS_SAFE_NEXT_URL_TEMPLATE: Final = (
-    "{v0}?page=2&cursor=sensitive-token"
-)
-TEST_STORYGRAPH_ACTUAL_NEXT_LINKS_ARE_PROGRESS_CURSOR_IS_SAFE_MAIN: Final = "</main>"
-TEST_STORYGRAPH_ACTUAL_NEXT_LINKS_ARE_A_ID_NEXT_LINK_DATA_REMO: Final = (
-    '<a id="next_link" data-remote="true" href="?page=2&amp;cursor=sensitive-toke'
-    'n">More...</a></main>'
-)
-TEST_STORYGRAPH_ACTUAL_NEXT_LINKS_ARE_PROGRESS_CURSOR_IS_SAFE_BOOK_B: Final = "Book B"
-SENSITIVE_TOKEN: Final = "sensitive-token"
-REPEAT_CURSOR: Final = "repeat_cursor"
-TEST_STORYGRAPH_PAGINATION_REPETITION_RECORDS_TARGET_TEMPLATE: Final = "{v0}?page=2"
-TEST_STORYGRAPH_PAGINATION_REPETITION_AND_RETAINS_RECORDS_TEMPLATE: Final = (
-    '<a id="next_link" href="{v0}">More...</a></main>'
-)
-PAGINATION_REPEATED: Final = "pagination_repeated"
-TEST_STORYGRAPH_CAPPED_WALK_IS_PARTIAL_ID_NEXT_LINK_HREF_PAGE_MORE: Final = (
-    '<a id="next_link" href="?page=2">More...</a></main>'
-)
-TARGET: Final = "target"
-TEST_STORYGRAPH_UNSAFE_OR_CROSS_OWNER_EXAMPLE_BOOKS_READ_ALICE_PA: Final = (
-    "https://evil.example/books-read/alice?page=2"
-)
-TEST_STORYGRAPH_UNSAFE_OR_CROSS_LINK_IS_NEVER_REQUESTED_TEMPLATE: Final = (
-    "{v0}/books-read/bob?page=2"
-)
-TEST_STORYGRAPH_UNSAFE_OR_CROSS_LINK_IS_NEVER_REQUESTED_TEMPLATE_2: Final = (
-    "{v0}/books-read/alice?page=2&user=bob"
-)
-TEST_STORYGRAPH_UNSAFE_OR_CROSS_LINK_IS_NEVER_REQUESTED_TEMPLATE_3: Final = "{v0}/exports/alice"
-TEST_STORYGRAPH_DETAIL_FAILURE_KEEPS_LIST_DETAILS_A_HREF_REVIEWS_REV: Final = (
-    '<a href="/reviews/review-a" aria-label="Your review">Your review</a></main>'
-)
-TEST_STORYGRAPH_DETAIL_FAILURE_KEEPS_DETAILS_SOURCE_TIMED_OUT: Final = "Source timed out."
-TEST_STORYGRAPH_DETAIL_FAILURE_OTHER_COLLECTED_DETAILS_TEMPLATE: Final = "{v0}/reviews/review-a"
-TEST_STORYGRAPH_MISSING_AUTH_MID_DETAIL_STATE_A_HREF_REVIEWS_REVI: Final = (
-    '<a href="/reviews/review-a">Your review</a></main>'
-)
-TEST_STORYGRAPH_MISSING_AUTH_MID_EXPLICIT_STATE_NEEDS_OWNER_LOGIN: Final = "Needs owner login."
-TEST_STORYGRAPH_DISCOVERED_REVIEW_CANNOT_HREF_REVIEWS_REVIEW_B_YOU: Final = (
-    '<a href="/reviews/review-b">Your review</a>'
-)
-TEST_STORYGRAPH_DISCOVERED_REVIEW_CANNOT_ARTICLE_ITEMPROP_REVIEW_A_H: Final = (
-    '<article itemprop="review"><a href="/profile/bob">bob</a><a href="/books/boo'
-    'k-a-id">The First Book</a><span itemprop="ratingValue">5</span><div itemprop'
-    '="reviewBody">Bob secret review</div></article>'
-)
-TEST_STORYGRAPH_DISCOVERED_REVIEW_ANOTHER_READERS_TEXT_TEMPLATE: Final = "{v0}/reviews/review-b"
-TEST_STORYGRAPH_DISCOVERED_REVIEW_CANNOT_TEXT_BOB_SECRET_REVIEW: Final = "Bob secret review"
-TEST_STORYGRAPH_HISTORY_PAGE_TEMPLATE: Final = (
-    '<section><h2>Your reading history</h2><a href="/books/book-a-id">The First B'
-    "ook</a><table><tr><th>Started</th><th>Finished</th><th>Status</th></tr><tr i"
-    'd="{v0}"><td></td><td>{v1}</td><td>Read</td></tr></table></section>'
-)
-TEST_STORYGRAPH_DISCOVERED_PERSONAL_DISTINCT_EVENTS_HISTORY_TEMPLATE: Final = (
-    "{v0}/reading-history/example"
-)
-TEST_STORYGRAPH_DISCOVERED_PERSONAL_DISTINCT_EVENTS_TEMPLATE: Final = (
-    "<section><h2>Your review</h2><dl><dt>Rating</dt><dd>0</dd><dt>Review</dt><dd"
-    '></dd></dl></section><a href="{v0}">Your reading history</a>'
-)
-EVENT_1: Final = "event-1"
-TEST_STORYGRAPH_DISCOVERED_PERSONAL_PRESERVES_DISTINCT_EVENTS_TEXT: Final = "2024-01-01"
-TEST_STORYGRAPH_DISCOVERED_PERSONAL_HISTORY_EVENTS_A_REL_NEXT_H: Final = (
-    '<a rel="next" href="?page=2">Next</a>'
-)
-EVENT_2: Final = "event-2"
-TEST_STORYGRAPH_DISCOVERED_PERSONAL_PRESERVES_DISTINCT_EVENTS_TEXT_2: Final = "2025-01-01"
-TEST_STORYGRAPH_REPEATED_HISTORY_IS_AND_RETAINS_FIRST_EVENT_TEMPLATE: Final = (
-    '<a href="{v0}">Your reading history</a>'
-)
-TEST_STORYGRAPH_EXPORT_LINKS_ARE_IGNORED_A_HREF_EXPORT_EXPORT_AL: Final = (
-    '<a href="/export">Export all data</a></main>'
-)
-TEST_STORYGRAPH_PROGRESS_FAILURE_IS_SUCCESS_FAIL_STORAGE_UNAVAILABLE: Final = "Storage unavailable"
-TEST_STORYGRAPH_REVIEW_TEXT_CANNOT_EMPTY_COLLECTION_EVIDENCE_ARTICLE: Final = "</article>"
-TEST_STORYGRAPH_REVIEW_TEXT_CANNOT_SUPPLY_EVIDENCE_SECTION_H2_YOUR_R: Final = (
-    '<section><h2>Your review</h2><div class="trix-content"><p>No paused books</p'
-    "><p>No dnf books</p></div></section></article>"
-)
-TEST_STORYGRAPH_REVIEW_TEXT_CANNOT_EVIDENCE_IMPOSTOR_MAIN_ARTICLE_A: Final = (
-    '<main><article><a aria-label="Your profile" href="/profile/alice">Your profi'
-    "le</a></article></main>"
-)
-TEST_STORYGRAPH_NESTED_OTHER_READER_HEADING_ITEMPROP_REVIEW_A_HREF_P: Final = (
-    '<article itemprop="review"><a href="/profile/bob">bob</a><section><h2>Your r'
-    'eview</h2><dl><dt>Rating</dt><dd>5</dd></dl><div class="trix-content">Bob pr'
-    "ivate text</div></section></article>"
-)
-TEST_STORYGRAPH_NESTED_OTHER_READER_OWNER_REVIEW_BOB_PRIVATE_TEXT: Final = "Bob private text"
-EVENT_ID: Final = "event_id"
-TEST_STORYGRAPH_SAME_EVENT_OBSERVED_NOT_DUPLICATED_ID_REAL_EVENT: Final = ' id="real-event"'
-TEST_STORYGRAPH_SAME_EVENT_OBSERVED_WITH_LIST_HISTORY_SECTION_H2_YO: Final = (
-    "<section><h2>Your reading history</h2><table><tr><th>Finished</th><th>Status"
-    "</th></tr><tr><td>January 1, 2024</td><td>Read</td></tr></table></section>"
-)
-TEST_STORYGRAPH_SAME_EVENT_OBSERVED_TEXT_IS_NOT_DUPLICATED_TEMPLATE: Final = (
-    "<section><h2>Your reading history</h2><table><tr><th>Finished</th><th>Status"
-    "</th></tr><tr{v0}><td>2024-01-01</td><td>Read</td></tr></table></section>"
-)
-REAL_EVENT: Final = "real-event"
-TEST_STORYGRAPH_TWO_ACTUAL_SAME_DAY_SECTION_H2_YOUR_READING_HI: Final = (
-    "<section><h2>Your reading history</h2><table><tr><th>Finished</th><th>Status"
-    "</th></tr><tr><td>2024-01-01</td><td>Read</td></tr><tr><td>2024-01-01</td><t"
-    "d>Read</td></tr></table></section>"
-)
-TEST_STORYGRAPH_MUTATING_PERSONAL_LINK_REVIEWS_REVIEW_A_DATA_TURBO: Final = (
-    '<a href="/reviews/review-a" data-turbo-method="delete">Your review</a></main>'
-)
 TEST_SYNC_ACCOUNTS_PROFILE_URL_HTTPS_WWW_GOODREADS_COM_USER_SHOW: Final = (
     "https://www.goodreads.com/user/show/123"
 )
@@ -3287,7 +2028,7 @@ ObservationScope = Literal["reader", "work", "edition"]
 DatePrecision = Literal["year", "month", "day"]
 
 IMPORT_TITLE: Final = "Title"
-IMPORT_PROCESSING_VERSION: Final = "csv-v1"
+IMPORT_PROCESSING_VERSION: Final = "csv-v4-capture-quality"
 IMPORT_AUTHOR: Final = "Author"
 IMPORT_AUTHORS: Final = "Authors"
 IMPORT_BOOK_ID: Final = "Book Id"
@@ -3345,14 +2086,6 @@ IMPORT_ISBN_WRAPPER_PATTERN: Final = r'="([^"]*)"'
 IMPORT_ISBN_SHAPE_PATTERN: Final = r"(?:[0-9]{9}[0-9Xx]|[0-9]{13})"
 IMPORT_UID_PATTERN: Final = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
 IMPORT_LIST_SEPARATOR_PATTERN: Final = r"\s*[,;]\s*"
-IMPORT_NUMERIC_DATE_PATTERN: Final = (
-    r"(?:[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?|[0-9]{4}/[0-9]{2}/[0-9]{2})"
-)
-IMPORT_DATE_LIST_PATTERN: Final = (
-    r"\s*(?:[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?|[0-9]{4}/[0-9]{2}/[0-9]{2})"
-    r"(?:\s*[,;]\s*(?:[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?|"
-    r"[0-9]{4}/[0-9]{2}/[0-9]{2}))+\s*"
-)
 IMPORT_POSITION_PATTERN: Final = r"(.+?)\s+\(#([0-9]+)\)"
 IMPORT_YEAR_TEMPLATE: Final = "{year:04d}"
 IMPORT_NUL: Final = "\x00"
@@ -3367,7 +2100,6 @@ IMPORT_DUPLICATE_ID: Final = "export_duplicate_identity"
 IMPORT_UNKNOWN_COLUMN: Final = "export_unmapped_column"
 IMPORT_UNKNOWN_STATUS: Final = "export_unknown_status"
 IMPORT_SYNTHETIC_NOTICE: Final = "export_synthetic_identity"
-IMPORT_HISTORY_UNMAPPED: Final = "export_history_unmapped"
 IMPORT_HISTORY_INCOMPLETE: Final = "export_history_incomplete"
 IMPORT_HISTORY_CONFLICT: Final = "export_history_conflict"
 IMPORT_UNKNOWN_NUMBER: Final = "export_unknown_numeric_value"
@@ -3396,11 +2128,6 @@ IMPORT_UNKNOWN_STATUS_MESSAGE: Final = (
 IMPORT_SYNTHETIC_MESSAGE: Final = (
     "Export record {row} lacks a native ID or valid ISBN. Its deterministic source-local "
     "identity is synthetic, not evidence of a cross-source match."
-)
-IMPORT_HISTORY_UNMAPPED_MESSAGE: Final = (
-    "Export record {row} has unsupported Dates Read text. Only a single parse_date date or "
-    "comma/semicolon-separated ISO partial dates and YYYY/MM/DD dates are mapped; "
-    "ranges and other history notation remain verbatim in raw_fields."
 )
 IMPORT_HISTORY_INCOMPLETE_MESSAGE: Final = (
     "Export record {row} reports more reads than dated events. Undated reads were not invented."
@@ -3570,7 +2297,8 @@ RAW_CAPTURE_SCHEMA: Final = (
     "CREATE TABLE raw_captures (sequence INTEGER PRIMARY KEY, "
     "id TEXT NOT NULL UNIQUE, source TEXT NOT NULL, account_id TEXT NOT NULL, "
     "media_type TEXT NOT NULL, origin TEXT NOT NULL, captured_at TEXT NOT NULL, "
-    "sha256 TEXT NOT NULL REFERENCES raw_payloads(sha256), checksum TEXT NOT NULL)"
+    "sha256 TEXT NOT NULL REFERENCES raw_payloads(sha256), checksum TEXT NOT NULL, "
+    "collection TEXT NOT NULL)"
 )
 RAW_INDEX_SCHEMA: Final = (
     "CREATE INDEX raw_capture_account ON raw_captures(source, account_id, sequence DESC)"
@@ -3581,16 +2309,17 @@ RAW_INSERT_PAYLOAD: Final = (
 RAW_SELECT_PAYLOAD: Final = "SELECT body FROM raw_payloads WHERE sha256 = ?"
 RAW_INSERT_CAPTURE: Final = (
     "INSERT INTO raw_captures(sequence, id, source, account_id, media_type, origin, captured_at, "
-    "sha256, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "sha256, collection, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 RAW_SELECT_CAPTURE: Final = (
     "SELECT c.sequence, c.id, c.source, c.account_id, p.body, c.media_type, c.origin, "
-    "c.captured_at, c.sha256, c.checksum FROM raw_captures c "
+    "c.captured_at, c.sha256, c.checksum, c.collection FROM raw_captures c "
     "LEFT JOIN raw_payloads p ON p.sha256 = c.sha256 "
 )
 RAW_GET_CAPTURE: Final = RAW_SELECT_CAPTURE + "WHERE c.id = ?"
 RAW_LATEST_CAPTURE: Final = (
-    RAW_SELECT_CAPTURE + "WHERE c.source = ? AND c.account_id = ? ORDER BY c.sequence DESC LIMIT 1"
+    RAW_SELECT_CAPTURE + "WHERE c.source = ? AND c.account_id = ? AND c.collection = ? "
+    "ORDER BY c.sequence DESC LIMIT 1"
 )
 RAW_CHECK_SCHEMA: Final = RAW_SELECT_CAPTURE + "LIMIT 0"
 RAW_HASH_PATTERN: Final = "[0-9a-f]{64}"
@@ -3607,7 +2336,7 @@ TEST_RAW_BOM_BODY: Final = b"\xef\xbb\xbfTitle,Author\r\nExact,Bytes\r\n"
 TEST_RAW_UNKNOWN_BODY: Final = b"\x00\xff\xfe\x80\x81\r\n"
 TEST_RAW_MISSING: Final = "missing-capture"
 TEST_RAW_OTHER_ORIGIN: Final = "another.csv"
-TEST_RAW_CLOCK: Final = "bookystats.raw.utc_now"
+TEST_RAW_CLOCK: Final = "bookystats.persistence.raw.utc_now"
 TEST_RAW_FIRST_TIME: Final = "2026-10-30T10:00:00+00:00"
 TEST_RAW_SECOND_TIME: Final = "2026-10-30T10:01:00+00:00"
 TEST_RAW_PARAM_BODY: Final = "body"
@@ -3702,7 +2431,7 @@ VERIFY_RAW_COPY_FILE_UNREADABLE: Final = (
     "The original file could not be read again to compare it with the saved copy."
 )
 VERIFY_ISSUE: Final = "{code}: {message}"
-VERIFY_PROCESSING_FAILED: Final = "The export was saved but could not be processed. {reason}"
+VERIFY_PROCESSING_FAILED: Final = "The source input could not be processed. {reason}"
 VERIFY_PROCESSING_NO_ISSUE: Final = "The source finished as {state} without a reported reason."
 VERIFY_ROWS_MATCH: Final = (
     "{rows} rows in the file = {records} books processed = {library} books in the library."
@@ -3717,12 +2446,13 @@ VERIFY_METADATA_NO_ISSUE: Final = "{processed} lookups completed, {deferred} def
 
 # Console and run-log report lines.
 REPORT_RUN_HEADING: Final = "Sync {run_id}: {state}"
-REPORT_SOURCE_LINE: Final = "  {source}: {state}; {records} records, {pages} pages"
+REPORT_SOURCE_LINE: Final = "  {source}/{collection}: {state}; {records} records, {pages} pages"
 REPORT_PUBLICATION_LINE: Final = (
     "    {added} added, {updated} updated, {unchanged} unchanged, "
     "{removed} removed from current collection"
 )
 REPORT_ISSUE_LINE: Final = "    {code}: {message}"
+REPORT_REPEATED_ISSUE_LINE: Final = "    {code}: {message} ({count} occurrences)"
 REPORT_MORE_ISSUES_LINE: Final = "    {count} more issues are listed in the run log."
 REPORT_METADATA_LINE: Final = (
     "  {provider}: {state}; {processed} lookups completed, {deferred} deferred"
@@ -3742,33 +2472,55 @@ STATUS_RAW_ARCHIVE_LINE: Final = "Raw archive: {location}"
 STATUS_LIBRARY_DATABASE_LINE: Final = "Library database: {location}"
 STATUS_LATEST_LOG_LINE: Final = "Latest log: {location}"
 STATUS_LAST_RUN_LINE: Final = "Last run: {value}"
-STATUS_LAST_RUN_VALUE: Final = "#{run_id} {state}, finished {finished}"
+STATUS_LAST_RUN_VALUE: Final = "#{run_id} {state}"
 STATUS_LOCATION_WITH_SIZE: Final = "{path} ({size})"
 STATUS_SIZE: Final = "{megabytes:.1f} MB"
 STATUS_NOT_CREATED: Final = "not created yet"
 STATUS_NONE_YET: Final = "none yet"
 STATUS_NONE_LINE: Final = "  none yet"
-STATUS_SOURCES_HEADING: Final = "Sources"
-STATUS_SOURCE_LINE: Final = "  {source}: {state}, {count} books, last success {success}"
+STATUS_SOURCES_HEADING: Final = "COLLECTIONS"
+STATUS_SOURCE_LINE: Final = "  {source:<12} {collection:<10} {state:<14} {count:>11,}"
 STATUS_NEVER: Final = "never"
 STATUS_UNKNOWN: Final = "unknown"
 STATUS_LIBRARY_COUNTS_LINE: Final = (
-    "Library: {entries} book entries, {works} distinct works, {editions} editions, "
-    "{events} reading events"
+    "Saved library: {entries:,} entries | {works:,} works | {events:,} dated reading events"
 )
-STATUS_METADATA_HEADING: Final = "Metadata"
-STATUS_METADATA_LINE: Final = (
-    "  {provider}: {matched} books matched, {unmatched} not found, last success {success}"
-)
+STATUS_METADATA_HEADING: Final = "METADATA"
+STATUS_METADATA_LINE: Final = "  {provider:<14} {matched:>8,} {unmatched:>10,}  {success}"
 STATUS_SCHEDULE_LINE: Final = "Weekly schedule: {state}"
-STATUS_GOOGLE_KEY_LINE: Final = "Google Books key: {state}"
-STATUS_KEY_SET: Final = "set"
-STATUS_KEY_NOT_SET: Final = "not set"
+STATUS_GOOGLE_KEY_LINE: Final = "Google Books access: {state}"
+STATUS_KEY_SET: Final = "API key configured"
+STATUS_KEY_NOT_SET: Final = "not configured"
+
+# Clear invocation, live progress and orderly source teardown.
+CLI_COMPACT_USAGE: Final = "%(prog)s {fetch,sync,status} [options]"
+CLI_OPTIONAL_COMMAND: Final = "?"
+CLI_QUICK_HELP: Final = (
+    "BookyStats\n\n"
+    "  booky fetch    Write the Goodreads browser-console helper\n"
+    "  booky sync     Process configured CSV files\n"
+    "  booky status   Show saved local results\n\n"
+    "Run booky --help for advanced options."
+)
+CLI_METADATA_PROGRESS: Final = (
+    "  {source}: checking stored-library metadata {completed:,}/{total:,} "
+    "(network timeout {timeout:g}s)."
+)
+STATUS_SOURCE_HEADER: Final = "  Source       Shelf      Last attempt    Saved books"
+STATUS_METADATA_HEADER: Final = "  Provider        Matched  Not found   Last success"
+STATUS_RETAINED_SNAPSHOTS: Final = (
+    "  Action needed: one or more fetches did not complete.\n"
+    "  Saved books are retained complete snapshots, not proof this attempt fetched fresh data."
+)
+GOOGLE_BOOKS_OAUTH_SAVED: Final = "google_books_oauth_saved"
+STATUS_OAUTH_SAVED: Final = "OAuth file saved (not checked by status)"
 
 # Run logs written to <data folder>\logs.
 LOGS_FOLDER: Final = "logs"
 EXCLUSIVE_CREATE_MODE: Final = "x"
 RUNLOG_PATTERN: Final = "*.log"
+RUNLOG_NAME_PATTERN: Final = r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}Z_(?:run\d+|failed)(?:_\d+)?\.log"
+TEST_REPORTING_UNMANAGED_LOG: Final = "notes.log"
 RUNLOG_STAMP_FORMAT: Final = "%Y-%m-%d_%H-%M-%SZ"
 RUNLOG_FILE_NAME: Final = "{stamp}_run{run_id}.log"
 RUNLOG_FAILED_FILE_NAME: Final = "{stamp}_failed.log"
@@ -3806,3 +2558,1580 @@ TEST_RAW_URL_ECHO: Final = b"fixture-parameter-with%26punctuation"
 RAW_UNICODE_ESCAPE_PATTERN: Final = rb"\\u([0-9a-fA-F]{4})"
 RAW_SURROGATEPASS: Final = "surrogatepass"
 TEST_RAW_FETCH_METHOD: Final = "fetch"
+
+# Explicit browser-export shelf intake.
+CLI_GOODREADS_WATCHLIST_FILE: Final = "--goodreads-watchlist-file"
+CLI_GOODREADS_READ_FILE: Final = "--goodreads-read-file"
+CLI_SHELF_FILE_HELP: Final = "Archive a Goodreads browser-export CSV for this shelf."
+CLI_GOODREADS_SCOPE_CONFLICT: Final = (
+    "Use either --goodreads-file for a whole library or the explicit watchlist/read flags, "
+    "not both. Archived whole-library and shelf inputs must use separate data directories."
+)
+IMPORT_BROWSER_URL: Final = "Goodreads_URL"
+IMPORT_BROWSER_DETAILS: Final = "Row_Details"
+IMPORT_BROWSER_PUBLICATION: Final = "Publication_Date"
+IMPORT_BROWSER_AVERAGE: Final = "Average_Rating"
+IMPORT_BROWSER_RATINGS: Final = "Ratings_Count"
+IMPORT_BROWSER_REVIEWS: Final = "Reviews_Count"
+IMPORT_BROWSER_COVER: Final = "Cover_URL"
+IMPORT_BROWSER_SERIES_NUMBER: Final = "Series_Number"
+SERIES: Final = "series"
+IMPORT_BROWSER_URL_PATTERN: Final = r"/book/show/([0-9]+)(?:[.-][^/?#]*)?/?"
+IMPORT_BROWSER_SCOPE_ERROR: Final = (
+    "Browser-export CSVs require --goodreads-watchlist-file or --goodreads-read-file; "
+    "the CSV itself does not identify its shelf."
+)
+IMPORT_BROWSER_UNMAPPED: Final = "browser_field_unmapped"
+IMPORT_BROWSER_UNMAPPED_MESSAGE: Final = (
+    "Export record {row}: {field} could not be mapped safely; its original text is retained."
+)
+IMPORT_STORYGRAPH_INVALID_IDENTIFIER: Final = (
+    "Export record {row} has an invalid ISBN/UID. It is retained raw-only; the rating uses "
+    "source-local identity and is not matched through this identifier."
+)
+IMPORT_BROWSER_PAGES: Final = "Pages"
+IMPORT_BROWSER_EDITION_PUBLISHED_PATTERN: Final = (
+    r"(?<!First )Published (?P<value>[A-Za-z]+ [0-9]{1,2}, [0-9]{4}|[A-Za-z]+ [0-9]{4}|[0-9]{4})"
+    r"(?: Book details|$)"
+)
+TEST_BROWSER_EXPORT_SORT_AUTHOR: Final = "Example, Ada"
+IMPORT_BROWSER_SCOPE_NOTICE: Final = "browser_capture_scope"
+IMPORT_BROWSER_SCOPE_MESSAGE: Final = (
+    "User-supplied browser capture: shelf membership is explicitly supplied, not independently "
+    "verified. Fixed-page collection and best-effort enrichment do not prove account completeness. "
+    "Row_Details has flattened review/date text; personal reviews and reading-event dates "
+    "are not inferred from it."
+)
+IMPORT_STORYGRAPH_SCOPE_NOTICE: Final = "storygraph_ratings_only"
+IMPORT_STORYGRAPH_SCOPE_MESSAGE: Final = (
+    "StoryGraph supplies personal ratings only. Identity fields support matching; all other "
+    "source fields, including reviews, statuses and reading dates, remain raw-only."
+)
+IMPORT_BROWSER_ISBN_PATTERN: Final = r" isbn (?P<value>\S+) isbn13 "
+IMPORT_BROWSER_ISBN13_PATTERN: Final = r" isbn13 (?P<value>\S+) asin "
+IMPORT_BROWSER_PAGES_PATTERN: Final = r" num pages (?P<value>[0-9]+) pp avg rating "
+IMPORT_BROWSER_RATING_PATTERN: Final = r" avg rating (?P<value>[0-5](?:\.[0-9]+)?) num ratings "
+IMPORT_BROWSER_RATINGS_PATTERN: Final = r" num ratings (?P<value>[0-9]+(?:,[0-9]{3})*) date pub "
+IMPORT_BROWSER_ADDED_PATTERN: Final = (
+    r" date added (?P<value>[A-Za-z]+ [0-9]{1,2}, [0-9]{4}) owned "
+)
+IMPORT_BROWSER_FORMAT_PATTERN: Final = r" owned format (?P<value>.+?) actions view(?: |$)"
+IMPORT_BROWSER_POSITION_PATTERN: Final = r"^checkbox position (?P<value>[0-9]+) cover title "
+IMPORT_BROWSER_FIRST_PUBLISHED_PATTERN: Final = (
+    r"First published (?P<value>[A-Za-z]+ [0-9]{1,2}, [0-9]{4}|[A-Za-z]+ [0-9]{4}|[0-9]{4})"
+    r"(?: Book details|$)"
+)
+IMPORT_BROWSER_PAGE_DETAILS_PATTERN: Final = r"^(?P<value>[0-9]+) pages,"
+IMPORT_BROWSER_GENRE_SEPARATOR: Final = "|"
+IMPORT_BROWSER_FIRST_PUBLICATION: Final = "first_publication_date"
+RAW_MIGRATE_COLLECTION: Final = (
+    "ALTER TABLE raw_captures ADD COLUMN collection TEXT NOT NULL DEFAULT 'library'"
+)
+RAW_LEGACY_SELECT: Final = (
+    "SELECT c.sequence, c.id, c.source, c.account_id, p.body, c.media_type, c.origin, "
+    "c.captured_at, c.sha256, c.checksum FROM raw_captures c "
+    "LEFT JOIN raw_payloads p ON p.sha256 = c.sha256"
+)
+RAW_MIGRATE_CHECKSUM: Final = "UPDATE raw_captures SET checksum = ? WHERE id = ?"
+TEST_BROWSER_EXPORT_URL: Final = "https://www.goodreads.com/book/show/101-a-synthetic-book"
+TEST_BROWSER_EXPORT_DETAILS: Final = (
+    "checkbox position 7 cover title A Synthetic Book author Example, Ada "
+    "isbn 0140328726 isbn13 9780140328721 asin 0140328726 num pages 240 pp "
+    "avg rating 3.75 num ratings 12,345 date pub April 6, 2025 "
+    "date pub edition April 6, 2025 my rating 1 of 5 stars2 of 5 stars3 of 5 stars"
+    "4 of 5 stars5 of 5 stars review None notes Notes are private! comments 0 "
+    "votes 0 # times read 1 date started not set date read not set "
+    "date added Mar 03, 2024 owned format Paperback actions view"
+)
+TEST_BROWSER_EXPORT_PUBLICATION: Final = (
+    "240 pages, PaperbackFirst published April 6, 2025 Book details & editions"
+)
+TEST_BROWSER_EXPORT_GENRES: Final = "Fiction | Fantasy | Fiction"
+TEST_BROWSER_EXPORT_BAD_URL: Final = "https://example.invalid/book/show/101"
+TEST_BROWSER_EXPORT_BAD_PAGES: Final = "unavailable pages"
+TEST_BROWSER_EXPORT_READ_NAME: Final = "read.csv"
+TEST_BROWSER_EXPORT_WATCH_NAME: Final = "watchlist.csv"
+TEST_BROWSER_EXPORT_DESCRIPTION: Final = "A synthetic catalog description."
+TEST_RAW_LEGACY_SCHEMA: Final = (
+    "CREATE TABLE raw_payloads (sha256 TEXT PRIMARY KEY NOT NULL, body BLOB NOT NULL);"
+    "CREATE TABLE raw_captures (sequence INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, "
+    "source TEXT NOT NULL, account_id TEXT NOT NULL, media_type TEXT NOT NULL, "
+    "origin TEXT NOT NULL, captured_at TEXT NOT NULL, sha256 TEXT NOT NULL "
+    "REFERENCES raw_payloads(sha256), checksum TEXT NOT NULL);"
+    "CREATE INDEX raw_capture_account ON raw_captures(source, account_id, sequence DESC);"
+    "PRAGMA user_version = 1;"
+)
+TEST_RAW_LEGACY_INSERT: Final = (
+    "INSERT INTO raw_captures(sequence,id,source,account_id,media_type,origin,captured_at,"
+    "sha256,checksum) VALUES (?,?,?,?,?,?,?,?,?)"
+)
+TEST_RAW_TAMPER_COLLECTION: Final = "UPDATE raw_captures SET collection = 'read'"
+TEST_BROWSER_EXPORT_BAD_DETAILS: Final = "unstructured source text"
+TEST_BROWSER_EXPORT_FALSE_SERIES: Final = "52"
+TEST_BROWSER_EXPORT_GENRES_EXPECTED: Final = "Fiction"
+TEST_BROWSER_EXPORT_FANTASY: Final = "Fantasy"
+TEST_BROWSER_EXPORT_DATE_ADDED: Final = "2024-03-03"
+
+# Structured Goodreads browser export.
+CLI_GOODREADS_EXPORT_SCRIPT: Final = "--goodreads-export-script"
+GOODREADS_EXPORT_VERSION: Final = "booky-goodreads-shelf-v1"
+GOODREADS_EXPORT_VERSION_HEADER: Final = "Export_Version"
+GOODREADS_EXPORT_REVIEW: Final = "Review_Text"
+GOODREADS_EXPORT_REVIEW_STATE: Final = "Review_State"
+GOODREADS_EXPORT_READ: Final = "Date_Read"
+GOODREADS_EXPORT_READ_STATE: Final = "Date_Read_State"
+GOODREADS_EXPORT_STARTED: Final = "Date_Started"
+GOODREADS_EXPORT_STARTED_STATE: Final = "Date_Started_State"
+GOODREADS_EXPORT_SOURCE_URL: Final = "Source_URL"
+GOODREADS_EXPORT_CAPTURED_AT: Final = "Captured_At"
+GOODREADS_EXPORT_COLLECTION: Final = "Collection"
+GOODREADS_EXPORT_COLLECTION_STATE: Final = "Collection_State"
+GOODREADS_EXPORT_DATE_READ_FIELD: Final = "date_read"
+GOODREADS_EXPORT_DATE_STARTED_FIELD: Final = "date_started"
+GOODREADS_EXPORT_SOURCE_PATTERN: Final = r"/review/list/([1-9]\d*)(?:-[^/]*)?"
+GOODREADS_EXPORT_QUERY_SORT: Final = "sort"
+GOODREADS_EXPORT_QUERY_ORDER: Final = "order"
+GOODREADS_EXPORT_QUERY_VIEW: Final = "view"
+TEST_GOODREADS_EXPORT_SOURCE_URL: Final = (
+    "https://www.goodreads.com/review/list/123?shelf=read&per_page=100&page=1"
+)
+TEST_GOODREADS_EXPORT_OTHER_URL: Final = "https://www.goodreads.com/review/list/456?shelf=read"
+TEST_GOODREADS_EXPORT_BAD_DATE: Final = "2025-02-30"
+TEST_GOODREADS_EXPORT_BAD_STATE: Final = "maybe"
+TEST_GOODREADS_EXPORT_PARAMETER_FIELD_VALUE: Final = "header,value"
+TEST_GOODREADS_EXPORT_PARAMETER_STATE: Final = "state"
+TEST_GOODREADS_EXPORT_INCOMPLETE: Final = "incomplete"
+
+# Reporting and logging regressions.
+VERIFY_RAW_COPY_LINEAGE_DIFFERS: Final = (
+    "The saved copy does not match the source, account, collection, or raw lineage of this run."
+)
+RUNLOG_COLLISION_NAME: Final = "{stem}_{sequence:06d}{suffix}"
+TEST_REPORTING_SOURCE_FIELDS: Final = "state,publication,expected"
+TEST_REPORTING_METADATA_FIELDS: Final = "state,issues,expected"
+TEST_REPORTING_RAW_FIELDS: Final = "statement"
+TEST_REPORTING_COUNT_FIELDS: Final = "count"
+TEST_REPORTING_LINEAGE_FIELDS: Final = "field,value"
+TEST_REPORTING_RESULT_FIELDS: Final = "result"
+TEST_REPORTING_LIMIT_FIELDS: Final = "limit,shown"
+TEST_REPORTING_CLOCK: Final = "bookystats.runtime.runlog.utc_now"
+TEST_REPORTING_OPEN: Final = "open"
+TEST_REPORTING_CHECKOUT_ROOT: Final = "_checkout_root"
+TEST_REPORTING_USER_DATA_PATH: Final = "user_data_path"
+TEST_REPORTING_FILE_ATTRIBUTE: Final = "__file__"
+TEST_REPORTING_FIXTURE_CSV: Final = (
+    b"Book Id,Title,Author\n42,Synthetic reporting book,Synthetic author\n"
+)
+TEST_REPORTING_EMPTY_CSV: Final = b"Book Id,Title,Author\n"
+TEST_REPORTING_INVALID_CSV: Final = b"\xff"
+TEST_REPORTING_CHANGED_CSV: Final = b"changed after capture"
+TEST_REPORTING_ACCOUNT: Final = "reporting-reader"
+TEST_REPORTING_OTHER_ACCOUNT: Final = "different-reader"
+TEST_REPORTING_OTHER_RAW_ID: Final = "different-raw-document"
+TEST_REPORTING_RAW_DATABASE: Final = "reporting-raw.sqlite3"
+TEST_REPORTING_PRIVATE_DIRECTORY: Final = "private-exports"
+TEST_REPORTING_FILE: Final = "reporting-export.csv"
+TEST_REPORTING_PRIVATE_PATH: Final = r"C:\Users\private-reader\exports\reporting-export.csv"
+TEST_REPORTING_FIRST_TIME: Final = "2026-11-02T08:00:00+00:00"
+TEST_REPORTING_SECOND_TIME: Final = "2026-11-02T08:00:01+00:00"
+TEST_REPORTING_OFFSET_TIME: Final = "2026-11-02T13:30:00+05:30"
+TEST_REPORTING_ISSUE_ONE: Final = "synthetic_first"
+TEST_REPORTING_ISSUE_TWO: Final = "synthetic_second"
+TEST_REPORTING_ISSUE_THREE: Final = "synthetic_third"
+TEST_REPORTING_MESSAGE_ONE: Final = "First synthetic issue."
+TEST_REPORTING_MESSAGE_TWO: Final = "Second synthetic issue."
+TEST_REPORTING_MESSAGE_THREE: Final = "Third synthetic issue."
+TEST_REPORTING_SECRET: Final = "synthetic-reporting-secret"
+TEST_REPORTING_KEY_SECRET: Final = "synthetic-key-secret"
+TEST_REPORTING_BEARER_SECRET: Final = "synthetic-bearer-secret"
+TEST_REPORTING_SECRET_MESSAGE: Final = (
+    "Synthetic failure: synthetic-reporting-secret "
+    "https://example.invalid/?key=synthetic-key-secret Bearer synthetic-bearer-secret"
+)
+TEST_REPORTING_FAILURE: Final = "Synthetic pre-run failure."
+TEST_REPORTING_IO_FAILURE: Final = "Synthetic log write failure."
+TEST_REPORTING_OLDER_LOG: Final = "2099-01-01_00-00-00Z_run9.log"
+TEST_REPORTING_NEWER_LOG: Final = "2000-01-01_00-00-00Z_failed.log"
+TEST_REPORTING_NOT_LOG: Final = "notes.txt"
+TEST_REPORTING_DIRECTORY_LOG: Final = "2999-01-01_00-00-00Z_run1.log"
+TEST_REPORTING_CHECKOUT: Final = "synthetic-checkout"
+TEST_REPORTING_ENV_DIRECTORY: Final = "environment-data"
+TEST_REPORTING_OVERRIDE_DIRECTORY: Final = "explicit-data"
+TEST_REPORTING_PLATFORM_DIRECTORY: Final = "platform-data"
+TEST_REPORTING_INSTALLED_DIRECTORY: Final = "site-packages"
+TEST_REPORTING_MODULE_FILE: Final = "config.py"
+RUNTIME_FOLDER: Final = "runtime"
+TEST_REPORTING_MEGABYTE: Final = "1.0 MB"
+TEST_REPORTING_TEXT_COUNT: Final = "1"
+TEST_REPORTING_PUBLICATION: Final = "publication"
+TEST_REPORTING_TWO_ROW_CSV: Final = (
+    b"Book Id,Title,Author\n42,Synthetic reporting book,Synthetic author\n"
+    b"43,Another synthetic book,Synthetic author\n"
+)
+
+# Processed-storage compaction.
+TEST_PAYLOAD_MEMORY: Final = ":memory:"
+TEST_PAYLOAD_SQL_PARAM: Final = "sql"
+STORAGE_PAYLOAD_PREFIX: Final = "payload:"
+STORAGE_PAYLOAD_SCHEMA: Final = (
+    "CREATE TABLE processed_payloads (sha256 TEXT PRIMARY KEY NOT NULL, "
+    "body BLOB NOT NULL, size INTEGER NOT NULL CHECK(size >= 0))"
+)
+STORAGE_PAYLOAD_INSERT: Final = (
+    "INSERT INTO processed_payloads(sha256, body, size) VALUES (?, ?, ?) "
+    "ON CONFLICT(sha256) DO NOTHING"
+)
+STORAGE_PAYLOAD_SELECT: Final = "SELECT body, size FROM processed_payloads WHERE sha256 = ?"
+STORAGE_PAYLOAD_COUNTS: Final = "SELECT COUNT(*) FROM processed_payloads"
+STORAGE_PAYLOAD_DAMAGED: Final = (
+    "A processed payload is missing, invalid, or damaged. No replacement snapshot was published."
+)
+STORAGE_MIGRATE_SELECT_PROGRESS: Final = "SELECT id, raw_json FROM progress ORDER BY id"
+STORAGE_MIGRATE_UPDATE_PROGRESS: Final = "UPDATE progress SET raw_json = ? WHERE id = ?"
+STORAGE_MIGRATE_SELECT_SNAPSHOTS: Final = "SELECT id, raw_json FROM snapshots ORDER BY id"
+STORAGE_MIGRATE_UPDATE_SNAPSHOTS: Final = "UPDATE snapshots SET raw_json = ? WHERE id = ?"
+STORAGE_MIGRATE_SELECT_RECORDS: Final = "SELECT id, record_json FROM snapshot_records ORDER BY id"
+STORAGE_MIGRATE_UPDATE_RECORDS: Final = "UPDATE snapshot_records SET record_json = ? WHERE id = ?"
+STORAGE_MIGRATE_SELECT_ACTIVE: Final = "SELECT id, latest_json FROM source_records ORDER BY id"
+STORAGE_MIGRATE_UPDATE_ACTIVE: Final = "UPDATE source_records SET latest_json = ? WHERE id = ?"
+STORAGE_MIGRATE_SELECT_ATTEMPTS: Final = "SELECT id, raw_json FROM enrichment_attempts ORDER BY id"
+STORAGE_MIGRATE_UPDATE_ATTEMPTS: Final = "UPDATE enrichment_attempts SET raw_json = ? WHERE id = ?"
+STORAGE_MIGRATE_SELECT_CANDIDATES: Final = (
+    "SELECT id, candidate_json FROM enrichment_candidates ORDER BY id"
+)
+STORAGE_MIGRATE_UPDATE_CANDIDATES: Final = (
+    "UPDATE enrichment_candidates SET candidate_json = ? WHERE id = ?"
+)
+STORAGE_COMPACT: Final = "VACUUM"
+STORAGE_CHECKPOINT: Final = "PRAGMA wal_checkpoint(TRUNCATE)"
+TEST_PAYLOAD_TEXT: Final = "A repeated synthetic catalog description. "
+TEST_PAYLOAD_KEY: Final = "synthetic-description"
+TEST_PAYLOAD_CORRUPT: Final = "UPDATE processed_payloads SET body = X'00' WHERE sha256 = ?"
+TEST_PAYLOAD_REMOVE: Final = "DELETE FROM processed_payloads WHERE sha256 = ?"
+TEST_PAYLOAD_BAD_SIZE: Final = "UPDATE processed_payloads SET size = size + 1 WHERE sha256 = ?"
+TEST_STORAGE_FORCE_LEGACY: Final = "PRAGMA user_version = 1"
+TEST_STORAGE_DROP_PAYLOADS: Final = "DROP TABLE processed_payloads"
+TEST_STORAGE_CORRUPT_LEGACY: Final = "UPDATE source_records SET latest_json = 'invalid-json'"
+TEST_STORAGE_PAYLOAD_TABLE_COUNT: Final = (
+    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'processed_payloads'"
+)
+
+# One-command sync.
+CLI_TEST_ENSURE_TOKEN: Final = "ensure_access_token"
+CLI_TEST_ISATTY: Final = "isatty"
+CLI_TEST_RETIRED_OPTION: Final = "option"
+CLI_TEST_INTERACTIVE_PARAMETER: Final = "interactive"
+OAUTH_AUTHORIZATION_REQUIRED_CODE: Final = "google_books_authorization_required"
+VERIFY_CAPTURE_MISSING: Final = "Fresh collection has no archived capture manifest."
+DETAIL: Final = "detail"
+VERIFY_CAPTURE_RAW: Final = (
+    "Fresh collection archived and verified: {pages} original pages "
+    "(manifest fingerprint {digest})."
+)
+VERIFY_CAPTURE_COUNTS: Final = (
+    "{records} books processed; {library} published; advertised source count {expected}."
+)
+
+# Google Books OAuth.
+OAUTH_FILE: Final = "google-books-oauth.json"
+OAUTH_CLIENT_ID: Final = "client_id"
+OAUTH_CLIENT_SECRET: Final = "client_secret"
+OAUTH_CLIENT_ID_ENV: Final = "GOOGLE_BOOKS_CLIENT_ID"
+OAUTH_CLIENT_SECRET_ENV: Final = "GOOGLE_BOOKS_CLIENT_SECRET"
+OAUTH_CLIENT_ID_PROMPT: Final = "Google Books OAuth client ID (hidden): "
+OAUTH_CLIENT_SECRET_PROMPT: Final = "Google Books OAuth client secret (hidden): "
+OAUTH_ACCESS_TOKEN: Final = "access_token"
+OAUTH_REFRESH_TOKEN: Final = "refresh_token"
+OAUTH_EXPIRES_AT: Final = "expires_at"
+OAUTH_EXPIRES_IN: Final = "expires_in"
+OAUTH_TOKEN_TYPE: Final = "token_type"
+OAUTH_BEARER: Final = "Bearer"
+OAUTH_BEARER_HEADER: Final = "Bearer {token}"
+OAUTH_AUTHORIZATION_HEADER: Final = "Authorization"
+OAUTH_TOKEN_ENDPOINT: Final = "https://oauth2.googleapis.com/token"
+OAUTH_TOKEN_HOST: Final = "oauth2.googleapis.com"
+OAUTH_AUTHORIZATION_ENDPOINT: Final = "https://accounts.google.com/o/oauth2/v2/auth"
+OAUTH_BOOKS_SCOPE: Final = "https://www.googleapis.com/auth/books"
+OAUTH_POST: Final = "POST"
+OAUTH_STATE: Final = "state"
+OAUTH_CODE: Final = "code"
+OAUTH_ERROR: Final = "error"
+OAUTH_GRANT_TYPE: Final = "grant_type"
+OAUTH_AUTHORIZATION_CODE: Final = "authorization_code"
+OAUTH_SCOPE: Final = "scope"
+OAUTH_RESPONSE_TYPE: Final = "response_type"
+OAUTH_REDIRECT_URI_KEY: Final = "redirect_uri"
+OAUTH_CODE_CHALLENGE: Final = "code_challenge"
+OAUTH_CODE_CHALLENGE_METHOD: Final = "code_challenge_method"
+OAUTH_CODE_VERIFIER: Final = "code_verifier"
+OAUTH_S256: Final = "S256"
+OAUTH_ACCESS_TYPE: Final = "access_type"
+OAUTH_OFFLINE: Final = "offline"
+OAUTH_PROMPT: Final = "prompt"
+OAUTH_CONSENT: Final = "consent"
+OAUTH_BASE64_PADDING: Final = b"="
+OAUTH_ASCII: Final = "ascii"
+OAUTH_LOOPBACK_HOST: Final = "127.0.0.1"
+OAUTH_LOOPBACK_AUTHORITY: Final = "127.0.0.1:{port}"
+OAUTH_CALLBACK_PATH: Final = "/oauth2/callback"
+OAUTH_REDIRECT_URI: Final = "http://127.0.0.1:{port}/oauth2/callback"
+OAUTH_HOST_HEADER: Final = "Host"
+OAUTH_CALLBACK_CONTENT_TYPE: Final = "text/plain; charset=utf-8"
+OAUTH_CACHE_CONTROL: Final = "Cache-Control"
+OAUTH_NO_STORE: Final = "no-store"
+OAUTH_CALLBACK_BODY: Final = (
+    b"Return to BookyStats for the authorization result. You can close this browser tab."
+)
+OAUTH_FAILURE: Final = (
+    "Google Books authorization failed or expired. No credentials were replaced. "
+    "Check the OAuth client setup and exact redirect "
+    "http://127.0.0.1:8765/oauth2/callback, then rerun booky sync in a terminal "
+    "to complete browser consent when authorization is required."
+)
+OAUTH_SETUP_REQUIRED: Final = (
+    "Run booky sync in an interactive terminal for hidden OAuth credential prompts, "
+    "or set GOOGLE_BOOKS_CLIENT_ID and GOOGLE_BOOKS_CLIENT_SECRET locally. "
+    "Client credentials alone do not authorize access; browser consent is required."
+)
+OAUTH_CLI_OPTION: Final = "--google-books-auth"
+OAUTH_PROVIDER_REQUIRED: Final = (
+    "Google Books requires GOOGLE_BOOKS_API_KEY or browser consent initiated by "
+    "booky sync. OAuth client credentials alone are not authorization."
+)
+OAUTH_ISSUE_CODE: Final = "google_books_oauth_failed"
+OAUTH_QUERY_SEPARATOR: Final = "?"
+OAUTH_WARNING_ERROR: Final = "error"
+OAUTH_TEST_CLIENT_ID: Final = "synthetic-client.apps.googleusercontent.com"
+OAUTH_TEST_CLIENT_SECRET: Final = "synthetic-oauth-client-secret"
+OAUTH_TEST_ACCESS_TOKEN: Final = "synthetic-access-token"
+OAUTH_TEST_NEW_ACCESS_TOKEN: Final = "synthetic-refreshed-access-token"
+OAUTH_TEST_REFRESH_TOKEN: Final = "synthetic-refresh-token"
+OAUTH_TEST_CODE: Final = "synthetic-authorization-code"
+OAUTH_TEST_STATE: Final = "synthetic-state"
+OAUTH_TEST_CALLBACK_PARAMETER: Final = "path"
+OAUTH_TEST_FAILURE_MATCH: Final = "Google Books authorization failed"
+OAUTH_TEST_STATE_MISMATCH: Final = "/oauth2/callback?state=wrong&code=synthetic-code"
+OAUTH_TEST_STATE_MISSING: Final = "/oauth2/callback?code=synthetic-code"
+OAUTH_TEST_STATE_DUPLICATE: Final = (
+    "/oauth2/callback?state=synthetic-state&state=synthetic-state&code=synthetic-code"
+)
+OAUTH_TEST_CODE_DUPLICATE: Final = (
+    "/oauth2/callback?state=synthetic-state&code=first-code&code=second-code"
+)
+OAUTH_TEST_CODE_MISSING: Final = "/oauth2/callback?state=synthetic-state"
+OAUTH_TEST_DENIED: Final = "/oauth2/callback?state=synthetic-state&error=access_denied"
+OAUTH_TEST_WRONG_PATH: Final = "/other?state=synthetic-state&code=synthetic-code"
+OAUTH_TEST_RECEIVE_ATTRIBUTE: Final = "_receive_code"
+OAUTH_TEST_SERVER_ATTRIBUTE: Final = "ThreadingHTTPServer"
+OAUTH_TEST_MONOTONIC_ATTRIBUTE: Final = "monotonic"
+OAUTH_TEST_OTHER_URL: Final = "https://openlibrary.org/"
+OAUTH_TEST_HEADER_INJECTION: Final = "synthetic-token\r\nInjected: synthetic-value"
+OAUTH_BEARER_PATTERN: Final = r"[A-Za-z0-9._~+/-]+=*"
+
+# Automatic Google authorization.
+OAUTH_INVALID_GRANT: Final = "invalid_grant"
+OAUTH_AUTHORIZATION_REQUIRED: Final = (
+    "Google Books authorization is required. Run booky sync in an interactive "
+    "terminal and complete the visible browser consent."
+)
+OAUTH_TEST_UNAVAILABLE_PROMPT: Final = "Unexpected credential prompt"
+OAUTH_TEST_UNAVAILABLE_BROWSER: Final = "Unexpected browser authorization"
+OAUTH_TEST_DAMAGED_CREDENTIALS: Final = "{broken"
+OAUTH_TEST_REFRESH_FAILURE_PARAMETER: Final = "failure_mode"
+OAUTH_TEST_REFRESH_FAILURE_SERVER: Final = "server"
+OAUTH_TEST_REFRESH_FAILURE_NETWORK: Final = "network"
+OAUTH_TEST_REFRESH_FAILURE_OTHER: Final = "other"
+OAUTH_TEST_REFRESH_FAILURE_BAD_BODY: Final = "bad_body"
+OAUTH_TEST_REFRESH_FAILURE_BAD_STATUS: Final = "bad_status"
+
+# Automatic source acquisition.
+AUTO_CAPTURE_HTML_MEDIA_TYPE: Final = "text/html"
+AUTO_CAPTURE_MANIFEST_MEDIA_TYPE: Final = "application/vnd.bookystats.source-capture+json"
+AUTO_CAPTURE_DOCUMENTS: Final = "documents"
+AUTO_CAPTURE_AT: Final = "captured_at"
+AUTO_CAPTURE_SHA256: Final = "sha256"
+AUTO_CAPTURE_LATEST_BY_MEDIA_TYPE: Final = (
+    RAW_SELECT_CAPTURE + "WHERE c.source = ? AND c.account_id = ? AND c.collection = ? "
+    "AND c.media_type = ? ORDER BY c.sequence DESC LIMIT 1"
+)
+AUTO_CAPTURE_RECORD_COUNT: Final = "record_count"
+AUTO_CAPTURE_PAGES_SEEN: Final = "pages_seen"
+OAUTH_TEST_INTERACTIVE_PARAMETER: Final = "interactive"
+OAUTH_TEST_ENVIRONMENT_PARAMETER: Final = "use_environment"
+
+# Configured CSV ingestion.
+CSV_INPUTS: Final = "csv_inputs"
+CSV_INPUT_PATH: Final = "path"
+CSV_INPUT_EXISTS: Final = "exists"
+CSV_INPUT_NOT_CONFIGURED_CODE: Final = "csv_input_not_configured"
+CSV_INPUT_NOT_CONFIGURED: Final = (
+    "Set the {source}/{collection} CSV path in config.json under files. "
+    "Live source fetching is disabled; no archived file was substituted."
+)
+CSV_INPUT_UNAVAILABLE_CODE: Final = "csv_input_unavailable"
+CSV_INPUT_UNAVAILABLE: Final = (
+    "Cannot read or archive {filename}. Check the configured CSV path and file access. "
+    "No archived file was substituted; the last complete snapshot is retained."
+)
+STATUS_CSV_HEADING: Final = "CSV inputs (no live source fetching)"
+STATUS_CSV_LINE: Final = "  {source}/{collection}: {filename} [{state}]"
+STATUS_CSV_NOT_CONFIGURED: Final = "path not configured"
+STATUS_CSV_READY: Final = "ready"
+STATUS_CSV_MISSING: Final = "missing"
+CSV_FILES_KEY: Final = "files"
+CSV_TEST_BROWSER_GET: Final = "get"
+CSV_TEST_FAILURE_PARAMETER: Final = "failure"
+CSV_CONFIGURATION_PATH: Final = "configuration_file"
+STATUS_CSV_CONFIGURATION: Final = "  Config: {path}"
+CSV_INPUT_FOREIGN_PATH: Final = (
+    "CSV paths must be relative to the data directory or absolute paths for this machine. "
+    "Use relative paths to share configuration across machines."
+)
+
+# Analytics input and reporting.
+AN_APPETITE: Final = "appetite"
+AN_DECLARED: Final = "declared"
+AN_SCOPE: Final = "{source}/{collection}"
+AN_READ_SCOPE: Final = "goodreads/read"
+AN_PUBLISHED: Final = "published"
+AN_ATTEMPT_ID: Final = "attempt_id"
+AN_CHECKED_AT: Final = "checked_at"
+AN_INPUT_ACCOUNT_ERROR: Final = "Analytics account settings do not match the saved library."
+AN_INPUT_INCOMPLETE: Final = "Analytics needs complete, compatible saved source snapshots."
+AN_INPUT_LINEAGE_ERROR: Final = "Analytics input references are incomplete or inconsistent."
+AN_NO_READ_DATA: Final = "analytics_read_missing"
+AN_NO_READ_DATA_MESSAGE: Final = (
+    "No Goodreads Read collection is available for reading preferences."
+)
+AN_INPUT_ACCOUNTS: Final = "SELECT source, account_id FROM source_accounts ORDER BY source"
+AN_INPUT_SNAPSHOTS: Final = (
+    "SELECT c.source, c.account_id, c.collection, c.state, c.active_snapshot_id, "
+    "s.raw_json, s.published FROM source_collections c "
+    "JOIN snapshots s ON s.id = c.active_snapshot_id ORDER BY c.source, c.collection"
+)
+AN_INPUT_RECORDS: Final = (
+    "SELECT r.*, c.collection FROM source_records r "
+    "JOIN memberships m ON m.record_id = r.id "
+    "JOIN source_collections c ON c.id = m.collection_id "
+    "ORDER BY r.source, r.source_id, c.collection"
+)
+AN_INPUT_METADATA: Final = (
+    "SELECT e.record_id, e.provider, e.attempt_id, e.candidate_id, a.checked_at, c.candidate_json "
+    "FROM enrichment_active e JOIN enrichment_attempts a ON a.id = e.attempt_id "
+    "JOIN enrichment_candidates c ON c.id = e.candidate_id "
+    "JOIN source_records r ON r.id = e.record_id "
+    "WHERE a.identity_hash = r.identity_hash AND c.selected = 1 "
+    "ORDER BY e.record_id, e.provider"
+)
+AN_UNKNOWN_DIMENSION: Final = "Unknown reading-appetite dimension."
+AN_INVALID_PREFERENCES: Final = "Declared preferences need known dimensions and values from 0 to 1."
+AN_WORK_ID: Final = "work:{work_id}"
+AN_CALCULATION_VERSION: Final = "analytics-v5-scoped-language-validation"
+AN_SUPPORTED: Final = "supported"
+AN_SUBSET: Final = "subset"
+AN_NEEDS_ENRICHMENT: Final = "needs_enrichment"
+AN_NEEDS_OBSERVATIONS: Final = "needs_observations"
+AN_UNSUPPORTED: Final = "unsupported"
+AN_TASTE: Final = "taste"
+AN_WATCHLIST: Final = "watchlist"
+AN_WONDER: Final = "wonder"
+AN_SURPRISE: Final = "surprise"
+AN_INTENSITY: Final = "intensity"
+AN_MEANING: Final = "meaning"
+AN_CONNECTION: Final = "connection"
+AN_CLARITY: Final = "clarity"
+AN_WATCHLIST_SCOPE: Final = "goodreads/to-read"
+AN_SOURCE_COUNTS: Final = "source_counts"
+AN_PERSONAL_RATING_RECORDS: Final = "personal_rating_records"
+AN_ACCOUNT_FINGERPRINT: Final = "account_fingerprint"
+AN_CALCULATION_VERSION_KEY: Final = "calculation_version"
+AN_TASTE_KEY: Final = "taste_key"
+AN_AS_OF_DATE: Final = "as_of_date"
+AN_EVIDENCE: Final = "evidence"
+AN_CONTENT_EVIDENCE: Final = "content_evidence"
+MC_TARGET_DEFERRED: Final = "metadata_target_deferred"
+AN_BOOK_LABELS: Final = "book_labels"
+AN_SOURCE_SNAPSHOT_IDS: Final = "source_snapshot_ids"
+AN_ANALYTICS: Final = "analytics"
+AN_DATABASE: Final = "analytics.sqlite3"
+AN_FAILED_CODE: Final = "analytics_failed"
+AN_SKIPPED_CODE: Final = "analytics_skipped"
+AN_SKIPPED_MESSAGE: Final = (
+    "Analytics was not updated because a source did not complete; the last report is retained."
+)
+AN_RECEIPT_LINE: Final = (
+    "Analytics: {state}; report {report_id}, {findings} findings; "
+    "{rated}/{read} Read works have a confirmed personal rating."
+)
+AN_REUSE_LINE: Final = "  Reused calculations: taste={taste}, watchlist={watchlist}."
+AN_STATUS_LINE: Final = "Analytics: report {report_id}, saved {created_at}."
+AN_CREATED_AT: Final = "created_at"
+AN_SOURCE_IDS: Final = "source_ids"
+AN_FINDINGS: Final = "findings"
+AN_REPORT_ID: Final = "report_id"
+AN_TEST_OVERLAP: Final = "overlap"
+AN_TEST_OUTPUT_KIND: Final = "output_kind"
+AN_TEST_UNICODE: Final = "Murakami \u014d"
+AN_TEST_ASCII: Final = "ascii"
+AN_TEST_STDOUT: Final = "sys.stdout"
+AN_TEST_FIELD_STATE: Final = "field_state"
+
+# Analytics calculations.
+AN_PROFILE_FIRST_PUBLICATION: Final = "read.structure.first_publication_years"
+AN_PROFILE_FIRST_PUBLICATION_NOTE: Final = (
+    "Original-work first-publication years are distinct from edition years and reading dates. "
+    "Only explicit, valid work-level publication evidence is used; missing years stay unknown."
+)
+AN_PROFILE_WATCH_COMPOSITION: Final = "watchlist.composition.{feature}"
+AN_PROFILE_METADATA: Final = "read.profile.metadata_quality"
+AN_PROFILE_METADATA_NOTE: Final = (
+    "Coverage measures available evidence, not factual accuracy. Source counts overlap when "
+    "multiple sources support one work. Unverified capture labels are retained as evidence, "
+    "never counted as confirmed book attributes. Descriptions are catalog text, not reviews. "
+    "Singular language describes matched-edition language, not proof of language actually read; "
+    "plural languages reports work-level catalog availability across editions separately."
+)
+AN_PROFILE_UNVERIFIED_PREFIX: Final = "unverified_capture_"
+AN_PROFILE_UNVERIFIED_WORKS: Final = "works_with_unverified_capture_labels"
+AN_PROFILE_SOURCE_COUNTS: Final = "supporting_source_work_counts"
+AN_PROFILE_STATE_COUNTS: Final = "field_state_work_counts"
+AN_EXECUTION_MODE: Final = "execution_mode"
+AN_EXECUTION_PARALLEL: Final = "parallel"
+AN_EXECUTION_SERIAL: Final = "serial"
+AN_EXECUTION_CACHED: Final = "cached"
+AN_EXECUTION_LINE: Final = "  Analysis execution: {mode}."
+AN_CAPABILITIES: Final = "capabilities"
+AN_TEST_PARALLEL_THRESHOLD_ATTRIBUTE: Final = "AN_PARALLEL_MIN_WORKS"
+AN_TEST_CONTENT_JOB_ATTRIBUTE: Final = "build_content_analysis"
+AN_BIAS_METRIC: Final = "ratings.availability.{feature}"
+AN_BIAS_AVAILABLE: Final = "personal_rating_available"
+AN_BIAS_UNAVAILABLE: Final = "personal_rating_unavailable_or_conflicting"
+AN_BIAS_NOTE: Final = (
+    "Compares known book features with and without a linked personal rating. Availability "
+    "depends on source coverage, matching, missing ratings and conflicts; this is not proof "
+    "of intentional rating selection. Each known work has total fractional weight one. "
+    "Missing features are excluded, not treated as negative labels. A difference warns "
+    "against generalizing rated-subset enjoyment to the whole library."
+)
+AN_METADATA_ORIGIN: Final = "{source}:{source_id}"
+AN_CALC_STRUCTURE_PAGES: Final = "read.structure.page_counts"
+AN_CALC_STRUCTURE_PUBLICATION: Final = "read.structure.edition_publication_years"
+AN_CALC_RECURRING: Final = "read.profile.recurring_attributes"
+AN_CALC_RECURRING_CAPABILITY: Final = "read.profile.recurring_attributes.{kind}"
+AN_CALC_PAIR_LENGTH: Final = "genre_by_page_length"
+AN_CALC_PAIR_FORMAT: Final = "genre_by_edition_format"
+AN_CALC_PAIR_GENRES: Final = "genre_pairs"
+AN_CALC_RECURRING_NOTE: Final = (
+    "Rating-independent observed co-occurrences, not psychological traits, enjoyment, "
+    "causality, or hypothesis tests. At most six most-exposed observed genres and three "
+    "formats are considered; at most four combinations per kind pass the configured "
+    "unique-work support minimum. Each kind has its own known-feature denominator. "
+    "Tags overlap, so combinations are not disjoint and shares need not sum to one. "
+    "Source taxonomy quality, contamination, and missing labels can limit interpretation."
+)
+AN_CALC_PROFILE_NOTE: Final = (
+    "Rating-independent unique completed-work profile, including works with unknown personal "
+    "ratings. Membership counts may overlap; each known work contributes total fractional "
+    "weight one across its observed labels. Repetition means multiple distinct works with "
+    "the same explicit label, not inferred rereads, series order, or author geography. "
+    "Labels summarize the supplied taxonomy; they do not establish its accuracy."
+)
+AN_CALC_PAGES_NOTE: Final = (
+    "Known positive edition page counts only; missing/failed/unsupported pages are not zero. "
+    "Quartiles use inclusive linear interpolation at (N-1)*p; one observation yields equal "
+    "quartiles. Edition page counts are not observed pages read or active reading duration."
+)
+AN_CALC_PUBLICATION_NOTE: Final = (
+    "Edition publication years only, not original-work publication, reading dates, book ages, "
+    "or reading-era preferences. Missing/failed/unsupported edition years remain unknown; "
+    "no publication year is inferred from reading, capture dates, or work-level metadata."
+)
+AN_CALC_MEMBERSHIP: Final = "unique_work_membership_counts"
+AN_CALC_REPEATED_LABELS: Final = "labels_repeated_across_distinct_works"
+AN_CALC_REPEATED_WORKS: Final = "known_works_with_any_repeated_label"
+AN_CALC_SINGLETON_LABELS: Final = "labels_observed_on_only_one_work"
+AN_CALC_QUARTILE_LOW: Final = "first_quartile"
+AN_CALC_QUARTILE_HIGH: Final = "third_quartile"
+AN_CALC_QUANTILE_METHOD: Final = "inclusive"
+AN_CALC_EDITION_YEARS: Final = "edition_publication_year_counts"
+AN_CALC_CANDIDATES: Final = "bounded_combinations_examined"
+AN_CALC_COMBINATIONS: Final = "supported_observed_combinations"
+AN_CALC_LEFT_LABEL: Final = "first_label"
+AN_CALC_RIGHT_LABEL: Final = "second_label"
+AN_CALC_MIN_SUPPORT: Final = "minimum_unique_work_support"
+AN_CALC_COMPOSITION_DISTANCE: Final = "jensen_shannon_distance_base_2"
+AN_CALC_COMPOSITION_GAPS: Final = "largest_supported_fractional_share_gaps"
+AN_CALC_READ_MISSING: Final = "read_missing_feature_count"
+AN_CALC_WATCH_MISSING: Final = "watchlist_missing_feature_count"
+AN_CALC_READ_LABEL_SUPPORT: Final = "read_unique_work_label_support"
+AN_CALC_WATCH_LABEL_SUPPORT: Final = "watchlist_unique_work_label_support"
+AN_CALC_WATCH_ENJOYMENT: Final = "watchlist.enjoyment.{feature}"
+AN_CALC_COMPOSITION_NOTE: Final = (
+    "Rating-independent comparison of observed book facts, not enjoyment or recommendations. "
+    "Within each population, missing/empty/failed/unsupported features are excluded; each "
+    "known work splits weight equally among its labels. Jensen-Shannon distance uses base-2 "
+    "logs and lies in [0,1]; unavailable populations have unknown distance, not zero. Gaps "
+    "require minimum known support in both populations and minimum combined label support; "
+    "at most five largest absolute category-share gaps are shown, never book rankings. "
+    "Metadata coverage and taxonomy quality are separate from composition differences."
+)
+AN_CALC_COMPOSITION_REASON: Final = (
+    "Composition uses available book facts in both Read and Watchlist, independent of "
+    "personal ratings or supported enjoyment preferences; inspect both missing-feature counts."
+)
+AN_CALC_COMPLEMENT: Final = "known_feature_complement"
+AN_CALC_COMPLEMENT_BOOKS: Final = "complement_supporting_books"
+AN_CALC_SHRUNK_EFFECT: Final = "adjusted_group_minus_adjusted_complement"
+AN_CALC_HIGH_LIFT: Final = "high_rating_rate_ratio_vs_complement"
+AN_CALC_HIGH_DIFFERENCE: Final = "high_rating_rate_difference_vs_complement"
+AN_CALC_COMPARISON_SUPPORTED: Final = "comparison_has_minimum_rated_support"
+AN_CALC_INDEPENDENT_AUTHORS: Final = "distinct_known_authors"
+AN_CALC_COMPARISON_LOO: Final = "leave_one_author_out_group_complement_differences"
+AN_CALC_COMPARISON_NOTE: Final = (
+    "Complement includes only works with known comparison features, excluding the group; "
+    "missing labels are not confirmed absences. Means shrink to the completed-work mean. "
+    "This global shrinkage prior uses all eligible rated completed works, including "
+    "works with unavailable comparison features. "
+    "All comparisons are exploratory, correlated, and uncorrected for multiple comparisons, "
+    "not formal tests or causal effects. Known authors are support clusters, "
+    "not independent trials."
+)
+AN_CALC_VALIDATION: Final = "read.validation.leave_one_work_out"
+AN_CALC_VALIDATION_SIGNAL: Final = "read.validation.categorical_signal"
+AN_CALC_VALIDATION_NOTE: Final = (
+    "Retrospective leave-one-confirmed-work-out validation of the rated Read subset only, "
+    "not future recommendation accuracy. Each fold fits only other works: global mean and "
+    "categorical group means with minimum support after holdout. Label predictions average "
+    "within feature dimensions, then equally across supported dimensions; no signal falls "
+    "back to the training-only mean. Predictions are bounded to 0..5. MAE/RMSE and baseline "
+    "use identical held-out works. Metadata, selected ratings, authors, and series can be "
+    "correlated; this is not temporal or independent-author validation. No parameter tuning, "
+    "confidence interval, watchlist score, or future-accuracy claim is made."
+)
+AN_CALC_VALIDATION_NEED: Final = (
+    "Need at least thirty linked rated completed unique works; categorical signal additionally "
+    "needs the configured minimum rated group size after excluding each held-out work."
+)
+AN_CALC_MAE: Final = "mean_absolute_error"
+AN_CALC_RMSE: Final = "root_mean_squared_error"
+AN_CALC_BASELINE_ERRORS: Final = "training_only_mean_baseline_errors"
+AN_CALC_PREDICTOR_ERRORS: Final = "categorical_predictor_errors"
+AN_CALC_MAE_GAIN: Final = "baseline_minus_predictor_mae"
+AN_CALC_RMSE_GAIN: Final = "baseline_minus_predictor_rmse"
+AN_CALC_ADVANTAGE: Final = "lower_mae_than_baseline"
+AN_CALC_DIMENSIONS: Final = "feature_dimension_evaluations"
+AN_CALC_SIGNAL: Final = "works_with_supported_categorical_signal"
+AN_CALC_SIGNAL_COVERAGE: Final = "signal_share_of_rated_completed_works"
+AN_CALC_SIGNAL_SUBSET: Final = "same_work_signal_subset_evaluation"
+AN_CALC_FALLBACK: Final = "baseline_fallback_works"
+AN_CALC_TRAINING_MIN: Final = "minimum_group_size_after_holdout"
+AN_CALC_TRAINING: Final = "training"
+AN_CALC_COHORT_YEARS: Final = "eligible_observed_calendar_years"
+AN_CALC_COHORTS: Final = "year_cohorts"
+AN_CALC_SAMPLE_VOLUME: Final = "equal_sample_volume"
+AN_CALC_EXPECTED_LABELS: Final = "expected_distinct_genre_labels"
+AN_CALC_OBSERVED_LABELS: Final = "observed_distinct_genre_labels"
+AN_CALC_TAG_DENSITY: Final = "mean_explicit_genre_labels_per_known_work"
+AN_CALC_RAREFACTION_NOTE: Final = (
+    "Each work enters its earliest observed exact-day completed event year once. Partial-date "
+    "events do not assign these cohorts. Only calendar years before the explicit as-of year "
+    "and at most six latest eligible years are compared, with at least ten genre-known works "
+    "per year. Expected distinct labels use uniform sampling without replacement at the "
+    "smallest included known-work count: sum[1 - choose(N-frequency,m)/choose(N,m)]. "
+    "This controls observed work volume, not tag density, overlapping taxonomy, metadata "
+    "changes, incomplete exports, selection bias, or account-history completeness."
+)
+AN_CALC_RAREFACTION_NEED: Final = (
+    "Need two completed calendar-year cohorts with at least ten unique genre-known works "
+    "and exact-day finished events in each; year/month-only dates do not meet this design."
+)
+AN_CALC_CHANGE_NOTE: Final = (
+    "Current authoritative ratings grouped by earliest observed exact-day completion year, "
+    "not historical ratings or rating revisions. The latest two eligible completed-year "
+    "cohorts require ten genre-known rated works each and at least two shared exact genre-label "
+    "sets with configured minimum rated support per year. Exact label sets form disjoint "
+    "strata; pooled rated-work shares in shared strata are fixed weights for both years. "
+    "Standardized differences are descriptive, not causal taste change. Selection, taxonomy "
+    "changes, author/series mix, omitted attributes, rereading, and later rating revisions "
+    "remain possible explanations. No significance tests or historical preference claims."
+)
+AN_CALC_CHANGE_NEED: Final = (
+    "Need two completed-year exact-day dated rated cohorts and two shared genre-label-set "
+    "strata with sufficient rated support; current undated ratings cannot establish change."
+)
+AN_CALC_BEFORE: Final = "earlier_year"
+AN_CALC_AFTER: Final = "later_year"
+AN_CALC_STRATA: Final = "shared_disjoint_genre_label_sets"
+AN_CALC_WEIGHT: Final = "pooled_rated_work_weight"
+AN_CALC_STANDARDIZED: Final = "standardized_current_rating_mean"
+AN_CALC_STANDARDIZED_HIGH: Final = "standardized_current_high_rating_share"
+AN_CALC_STANDARDIZED_DELTA: Final = "later_minus_earlier_standardized_mean"
+AN_CALC_STANDARDIZED_HIGH_DELTA: Final = "later_minus_earlier_standardized_high_rating_share"
+AN_CALC_RAW_DELTA: Final = "later_minus_earlier_unstandardized_comparable_mean"
+AN_CALC_SHARED_COVERAGE: Final = "shared_strata_coverage"
+AN_CALC_TEST_OLD_FINISH: Final = "2023-02-01"
+AN_CALC_TEST_AS_OF: Final = "2025-01-01T00:00:00+00:00"
+AN_CALC_SUPPORTING_BOOKS: Final = "supporting_books"
+AN_CALC_TEST_EARLY_PARTIAL: Final = "2022"
+AN_CALC_TEST_LANGUAGE: Final = "synthetic-language"
+AN_CALC_RATED_KNOWN: Final = "rated_genre_known_count"
+AN_CALC_EXCLUSIONS: Final = "analysis_exclusion_counts"
+AN_CALC_UNDATED_EXCLUDED: Final = "no_full_day_completed_prior_year_cohort"
+AN_CALC_COHORT_EXCLUDED: Final = "thin_or_older_than_selected_cohorts"
+AN_CALC_MISSING_LABEL_EXCLUDED: Final = "genre_missing_within_selected_cohorts"
+AN_CALC_LANGUAGE_EN: Final = "en"
+AN_CALC_LANGUAGE_ENG: Final = "eng"
+AN_CALC_LANGUAGE_NOTE: Final = (
+    "Matched-edition language is not proof of language actually read. Work-level catalog "
+    "language availability across editions is separate and never supplies this feature. "
+    "English ISO en/eng aliases are grouped together without changing raw observations. "
+    "Other taxonomy/ISO alias normalization remains an input-extraction responsibility; "
+    "different unmapped codes alone are not evidence of distinct reader tastes."
+)
+AN_CALC_FIELD_STATES_FIELD: Final = "field_states"
+AN_CALC_READ_COUNT: Final = "read.unique_works"
+AN_CALC_WATCH_COUNT: Final = "watchlist.unique_works"
+AN_CALC_SOURCE_COUNTS: Final = "sources.record_counts"
+AN_CALC_RATING_RECORDS: Final = "sources.personal_rating_records"
+AN_CALC_RATINGS: Final = "read.personal_ratings"
+AN_CALC_FAVORITES: Final = "read.favorites"
+AN_CALC_RATED_COUNT: Final = "read.rated_works"
+AN_CALC_GROUP: Final = "read.feature.{feature}.{label}"
+AN_CALC_BREADTH: Final = "read.breadth.{feature}"
+AN_CALC_CONDITIONAL: Final = "read.conditional.genre_length.{genre}.{length}"
+AN_CALC_PROVIDER: Final = "read.community.{provider}"
+AN_CALC_REVIEW: Final = "reviews.mentions.{theme}"
+AN_CALC_PERIOD: Final = "read.finished.{precision}.{period}"
+AN_CALC_DURATION: Final = "read.duration_days"
+AN_CALC_DNF: Final = "library.explicit_dnf"
+AN_CALC_APPETITE: Final = "read.appetite.{dimension}"
+AN_CALC_WATCH_FEATURE: Final = "watchlist.feature.{feature}"
+AN_CALC_PREFERENCE_KEY: Final = "{feature}:{label}"
+AN_CALC_WATCH_MISMATCH: Final = "watchlist.preference_mismatch"
+AN_CALC_WATCH_AGE: Final = "watchlist.backlog_age"
+AN_CALC_WATCH_MOVEMENT: Final = "watchlist.movement"
+AN_CALC_CONDITIONS: Final = "conditional_preferences"
+AN_CALC_REVIEWS: Final = "review_themes"
+AN_CALC_TIME: Final = "reading_time_trends"
+AN_CALC_TASTE_CHANGE: Final = "comparable_group_taste_changes"
+AN_CALC_REVISIONS: Final = "rating_revisions"
+AN_CALC_YEAR_BREADTH: Final = "comparable_volume_yearly_breadth"
+AN_CALC_SERIES_ORDER: Final = "series_start_versus_continuation"
+AN_CALC_DNF_REASONS: Final = "explicit_dnf_reasons"
+AN_CALC_COMMUNITY: Final = "named_provider_community_agreement"
+AN_CALC_MOOD_PACE: Final = "mood_and_pace_preferences"
+AN_CALC_FAMILIARITY: Final = "author_familiarity_conditionals"
+AN_CALC_REREADS: Final = "dated_rereading"
+AN_CALC_APP_DECLARED: Final = "appetite.declared.{dimension}"
+AN_CALC_APP_EXPOSURE: Final = "appetite.exposure.{dimension}"
+AN_CALC_APP_ENJOYMENT: Final = "appetite.enjoyment.{dimension}"
+AN_CALC_POP_READ: Final = "unique_completed_works"
+AN_CALC_POP_WATCH: Final = "unique_current_watchlist_works"
+AN_CALC_POP_LIBRARY: Final = "unique_confirmed_works"
+AN_CALC_POP_RECORDS: Final = "source_records_not_unique_works"
+AN_CALC_POP_READER: Final = "explicit_reader_preferences"
+AN_CALC_UNIT_WORKS: Final = "works"
+AN_CALC_UNIT_SUMMARY: Final = "descriptive_summary"
+AN_CALC_UNIT_RATING: Final = "personal_stars_0_to_5"
+AN_CALC_UNIT_DAYS: Final = "elapsed_calendar_days"
+AN_CALC_RELIABLE: Final = "descriptive"
+AN_CALC_WEAK: Final = "weak"
+AN_CALC_EXPLORATORY: Final = "exploratory_association"
+AN_CALC_NO_INFERENCE: Final = (
+    "Descriptive associations, not causal effects or population estimates; "
+    "ratings may be a selected subset."
+)
+AN_CALC_THIN: Final = (
+    "Too few rated works or concentrated/missing author or series coverage; "
+    "not a reliable general preference."
+)
+AN_CALC_SINGLE: Final = "One rated work cannot establish consistency."
+AN_CALC_PRIOR_NOTE: Final = (
+    "Adjusted mean uses (rating total + prior strength * completed-work mean) / "
+    "(rated group size + prior strength); no formal significance."
+)
+AN_CALC_MULTILABEL: Final = (
+    "Labels may overlap; prevalence uses unique works, concentration uses fractional "
+    "label membership among known works."
+)
+AN_CALC_REVIEW_NOTE: Final = (
+    "Exact keyword mentions only; excerpts preserve negation and context. "
+    "No sentiment, enjoyment, or DNF reason is inferred."
+)
+AN_CALC_TIME_NOTE: Final = (
+    "Only explicit completed reading-event dates; each work counts once per period. "
+    "Current ratings are not historical ratings."
+)
+AN_CALC_DURATION_NOTE: Final = (
+    "Exact-day start/finish pairs only; duplicate date pairs count once per work; "
+    "elapsed calendar days, not active reading time."
+)
+AN_CALC_DNF_NOTE: Final = (
+    "Explicit DNF works only; absence is unknown without a source DNF scope. "
+    "No low-rating or review-based DNF inference."
+)
+AN_CALC_APP_NOTE: Final = (
+    "Six independent public-concept dimensions, not a normalized score, personality "
+    "assessment, or reproduction of proprietary assessment. Explicit labels only."
+)
+AN_CALC_WATCH_NOTE: Final = (
+    "Composition and descriptive supported preference deltas only; "
+    "not book scores, ranking, or next-read recommendations."
+)
+AN_CALC_SCOPE_NOTE: Final = (
+    "Source record totals do not establish unique-work counts, linked completed ratings, "
+    "account completeness, or unattended collection."
+)
+AN_CALC_NO_RATINGS: Final = (
+    "Supply authoritative personal ratings linked to completed works; "
+    "missing or conflicted ratings remain unknown."
+)
+AN_CALC_NEED_FEATURES: Final = (
+    "Supply supported explicit catalog labels for this feature; "
+    "missing labels are not negative labels."
+)
+AN_CALC_NEED_SUPPORT: Final = (
+    "More rated unique works with diverse authors/series are needed; "
+    "inspect coverage and concentration."
+)
+AN_CALC_NEED_REVIEWS: Final = (
+    "Supply Goodreads personal review text with provenance; raw provider descriptions "
+    "and StoryGraph attributes are not personal reviews."
+)
+AN_CALC_NEED_DATES: Final = (
+    "Supply real reading-event dates with retained precision; "
+    "capture/import timestamps cannot substitute."
+)
+AN_CALC_NEED_REVISIONS: Final = (
+    "Need dated historical personal-rating observations; current ratings cannot identify revisions."
+)
+AN_CALC_NEED_COMPARABLE: Final = (
+    "Needs comparable longitudinal reading groups, selection/coverage controls, "
+    "and observation-time ratings; current-rating summaries are not taste change."
+)
+AN_CALC_NEED_YEAR_BREADTH: Final = (
+    "Needs a prespecified comparable-volume yearly design; raw distinct-label counts "
+    "across unequal years are not comparable."
+)
+AN_CALC_NEED_ORDER: Final = (
+    "Verified series positions and reading order are unavailable; "
+    "series names alone cannot distinguish starting from continuing."
+)
+AN_CALC_NEED_DNF_REASONS: Final = (
+    "Only explicit supplied personal explanations support reasons; "
+    "keyword mentions do not establish why a book was abandoned."
+)
+AN_CALC_NEED_COMMUNITY: Final = (
+    "Need matched authoritative personal and named-provider community ratings "
+    "on a documented 0-to-5 scale."
+)
+AN_CALC_NEED_APP_LABELS: Final = (
+    "Supply explicit, provenance-backed book labels for this dimension; "
+    "no genre/description-to-appetite heuristic is used."
+)
+AN_CALC_NEED_DECLARATION: Final = (
+    "Supply this independent declared dimension as an explicit value from zero to one."
+)
+AN_CALC_NEED_ADDED: Final = (
+    "Input has no source-backed watchlist added date; "
+    "reading and capture dates cannot identify backlog age."
+)
+AN_CALC_NEED_MOVEMENT: Final = (
+    "Need comparable historical source snapshots with explicit additions/removals; "
+    "current membership is not movement."
+)
+AN_CALC_NEED_MOOD: Final = (
+    "No authoritative supported mood/pace labels; StoryGraph non-rating fields remain raw-only."
+)
+AN_CALC_NEED_FAMILIARITY: Final = (
+    "Needs real chronological history and prespecified subject familiarity; "
+    "current author membership cannot establish familiarity at reading time."
+)
+AN_CALC_NEED_REREADS: Final = (
+    "Need distinct identified dated completed events; different precision or "
+    "import duplicates do not establish rereading."
+)
+AN_CALC_AVAILABLE_REASON: Final = (
+    "Calculated only for the available unique-work subset; "
+    "see denominators, missingness, provenance, and limitations."
+)
+AN_CALC_N: Final = "count"
+AN_CALC_TOTAL: Final = "population_count"
+AN_CALC_KNOWN: Final = "known_feature_count"
+AN_CALC_MISSING: Final = "missing_feature_count"
+AN_CALC_RATED: Final = "rated_count"
+AN_CALC_RATING_MISSING: Final = "missing_or_conflicted_rating_count"
+AN_CALC_COVERAGE: Final = "rating_coverage"
+AN_CALC_MEAN: Final = "mean"
+AN_CALC_MEDIAN: Final = "median"
+AN_CALC_STDEV: Final = "population_standard_deviation"
+AN_CALC_MIN: Final = "minimum"
+AN_CALC_MAX: Final = "maximum"
+AN_CALC_HISTOGRAM: Final = "rating_histogram"
+AN_CALC_ADJUSTED: Final = "adjusted_mean"
+AN_CALC_PRIOR: Final = "prior_strength"
+AN_CALC_HIGH_COUNT: Final = "high_rated_count"
+AN_CALC_HIGH_SHARE: Final = "high_rated_share_of_rated_group"
+AN_CALC_FAVORITE_SHARE: Final = "share_of_all_rated_favorites"
+AN_CALC_THRESHOLD: Final = "high_rating_threshold"
+AN_CALC_PREVALENCE: Final = "share_of_all_completed_works"
+AN_CALC_KNOWN_PREVALENCE: Final = "share_of_known_feature_works"
+AN_CALC_AUTHOR_KNOWN: Final = "rated_works_with_authors"
+AN_CALC_SERIES_KNOWN: Final = "rated_works_with_series"
+AN_CALC_AUTHOR_SHARE: Final = "largest_author_share_of_known_rated_works"
+AN_CALC_SERIES_SHARE: Final = "largest_series_share_of_known_rated_works"
+AN_CALC_LEAVE_AUTHOR: Final = "leave_one_author_out_means"
+AN_CALC_LABELS: Final = "labels"
+AN_CALC_HHI: Final = "fractional_membership_hhi"
+AN_CALC_EFFECTIVE: Final = "effective_number_of_labels"
+AN_CALC_SHARES: Final = "fractional_membership_shares"
+AN_CALC_LENGTH: Final = "page_length"
+AN_CALC_SHORT: Final = "under_200_pages"
+AN_CALC_MEDIUM: Final = "200_to_399_pages"
+AN_CALC_LONG: Final = "400_or_more_pages"
+AN_CALC_GENRE_BASELINE: Final = "genre_only_mean"
+AN_CALC_LENGTH_BASELINE: Final = "length_only_mean"
+AN_CALC_EXCERPT: Final = "exact_review"
+AN_CALC_EVIDENCE: Final = "review_evidence"
+AN_CALC_BOOK: Final = "book_id"
+AN_CALC_THEME: Final = "theme"
+AN_CALC_DECLARED: Final = "declared_preference"
+AN_CALC_EXPOSURE: Final = "exposure_share_of_explicitly_labeled_works"
+AN_CALC_ENJOYMENT: Final = "enjoyment"
+AN_CALC_PROVIDER_NAME: Final = "provider"
+AN_CALC_PROVIDER_MEAN: Final = "provider_mean"
+AN_CALC_DELTA: Final = "mean_personal_minus_provider"
+AN_CALC_PROVIDER_SCALE: Final = "provider_scale"
+AN_CALC_PROVIDER_SCALE_VALUE: Final = "0_to_5"
+AN_CALC_READ_SHARE: Final = "read_share_of_known"
+AN_CALC_WATCH_SHARE: Final = "watchlist_share_of_known"
+AN_CALC_COMPOSITION_DELTA: Final = "watchlist_minus_read_share"
+AN_CALC_PREFERENCE_DELTA: Final = "supported_adjusted_rating_delta"
+AN_CALC_UNSUPPORTED_LABELS: Final = "labels_without_supported_enjoyment"
+AN_CALC_WATCH_KNOWN: Final = "watchlist_known_count"
+AN_CALC_READ_KNOWN: Final = "read_known_count"
+AN_CALC_DURATIONS: Final = "duration_days"
+AN_CALC_EVENT_COUNT: Final = "distinct_exact_date_pairs"
+AN_CALC_REREAD_COUNT: Final = "additional_identified_completed_events"
+AN_CALC_THEME_CHARACTER: Final = "character_development"
+AN_CALC_THEME_EMOTION: Final = "emotional_impact"
+AN_CALC_THEME_PROSE: Final = "prose"
+AN_CALC_THEME_PACING: Final = "pacing"
+AN_CALC_THEME_WORLD: Final = "world_building"
+AN_CALC_THEME_RELATIONSHIPS: Final = "relationships"
+AN_CALC_THEME_IDEAS: Final = "ideas_and_learning"
+AN_CALC_THEME_PREDICTABLE: Final = "predictability"
+AN_CALC_THEME_ENDING: Final = "ending_satisfaction"
+AN_CALC_THEME_REPETITION: Final = "repetition"
+AN_CALC_THEME_NARRATION: Final = "narration"
+AN_CALC_THEME_LENGTH: Final = "length"
+AN_CALC_PATTERN_CHARACTER: Final = r"\bcharacter(?:s| development| growth)?\b"
+AN_CALC_PATTERN_EMOTION: Final = r"\b(?:emotional|emotion|moving|moved|cry|cried|tears)\b"
+AN_CALC_PATTERN_PROSE: Final = r"\b(?:prose|writing style|lyrical|sentences)\b"
+AN_CALC_PATTERN_PACING: Final = r"\b(?:pacing|pace|slow|fast.paced)\b"
+AN_CALC_PATTERN_WORLD: Final = r"\b(?:world.building|worldbuilding|setting)\b"
+AN_CALC_PATTERN_RELATIONSHIPS: Final = r"\b(?:relationships?|friendship|romance|family)\b"
+AN_CALC_PATTERN_IDEAS: Final = r"\b(?:ideas?|learned|learning|insight|thought.provoking)\b"
+AN_CALC_PATTERN_PREDICTABLE: Final = r"\b(?:predictable|predictability|unpredictable|twist)\b"
+AN_CALC_PATTERN_ENDING: Final = r"\b(?:ending|conclusion|finale)\b"
+AN_CALC_PATTERN_REPETITION: Final = r"\b(?:repetition|repetitive|repeated|repeats)\b"
+AN_CALC_PATTERN_NARRATION: Final = r"\b(?:narration|narrator|audiobook|voice)\b"
+AN_CALC_PATTERN_LENGTH: Final = r"\b(?:length|long|short|pages)\b"
+AN_CALC_TEST_KEY: Final = "test-calculation"
+AN_CALC_TEST_ACCOUNT: Final = "synthetic-account"
+AN_CALC_TEST_HASH: Final = "synthetic-settings-hash"
+AN_CALC_TEST_GENRE: Final = "fantasy"
+AN_CALC_TEST_OTHER: Final = "history"
+AN_CALC_TEST_AUTHOR: Final = "Synthetic Author"
+AN_CALC_TEST_AUTHOR_FORMAT: Final = "Synthetic Author {index}"
+AN_CALC_TEST_PROVIDER: Final = "google_books"
+AN_CALC_TEST_REVIEW: Final = "The pacing was not good. The ending was predictable."
+AN_CALC_TEST_YEAR: Final = "2024"
+AN_CALC_TEST_START: Final = "2024-01-01"
+AN_CALC_TEST_FINISH: Final = "2024-01-11"
+AN_CALC_TEST_MONTH: Final = "2024-01"
+AN_CALC_RATING_CONFLICT: Final = "rating_conflict"
+AN_CALC_UNCERTAINTY: Final = "uncertainty"
+AN_CALC_FEATURE_ENJOYMENT: Final = "read.enjoyment.{feature}"
+AN_CALC_CONDITIONAL_NOTE: Final = (
+    "Exploratory genre-by-page-length summaries only: at most six most-exposed genres, "
+    "lexical tie-break, three fixed length bands. Rated support and concentration gates "
+    "apply; no significance tests or causal claims."
+)
+AN_CALC_PROVIDER_NOTE: Final = (
+    "Paired matched works only, separately by named provider on a validated 0-to-5 scale; "
+    "no universal consensus or cross-provider pooling."
+)
+AN_CALC_APPETITE_LABELS: Final = "appetite"
+AN_CALC_REVIEW_POP: Final = "unique_works_with_supplied_personal_reviews"
+AN_CALC_FAVORITE_CONCENTRATION: Final = "read.favorites.concentration"
+AN_CALC_KNOWN_STATES: Final = "input_field_state_counts"
+AN_CALC_LIMITATIONS: Final = "limitations"
+AN_CALC_POP_HISTORY: Final = "unique_confirmed_completed_or_explicit_dnf_works"
+AN_CALC_EVIDENCE_FIELD: Final = "evidence"
+AN_CALC_LOO_RANGE: Final = "leave_one_author_out_delta_range"
+AN_CALC_LOO_NOTE: Final = (
+    "Leave-one-author-out checks retain the completed-work baseline and require minimum "
+    "rated support after exclusion; sign reversals weaken general preferences."
+)
+AN_CALC_ADDED: Final = "source_added_date"
+AN_CALC_PRECISION: Final = "source_date_precision"
+AN_CALC_AS_OF: Final = "analysis_as_of_calendar_date"
+AN_CALC_AGE_DAYS: Final = "age_calendar_days"
+AN_CALC_AGE_NOTE: Final = (
+    "Age uses source-backed watchlist added dates and the explicit analysis as-of "
+    "calendar date, not reading or capture dates. Year/month precision is preserved "
+    "without invented days. Future or missing dates have unknown ages; no rediscovery ranking."
+)
+AN_CALC_DURATION_MEAN_NOTE: Final = (
+    "Mean and median summarize per-work mean durations with equal weight per work; "
+    "distinct exact-day pairs are retained separately."
+)
+AN_CALC_THIN_GROUPS: Final = "read.feature.{feature}.insufficient_consistency_support"
+AN_CALC_TEST_FINISH_LATER: Final = "2024-02-01"
+AN_CALC_TEST_ADDED_FIELD: Final = "added_at"
+AN_CALC_TEST_SNAPSHOTS_FIELD: Final = "snapshots"
+AN_CALC_TEST_MANIFEST_FIELD: Final = "manifest"
+AN_CALC_TEST_FEATURES_FIELD: Final = "features"
+AN_CALC_AS_OF_FIELD: Final = "as_of"
+AN_CALC_AXIS_FEELING: Final = "appetite.axes.feeling_thinking"
+AN_CALC_AXIS_GROUNDED: Final = "appetite.axes.grounded_imaginative"
+AN_CALC_AXIS_NOTE: Final = (
+    "No explicit axis observations or public validated scoring weights are available; "
+    "six independent appetite labels do not establish feeling/thinking or "
+    "grounded/imaginative coordinates."
+)
+
+# Analytics persistence.
+AN_STORE_ERROR: Final = (
+    "Analytics storage could not be used safely. Close other users of analytics.sqlite3, "
+    "then remove this rebuildable analytics database and run sync again."
+)
+AN_STORE_CLOSED: Final = "Analytics storage is closed. Open a new AnalyticsStore."
+AN_STORE_COLLISION: Final = (
+    "An analytics cache key identifies different results. Rebuild analytics.sqlite3 "
+    "and check the calculation version and input fingerprint."
+)
+AN_STORE_KEY_PATTERN: Final = r"[0-9a-f]{64}"
+AN_STORE_FOREIGN_KEYS: Final = "PRAGMA foreign_keys = ON"
+AN_STORE_FOREIGN_KEYS_CHECK: Final = "PRAGMA foreign_keys"
+AN_STORE_INTEGRITY: Final = "PRAGMA integrity_check"
+AN_STORE_FK_CHECK: Final = "PRAGMA foreign_key_check"
+AN_STORE_APP_ID: Final = "PRAGMA application_id"
+AN_STORE_VERSION: Final = "PRAGMA user_version"
+AN_STORE_SET_APP_ID: Final = "PRAGMA application_id = 1112752462"
+AN_STORE_SET_VERSION: Final = "PRAGMA user_version = 2"
+AN_STORE_BEGIN: Final = "BEGIN IMMEDIATE"
+AN_STORE_SCHEMA: Final = (
+    "SELECT type, name, tbl_name, sql FROM sqlite_master "
+    "WHERE name NOT GLOB 'sqlite_*' ORDER BY name"
+)
+AN_STORE_HAS_SCHEMA: Final = "SELECT 1 FROM sqlite_master LIMIT 1"
+AN_STORE_COMPONENT_TABLE: Final = "analysis_components"
+AN_STORE_REPORT_TABLE: Final = "analysis_reports"
+AN_STORE_TABLE: Final = "table"
+AN_STORE_CREATE_COMPONENTS: Final = (
+    "CREATE TABLE analysis_components ("
+    "cache_key TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, "
+    "payload TEXT NOT NULL, payload_hash TEXT NOT NULL)"
+)
+AN_STORE_CREATE_REPORTS: Final = (
+    "CREATE TABLE analysis_reports ("
+    "report_id INTEGER PRIMARY KEY AUTOINCREMENT, taste_key TEXT NOT NULL "
+    "REFERENCES analysis_components(cache_key), watchlist_key TEXT NOT NULL "
+    "REFERENCES analysis_components(cache_key), payload TEXT NOT NULL, payload_hash TEXT NOT NULL)"
+)
+AN_STORE_GET_COMPONENT: Final = (
+    "SELECT cache_key, kind, payload, payload_hash FROM analysis_components WHERE cache_key = ?"
+)
+AN_STORE_ALL_COMPONENTS: Final = (
+    "SELECT cache_key, kind, payload, payload_hash FROM analysis_components"
+)
+AN_STORE_INSERT_COMPONENT: Final = (
+    "INSERT INTO analysis_components(cache_key, kind, payload, payload_hash) VALUES (?, ?, ?, ?)"
+)
+AN_STORE_INSERT_REPORT: Final = (
+    "INSERT INTO analysis_reports(taste_key, watchlist_key, payload, payload_hash) "
+    "VALUES (?, ?, ?, ?)"
+)
+AN_STORE_ALL_REPORTS: Final = (
+    "SELECT report_id, taste_key, watchlist_key, payload, payload_hash FROM analysis_reports"
+)
+AN_STORE_LATEST: Final = AN_STORE_ALL_REPORTS + " ORDER BY report_id DESC LIMIT 1"
+AN_STORE_REPORT_ID: Final = "report_id"
+AN_STORE_TASTE: Final = "taste"
+AN_STORE_WATCHLIST: Final = "watchlist"
+AN_STORE_TEST_FILENAME: Final = "analytics.sqlite3"
+AN_STORE_TEST_ACCOUNT: Final = "synthetic-account-fingerprint"
+AN_STORE_TEST_TIME: Final = "2026-01-02T03:04:05+00:00"
+AN_STORE_TEST_ACCOUNT_ID: Final = "synthetic-reader"
+AN_STORE_TEST_SETTINGS: Final = "synthetic-settings-hash"
+AN_STORE_TEST_RAW: Final = "synthetic-raw-document"
+AN_STORE_TEST_METRIC: Final = "synthetic-metric"
+AN_STORE_TEST_UNIT: Final = "books"
+AN_STORE_TEST_RELIABILITY: Final = "supported"
+AN_STORE_TEST_LABEL: Final = "synthetic"
+AN_STORE_TEST_KEYS: Final = "a", "b", "c"
+AN_STORE_TEST_BAD_KEY: Final = "not-a-sha256"
+AN_STORE_TEST_COMPONENT_COUNT: Final = "SELECT COUNT(*) FROM analysis_components"
+AN_STORE_TEST_REPORT_COUNT: Final = "SELECT COUNT(*) FROM analysis_reports"
+AN_STORE_TEST_BAD_HASH: Final = "UPDATE analysis_components SET payload_hash = ?"
+AN_STORE_TEST_BAD_REPORT_HASH: Final = "UPDATE analysis_reports SET payload_hash = ?"
+AN_STORE_TEST_BAD_PAYLOAD: Final = (
+    "UPDATE analysis_components SET payload = ?, payload_hash = ? WHERE cache_key = ?"
+)
+AN_STORE_TEST_BAD_BINDING: Final = "UPDATE analysis_reports SET taste_key = watchlist_key"
+AN_STORE_TEST_BAD_SCHEMA: Final = "CREATE TABLE unexpected (value TEXT)"
+AN_STORE_TEST_FUTURE_VERSION: Final = "PRAGMA user_version = 3"
+AN_STORE_TEST_WRONG_APP: Final = "PRAGMA application_id = 12"
+AN_STORE_TEST_FAIL_INSERT: Final = (
+    "CREATE TRIGGER reject_report BEFORE INSERT ON analysis_reports "
+    "BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END"
+)
+AN_STORE_TEST_CORRUPTION_PARAMETER: Final = "statement"
+AN_STORE_TEST_COMPONENT_KEY: Final = "key"
+AN_STORE_TEST_BAD_FK: Final = "UPDATE analysis_reports SET taste_key = ?"
+AN_STORE_TEST_CORRUPT_BYTES: Final = b"not a SQLite database"
+AN_STORE_TEST_TAMPER_REPORT: Final = "UPDATE analysis_reports SET payload = ?, payload_hash = ?"
+AN_STORE_TEST_REUSED: Final = "taste_reused"
+AN_STORE_TEST_PREFERENCES: Final = "preferences"
+AN_STORE_TEST_MANIFEST: Final = "manifest"
+AN_STORE_TEST_VERSION: Final = "calculation_version"
+AN_STORE_TEST_GET_REPORT: Final = "SELECT payload FROM analysis_reports"
+AN_STORE_TEST_ORDERED_REPORTS: Final = AN_STORE_ALL_REPORTS + " ORDER BY report_id"
+AN_STORE_COMPONENT_KEY: Final = "key"
+AN_STORE_FINDINGS: Final = "findings"
+AN_STORE_SNAPSHOT_IDS: Final = "source_snapshot_ids"
+AN_STORE_TEST_SNAPSHOTS: Final = "snapshots"
+AN_STORE_TEST_SNAPSHOT_ID: Final = "snapshot_id"
+
+# DQ_CAPTURE: browser observations without book-scoped capture evidence.
+DQ_CAPTURE_UNVERIFIED_GENRES: Final = "unverified_capture_genres"
+DQ_CAPTURE_UNVERIFIED_SERIES: Final = "unverified_capture_series"
+DQ_CAPTURE_UNVERIFIED_SERIES_NUMBER: Final = "unverified_capture_series_number"
+DQ_CAPTURE_UNVERIFIED_CODE: Final = "unverified_browser_capture"
+DQ_CAPTURE_UNVERIFIED_MESSAGE: Final = (
+    "Export record {row}: {field} has no book-scoped capture evidence. The captured value is "
+    "retained as an unverified observation and raw field, not confirmed book metadata."
+)
+DQ_CAPTURE_TEST_GENRES: Final = "Navigation category | Fiction | Navigation category"
+DQ_CAPTURE_TEST_SERIES: Final = "Explore collections"
+DQ_CAPTURE_TEST_UNKNOWN: Final = "unknown"
+DQ_CAPTURE_TEST_LABEL_PARAMETERS: Final = "header,field,unverified"
+DQ_CAPTURE_TEST_STATE_PARAMETERS: Final = "value,state"
+
+# MATCH_UPGRADE: conservative identity normalization, index maintenance and tests.
+MATCH_UPGRADE_SERIES_PATTERN: Final = (
+    r"\s+\((?P<series>[^()#]+?),\s*#(?P<number>\d+(?:\.\d+)?)\)\s*$"
+)
+MATCH_UPGRADE_ARTICLE_PATTERN: Final = r"^(?P<title>.+),\s*(?P<article>The|An|A)$"
+MATCH_UPGRADE_ISBN_LABEL_PATTERN: Final = r"^ISBN(?:-(?P<width>1[03]))?\s*:?\s*(?=\d)"
+MATCH_UPGRADE_ISBN_WIDTH_GROUP: Final = "width"
+MATCH_UPGRADE_SERIES_GROUP: Final = "series"
+MATCH_UPGRADE_NUMBER_GROUP: Final = "number"
+MATCH_UPGRADE_TITLE_GROUP: Final = "title"
+MATCH_UPGRADE_ARTICLE_GROUP: Final = "article"
+MATCH_UPGRADE_UNICODE_FORM: Final = "NFKD"
+MATCH_UPGRADE_COMBINING_CATEGORY: Final = "Mn"
+MATCH_UPGRADE_LATIN_PREFIX: Final = "LATIN "
+MATCH_UPGRADE_SERIES_CONFLICT: Final = "Shared ISBN has contradictory numbered-series identity"
+MATCH_UPGRADE_NORMALIZED_ISBN: Final = (
+    "Validated ISBN, structurally normalized full title, and normalized authors agree"
+)
+MATCH_UPGRADE_SUBTITLE_CANDIDATE: Final = (
+    "Compatible title/subtitle and authors suggest a work; edition identity is unproved"
+)
+MATCH_UPGRADE_AUTHOR_CANDIDATE: Final = (
+    "Shared ISBN and compatible title have incomplete or differing author evidence"
+)
+MATCH_UPGRADE_INDEX_ROWS: Final = "SELECT id, title_author_key, latest_json FROM source_records"
+MATCH_UPGRADE_INDEX_KEY: Final = "title_author_key"
+MATCH_UPGRADE_INDEX_UPDATE: Final = "UPDATE source_records SET title_author_key = ? WHERE id = ?"
+MATCH_UPGRADE_OTHER_WORK_MEMBER: Final = (
+    "SELECT 1 FROM source_records WHERE work_id = ? AND id != ? LIMIT 1"
+)
+MATCH_UPGRADE_PRIOR_DECISION: Final = (
+    "SELECT 1 FROM match_decisions d LEFT JOIN match_candidates c ON c.id = d.candidate_id "
+    "WHERE d.record_id = ? OR c.record_id = ? OR c.target_record_id = ? LIMIT 1"
+)
+MATCH_UPGRADE_TEST_TITLE: Final = "A Game of Thrones"
+MATCH_UPGRADE_TEST_SERIES_TITLE: Final = "A Game of Thrones (A Song of Ice and Fire, #1)"
+MATCH_UPGRADE_TEST_OTHER_NUMBER: Final = "A Game of Thrones (A Song of Ice and Fire, #2)"
+MATCH_UPGRADE_TEST_AUTHOR: Final = "George R.R. Martin"
+MATCH_UPGRADE_TEST_SPACED_AUTHOR: Final = "George R. R. Martin"
+MATCH_UPGRADE_TEST_COMPACT_AUTHOR: Final = "George RR Martin"
+MATCH_UPGRADE_TEST_SUBTITLE: Final = "A Game of Thrones: An Illustrated Edition"
+MATCH_UPGRADE_TEST_OTHER_SUBTITLE: Final = "A Game of Thrones: A Study Guide"
+MATCH_UPGRADE_TEST_SORTED_TITLE: Final = "Stargazer's Sister, The"
+MATCH_UPGRADE_TEST_ARTICLE_TITLE: Final = "The Stargazer\u2019s Sister"
+MATCH_UPGRADE_TEST_ACCENT_AUTHOR: Final = "Genzaburō Yoshino"
+MATCH_UPGRADE_TEST_PLAIN_AUTHOR: Final = "Genzaburo Yoshino"
+MATCH_UPGRADE_TEST_PAREN_TITLE: Final = "A Game of Thrones (Part Two)"
+MATCH_UPGRADE_TEST_OMNIBUS: Final = "A Game of Thrones (A Song of Ice and Fire, #1-3)"
+MATCH_UPGRADE_TEST_ISBN_LABEL: Final = "ISBN9789365693393"
+MATCH_UPGRADE_TEST_ISBN_VALUE: Final = "9789365693393"
+MATCH_UPGRADE_TEST_ISBN10_LABEL: Final = "ISBN-10: 0140328726"
+MATCH_UPGRADE_TEST_INVALID_LABEL: Final = "UID9789365693393"
+MATCH_UPGRADE_TEST_INVALID_CHECK: Final = "ISBN9789365693394"
+MATCH_UPGRADE_TEST_WRONG_WIDTH: Final = "ISBN-10: 9789365693393"
+MATCH_UPGRADE_TEST_IDENTITIES: Final = (
+    "SELECT id, work_id, edition_id, identity_hash FROM source_records ORDER BY id"
+)
+MATCH_UPGRADE_TEST_DECISIONS: Final = "SELECT id FROM match_decisions ORDER BY id"
+MATCH_UPGRADE_TEST_LEGACY_KEY: Final = "UPDATE source_records SET title_author_key = ? WHERE id = ?"
+MATCH_UPGRADE_TEST_COMPARE_ATTRIBUTE: Final = "compare_books"
+MATCH_UPGRADE_TEST_NORMALIZED_PARAMETERS: Final = "left_title,right_title,left_author,right_author"
+MATCH_UPGRADE_TEST_TITLE_PARAMETERS: Final = "title,kind"
+MATCH_UPGRADE_TEST_ISBN_PARAMETERS: Final = "value,expected"
+MATCH_UPGRADE_TEST_VOICED_AUTHOR: Final = "カズオ"
+MATCH_UPGRADE_TEST_UNVOICED_AUTHOR: Final = "カスオ"
+MATCH_UPGRADE_PROVIDER_WORK_PATTERN: Final = r"OL[1-9]\d*W"
+MATCH_UPGRADE_PROVIDER_AUTOMATIC: Final = "provider_work_automatic"
+MATCH_UPGRADE_PROVIDER_INVALIDATED: Final = "provider_work_invalidated"
+MATCH_UPGRADE_WORK_CONFIRMED: Final = "work_confirmed"
+MATCH_UPGRADE_PROVIDER_REASON: Final = (
+    "Independently confirmed current Open Library work IDs agree; editions remain distinct"
+)
+MATCH_UPGRADE_PROVIDER_LOST: Final = (
+    "Provider work linkage lost current, unique, compatible identity evidence"
+)
+MATCH_UPGRADE_DEPENDENCY_LOST: Final = "Automatic edition linkage depended on a remapped target"
+MATCH_UPGRADE_ATTEMPT_ID: Final = "attempt_id"
+MATCH_UPGRADE_EVIDENCE_JSON: Final = "evidence_json"
+MATCH_UPGRADE_LAST_SNAPSHOT_ID: Final = "last_snapshot_id"
+MATCH_UPGRADE_WORK_PROOFS: Final = "work_proofs"
+MATCH_UPGRADE_ALL_RECORDS: Final = "SELECT * FROM source_records ORDER BY id"
+MATCH_UPGRADE_ACTIVE_RECORD_IDS: Final = "SELECT DISTINCT record_id FROM memberships"
+MATCH_UPGRADE_WORK_SELECTED: Final = (
+    "SELECT e.record_id, e.attempt_id, e.candidate_id, a.identity_hash, c.candidate_json "
+    "FROM enrichment_active e JOIN enrichment_attempts a ON a.id = e.attempt_id "
+    "JOIN enrichment_candidates c ON c.id = e.candidate_id AND c.attempt_id = a.id "
+    "JOIN source_records r ON r.id = e.record_id "
+    "WHERE e.provider = ? AND a.provider = e.provider AND a.record_id = e.record_id "
+    "AND c.selected = 1 AND c.kind = 'confirmed' AND a.identity_hash = r.identity_hash "
+    "AND a.id = (SELECT MAX(n.id) FROM enrichment_attempts n "
+    "WHERE n.record_id = e.record_id AND n.provider = e.provider "
+    "AND n.identity_hash = r.identity_hash)"
+)
+MATCH_UPGRADE_ATTEMPT_CANDIDATES: Final = (
+    "SELECT selected, candidate_json FROM enrichment_candidates WHERE attempt_id = ? ORDER BY id"
+)
+MATCH_UPGRADE_SELECTED: Final = "selected"
+MATCH_UPGRADE_DECISIONS: Final = (
+    "SELECT * FROM match_decisions WHERE kind = ? AND reversed_by IS NULL ORDER BY id DESC"
+)
+MATCH_UPGRADE_RESET_WORK_CANDIDATE: Final = (
+    "UPDATE match_candidates SET kind = 'likely', reason = ?, resolution = 'pending' "
+    "WHERE id = ? AND resolution NOT IN ('accepted', 'rejected')"
+)
+MATCH_UPGRADE_TEST_PROVIDER_WORK: Final = "OL12345W"
+MATCH_UPGRADE_TEST_OTHER_WORK: Final = "OL54321W"
+MATCH_UPGRADE_TEST_ALTERNATE_ISBN: Final = "9780306406157"
+
+# META_COVERAGE: provider evidence and optional-field recovery.
+META_COVERAGE_SERIES_NAME: Final = "series_name"
+META_COVERAGE_SERIES_POSITION: Final = "series_position"
+META_COVERAGE_SERIES_POSITIONS: Final = "series_positions"
+META_COVERAGE_TEST_SERIES: Final = "Synthetic Catalog Series"
+META_COVERAGE_TEST_POSITION: Final = "1.5"
+META_COVERAGE_TEST_BAD_POSITION: Final = "position unavailable"
+META_COVERAGE_POSITION_PATTERN: Final = r"\d+(?:\.\d+)?"
+META_COVERAGE_TEST_ISSUE_CODE: Final = "issue_code"
+META_COVERAGE_TEST_FAILED_FIELD: Final = "failed_field"
+META_COVERAGE_WORK_DETAIL_URL: Final = "https://openlibrary.org/works/{identifier}.json"
+META_COVERAGE_WORK_CACHE_KEY: Final = "work-detail:{identifier}"
+META_COVERAGE_BODY: Final = "response_body"
+META_COVERAGE_CAPTURED_AT: Final = "captured_at"
+META_COVERAGE_CAPTURE_ID: Final = "raw_capture_id"
+META_COVERAGE_ORIGIN: Final = "response_origin"
+META_COVERAGE_SUBJECTS: Final = "subjects"
+META_COVERAGE_FIRST_PUBLISH_DATE: Final = "first_publish_date"
+META_COVERAGE_FIRST_PUBLICATION_DATE: Final = "first_publication_date"
+META_COVERAGE_TEXT_TYPE: Final = "/type/text"
+META_COVERAGE_WORK_TYPE: Final = "/type/work"
+META_COVERAGE_DETAIL_FAILED: Final = "metadata_work_details_failed"
+META_COVERAGE_DETAIL_CONFLICT: Final = "metadata_work_field_conflict"
+META_COVERAGE_DETAIL_FAILED_MESSAGE: Final = (
+    "Open Library work details unavailable ({code}); verified search fields retained."
+)
+META_COVERAGE_CONFLICT_MESSAGE: Final = (
+    "Open Library search and work details disagree for {field}; both observations retained."
+)
+META_COVERAGE_IMPLEMENTATION_COLUMN: Final = "implementation_version"
+META_COVERAGE_ATTEMPT_COLUMNS: Final = "PRAGMA table_info(enrichment_attempts)"
+META_COVERAGE_MIGRATE_IMPLEMENTATION: Final = (
+    "ALTER TABLE enrichment_attempts ADD COLUMN implementation_version INTEGER NOT NULL DEFAULT 0"
+)
+META_COVERAGE_TEST_OLD_IMPLEMENTATION: Final = (
+    "UPDATE enrichment_attempts SET implementation_version = 0"
+)
+META_COVERAGE_TEST_DROP_IMPLEMENTATION: Final = (
+    "ALTER TABLE enrichment_attempts DROP COLUMN implementation_version"
+)
+META_COVERAGE_TEST_SCHEMA_TWO: Final = "PRAGMA user_version = 2"
+META_COVERAGE_CACHE_HIT: Final = "cache_hit"
+META_COVERAGE_SOURCE_URL: Final = "source_url"
+META_COVERAGE_WORK_FIXTURE: Final = "open_library_work.json"
+META_COVERAGE_TEST_FIRST_DATE: Final = "1988-10"
+META_COVERAGE_TEST_FIRST_YEAR: Final = "1988"
+META_COVERAGE_TEST_DETAILS_TEXT: Final = "A synthetic public catalog description, not a review."
+META_COVERAGE_TEST_UNKNOWN_KEY: Final = "future_catalog_field"
+META_COVERAGE_TEST_UNKNOWN_VALUE: Final = "Preserved verbatim."
+META_COVERAGE_TEST_BAD_DATE: Final = "circa an unknown century"
+META_COVERAGE_TEST_DATE_PARAM: Final = "published"
+META_COVERAGE_TEST_ADDITIONAL_SUBJECT: Final = "Adventure fiction"
+META_COVERAGE_TEST_PRECISE_DATE: Final = "1988-10-01"
+META_COVERAGE_TEST_OTHER_MONTH: Final = "1988-09"
+META_COVERAGE_TEST_OTHER_YEAR: Final = "1987"
+META_COVERAGE_TEST_DATE_CONFLICT_PARAMS: Final = "published,expected_conflict"
+META_COVERAGE_SERIES_MEMBERSHIPS: Final = "series_memberships"
+META_COVERAGE_SERIES_ID: Final = "series_id"
+META_COVERAGE_MEMBERSHIP_POSITION: Final = "position"
+META_COVERAGE_SERIES_REFERENCE_PATTERN: Final = r"/series/(OL\d+L)"
+META_COVERAGE_TEST_SERIES_REFERENCE: Final = "/series/OL123L"
+META_COVERAGE_TEST_SERIES_ID: Final = "OL123L"
+META_COVERAGE_TEST_BAD_SERIES_REFERENCE: Final = "/series/OL123W"
+
+# CONTENT_ANALYSIS: internal catalog-text rules, not an assessment or preference model.
+CONTENT_ANALYSIS_VERSION: Final = "catalog-mentions-v1"
+CONTENT_ANALYSIS_THEMES: Final = "content.themes.{collection}"
+CONTENT_ANALYSIS_HUNGERS: Final = "content.hunger_mentions.{collection}"
+CONTENT_ANALYSIS_UNIT: Final = "distinct_work_catalog_mentions"
+CONTENT_ANALYSIS_RELIABILITY: Final = "descriptive_lexical_evidence"
+CONTENT_ANALYSIS_RULE_VERSION: Final = "rule_version"
+CONTENT_ANALYSIS_RULE_PATTERN: Final = "rule_pattern"
+CONTENT_ANALYSIS_GROUPS: Final = "supported_mentions"
+CONTENT_ANALYSIS_KNOWN: Final = "known_public_descriptions"
+CONTENT_ANALYSIS_MISSING: Final = "missing_description_states"
+CONTENT_ANALYSIS_UNVERIFIED: Final = "unverified_public_provenance"
+CONTENT_ANALYSIS_UNMATCHED: Final = "known_descriptions_without_rule_match"
+CONTENT_ANALYSIS_COUNT: Final = "mentioned_works"
+CONTENT_ANALYSIS_SHARE: Final = "share_of_known_descriptions"
+CONTENT_ANALYSIS_PROOF: Final = "proof"
+CONTENT_ANALYSIS_WORK: Final = "work_id"
+CONTENT_ANALYSIS_WORKS: Final = "supporting_work_ids"
+CONTENT_ANALYSIS_SOURCE: Final = "source"
+CONTENT_ANALYSIS_FIELD: Final = "field"
+CONTENT_ANALYSIS_SCOPE: Final = "scope"
+CONTENT_ANALYSIS_URL: Final = "public_source_url"
+CONTENT_ANALYSIS_QUOTE: Final = "excerpt"
+CONTENT_ANALYSIS_MATCH: Final = "matched_text"
+CONTENT_ANALYSIS_THRESHOLD: Final = "minimum_support"
+CONTENT_ANALYSIS_AS_OF: Final = "as_of"
+CONTENT_ANALYSIS_SUPPRESSED: Final = "below_support_families"
+CONTENT_ANALYSIS_MYSTERY: Final = "mystery_and_crime"
+CONTENT_ANALYSIS_RELATIONSHIPS: Final = "relationships"
+CONTENT_ANALYSIS_WORLDS: Final = "imagined_worlds"
+CONTENT_ANALYSIS_IDEAS: Final = "ideas_and_learning"
+CONTENT_ANALYSIS_ADVERSITY: Final = "danger_and_adversity"
+CONTENT_ANALYSIS_MYSTERY_PATTERN: Final = r"\b(?:murder|detective|crime|mystery|investigation)\b"
+CONTENT_ANALYSIS_RELATIONSHIPS_PATTERN: Final = (
+    r"\b(?:friendship|family|families|marriage|romance|relationships|lovers)\b"
+)
+CONTENT_ANALYSIS_WORLDS_PATTERN: Final = (
+    r"\b(?:magic|magical|dragons?|alien worlds?|distant planets?|imaginary worlds?)\b"
+)
+CONTENT_ANALYSIS_IDEAS_PATTERN: Final = (
+    r"\b(?:science|scientific|philosophy|history|learning|research|mathematics)\b"
+)
+CONTENT_ANALYSIS_ADVERSITY_PATTERN: Final = r"\b(?:survival|danger|war|battle|peril|threat|chase)\b"
+CONTENT_ANALYSIS_WONDER_PATTERN: Final = (
+    r"\b(?:sense of wonder|wondrous|magical|magic|dragons?|alien worlds?|distant planets?)\b"
+)
+CONTENT_ANALYSIS_SURPRISE_PATTERN: Final = (
+    r"\b(?:plot twists?|unexpected|unpredictable|shocking revelations?|astonishing discoveries)\b"
+)
+CONTENT_ANALYSIS_INTENSITY_PATTERN: Final = (
+    r"\b(?:suspense|suspenseful|thrilling|thriller|terrifying|peril|high stakes)\b"
+)
+CONTENT_ANALYSIS_MEANING_PATTERN: Final = (
+    r"\b(?:meaning of life|purpose|moral dilemmas?|mortality|existential|philosophy)\b"
+)
+CONTENT_ANALYSIS_CONNECTION_PATTERN: Final = (
+    r"\b(?:friendship|family|families|belonging|relationships|empathy|marriage)\b"
+)
+CONTENT_ANALYSIS_CLARITY_PATTERN: Final = (
+    r"\b(?:explains?|explanation|understanding|practical guide|step.by.step|how to)\b"
+)
+CONTENT_ANALYSIS_NEGATION_PATTERN: Final = (
+    r"\b(?:no|not|never|without|neither|nor|isn['\u2019]t|doesn['\u2019]t|lack(?:s|ing)?)\b"
+)
+CONTENT_ANALYSIS_CLAUSE_PATTERN: Final = r"[.!?;:\n]"
+CONTENT_ANALYSIS_HTML_PATTERN: Final = r"<[^>]*>"
+CONTENT_ANALYSIS_SPACE_PATTERN: Final = r"\s+"
+CONTENT_ANALYSIS_PUBLIC_URL_PATTERN: Final = (
+    r"https://(?:(?:www\.)?goodreads\.com/book/show/\d+"
+    r"|(?:www\.)?googleapis\.com/books/v1/volumes(?:/[^/?#]+)?"
+    r"|books\.google\.com/books"
+    r"|(?:www\.)?openlibrary\.org/(?:works/[^/?#]+|books/[^/?#]+|search\.json))"
+    r"(?:[/?#]|$)"
+)
+CONTENT_ANALYSIS_LIMIT: Final = (
+    "Counts explicit English catalog-description word-family matches, not inferred book facts "
+    "or reader preferences. Multi-label families overlap; unmentioned is not absent. "
+    "Public/publisher marketing may exaggerate content; these are not reviews."
+    " Only the first 50,000 description characters are scanned; excerpts and proof counts "
+    "are bounded and do not enumerate all supporting works."
+)
+CONTENT_ANALYSIS_HUNGER_LIMIT: Final = (
+    "Read Your Color (https://readyourcolor.com/) uses a self-report assessment with six "
+    "hungers and Heart/Head, Roots/Wings axes. These internal lexical rules reproduce no "
+    "validated weights, colors or axes and infer no psychology, needs or appetite scores."
+)
+CONTENT_ANALYSIS_LANGUAGE_LIMIT: Final = (
+    "English lexical rules only; a nearby negator in the preceding clause suppresses a "
+    "match conservatively. This is not semantic negation, topic modeling or validated NLP."
+)
+CONTENT_ANALYSIS_SUPPORTED: Final = "Supported catalog mentions meet the distinct-work threshold."
+CONTENT_ANALYSIS_THIN: Final = (
+    "No word family meets minimum distinct-work support; no content signal is established."
+)
+CONTENT_ANALYSIS_UNKNOWN: Final = "Known public description evidence is insufficient."
+CONTENT_ANALYSIS_TEST_TEXT: Final = (
+    "A magical world of dragons. An unexpected plot twist brings suspense. "
+    "Family friendship and belonging meet philosophy and purpose. "
+    "A practical guide explains science and understanding."
+)
+CONTENT_ANALYSIS_TEST_NEGATED: Final = (
+    "No magic or dragons here. Without suspense or peril. A familyless criminality."
+)
+CONTENT_ANALYSIS_TEST_UNMATCHED: Final = "A quiet catalog introduction."
+CONTENT_ANALYSIS_TEST_URL: Final = "https://www.goodreads.com/book/show/123"
+CONTENT_ANALYSIS_TEST_FILE_URL: Final = "file:///synthetic/reading.csv"
+CONTENT_ANALYSIS_TEST_PRIVATE_URL: Final = (
+    "https://www.goodreads.com/book/show/123?key=private-value#private-fragment"
+)
+CONTENT_ANALYSIS_TEST_REPEATED: Final = "Magic, magic, dragons, magical dragons."
+CONTENT_ANALYSIS_TEST_UNVERIFIED: Final = "unverified_capture_genres"
+CONTENT_ANALYSIS_TEST_GOOGLE_URL: Final = "https://www.googleapis.com/books/v1/volumes/test-volume"
+CONTENT_ANALYSIS_TEST_OPEN_LIBRARY_URL: Final = "https://openlibrary.org/works/OL123W"
+CONTENT_ANALYSIS_TEST_PROVIDER_PARAMETERS: Final = "source,url"
+
+# AV: deterministic author-blocked retrospective validation.
+AV_VALIDATION: Final = "read.validation.author_blocked"
+AV_SIGNAL_CAPABILITY: Final = "read.validation.author_blocked_categorical_signal"
+AV_STATE: Final = "evaluation_state"
+AV_AVAILABLE: Final = "evaluated"
+AV_SMALL: Final = "insufficient_known_author_rated_works"
+AV_NO_TRAINING: Final = "no_author_disjoint_training"
+AV_NO_SIGNAL: Final = "no_supported_categorical_signal"
+AV_COMPONENTS: Final = "known_author_connected_components"
+AV_LARGEST_COMPONENT: Final = "largest_component_works"
+AV_KNOWN: Final = "known_author_rated_works"
+AV_UNKNOWN: Final = "excluded_unknown_author_rated_works"
+AV_NO_TRAINING_WORKS: Final = "works_without_author_disjoint_training"
+AV_FOLDS: Final = "folds"
+AV_FOLD: Final = "fold"
+AV_TRAINING_WORKS: Final = "training_works"
+AV_TRAINING_MEAN: Final = "training_only_rating_mean"
+AV_MINIMUM_WORKS: Final = "minimum_known_author_rated_works"
+AV_MAXIMUM_FOLDS: Final = "maximum_folds"
+AV_STABILITY: Final = "paired_cluster_resampling_stability"
+AV_STABILITY_RANGE: Final = "central_95_percent_resampled_mae_gain_range"
+AV_LOWER: Final = "lower"
+AV_UPPER: Final = "upper"
+AV_DRAWS: Final = "draws"
+AV_SEED: Final = "seed"
+AV_MIN_COMPONENTS: Final = "minimum_evaluable_components"
+AV_STABILITY_SMALL: Final = "insufficient_evaluable_components_or_works"
+AV_NEED: Final = (
+    "Need thirty linked rated Read works with known authors and two author-connected "
+    "components. Categorical signal needs minimum group support in author-disjoint training."
+)
+AV_NOTE: Final = (
+    "Deterministic retrospective grouped holdout, not temporal validation or future "
+    "recommendation accuracy. Normalized known coauthors connect transitively; whole "
+    "components are allocated largest-first to at most five size-balanced folds, "
+    "breaking ties by work ID and fold index. Every evaluated work is held out once. "
+    "Unknown-author works are excluded from both training and evaluation. Known names "
+    "use whitespace/case normalization, not verified person identities or alias resolution. "
+    "Training-only categorical means and baseline use the same held-out cohort; no signal "
+    "falls back to that baseline. Settings are unchanged, with no tuning to observed errors. "
+    "Series, metadata and other dependencies can remain across folds."
+)
+AV_STABILITY_NOTE: Final = (
+    "Fixed-seed paired resampling of author components with replacement, preserving their "
+    "observed paired losses and unequal work counts; each draw reports work-weighted "
+    "baseline-minus-predictor MAE. The central 95% resampled range is descriptive stability "
+    "of these fixed out-of-fold losses, not a population confidence interval: models are "
+    "not refitted, fold training overlaps and components need not be independent. "
+    "At least ten evaluable components, thirty evaluated works and categorical signal "
+    "are required. Negative gains and ranges crossing zero are retained."
+)
+AV_TEST_AUTHOR_A: Final = " Shared Author "
+AV_TEST_AUTHOR_A_NORMALIZED: Final = "shared author"
+AV_TEST_AUTHOR_B: Final = "Second Author"
+AV_TEST_AUTHOR_C: Final = "Third Author"
+AV_TEST_BRIDGE: Final = "  SECOND   author "
+AV_TEST_AUTHORS_FIELD: Final = "authors"
+AV_LANGUAGE_SCOPE: Final = "required_observation_scope"
+AV_LANGUAGE_INTERPRETATION: Final = "language_interpretation"
+AV_MATCHED_EDITION_LANGUAGE: Final = (
+    "Matched-edition language; not proof of the language actually read."
+)
+AV_WORK_LANGUAGE_AVAILABILITY: Final = (
+    "Work-level catalog language availability across editions, not matched-edition language."
+)
+AV_TEST_SCOPE_PARAMETERS: Final = "field,scope,eligible"
+
+# Durable provider transport reliability.
+DR_RETRY_AT: Final = "retry_at"
+DR_STATUS_CODE: Final = "status_code"
+DR_HEADERS: Final = "headers"
+DR_WIRE_ATTEMPTS: Final = "wire_attempts"
+DR_FAILURES: Final = "failures"
+DR_ERROR_CODE: Final = "error_code"
+DR_HTTP_RETRYABLE: Final = "http_retryable"
+DR_REQUEST_PENDING: Final = "request_pending"
+DR_RETRY_SCHEMA: Final = (
+    "CREATE TABLE IF NOT EXISTS metadata_retry_state "
+    "(provider TEXT NOT NULL, host_key TEXT NOT NULL, payload TEXT NOT NULL, "
+    "checksum TEXT NOT NULL, PRIMARY KEY(provider, host_key))"
+)
+DR_RETRY_SELECT: Final = (
+    "SELECT payload, checksum FROM metadata_retry_state WHERE provider = ? AND host_key = ?"
+)
+DR_RETRY_INSERT: Final = (
+    "INSERT INTO metadata_retry_state(provider, host_key, payload, checksum) VALUES (?, ?, ?, ?) "
+    "ON CONFLICT(provider, host_key) DO UPDATE SET "
+    "payload=excluded.payload, checksum=excluded.checksum"
+)
+DR_RETRY_READ_ERROR: Final = "Provider retry state could not be read safely."
+DR_RETRY_WRITE_ERROR: Final = "Provider retry state could not be written safely."
+DR_RETRY_CONFIG_ERROR: Final = "A retry-state store requires an explicit public metadata provider."
+DR_COOLDOWN_MESSAGE: Final = "Provider host is deferred until UTC timestamp {deadline}."
+DR_RAW_MIGRATE: Final = "ALTER TABLE raw_captures ADD COLUMN http_metadata TEXT"
+DR_RAW_INSERT: Final = (
+    "INSERT INTO raw_captures(sequence, id, source, account_id, media_type, origin, captured_at, "
+    "sha256, collection, checksum, http_metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+DR_RAW_SELECT: Final = (
+    "SELECT c.sequence, c.id, c.source, c.account_id, p.body, c.media_type, c.origin, "
+    "c.captured_at, c.sha256, c.checksum, c.collection, c.http_metadata FROM raw_captures c "
+    "LEFT JOIN raw_payloads p ON p.sha256 = c.sha256 "
+)
+DR_RAW_GET: Final = DR_RAW_SELECT + "WHERE c.id = ?"
+DR_RAW_LATEST: Final = (
+    DR_RAW_SELECT + "WHERE c.source = ? AND c.account_id = ? AND c.collection = ? "
+    "ORDER BY c.sequence DESC LIMIT 1"
+)
+DR_RAW_LATEST_MEDIA: Final = (
+    DR_RAW_SELECT + "WHERE c.source = ? AND c.account_id = ? AND c.collection = ? "
+    "AND c.media_type = ? ORDER BY c.sequence DESC LIMIT 1"
+)
+DR_RAW_CHECK: Final = DR_RAW_SELECT + "LIMIT 0"
+DR_TEST_RETRY_SECONDS: Final = "3600"
+DR_TEST_RETRY_PARAMETERS: Final = "status,headers,delay"
+DR_TEST_FAILURE: Final = "failure"
+DR_TEST_BODY_ABORT: Final = "body_abort"
+DR_TEST_BODY_LIMIT: Final = "body_limit"
+DR_TEST_OTHER_HOST: Final = "other.invalid"
+DR_TEST_OTHER_URL: Final = "https://other.invalid/books"
+DR_TEST_DROP_METADATA: Final = "ALTER TABLE raw_captures DROP COLUMN http_metadata"
+DR_TEST_TAMPER_METADATA: Final = "UPDATE raw_captures SET http_metadata = '{}'"
+DR_TEST_TAMPER_RETRY: Final = (
+    "UPDATE metadata_retry_state SET payload = replace(payload, '3600', '7200')"
+)
+
+# MQ: matching identity freshness.
+MQ_IDENTITY_PARAMETERS: Final = "field,original_value,changed_value"

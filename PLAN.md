@@ -4,63 +4,232 @@ Delivery progress is tracked in [TODO.md](TODO.md).
 
 ## Architecture
 
-Four stages, with a durable database handoff between each. A manual request or
-weekly job starts ingestion; downstream stages consume stored snapshots rather
-than fetching the accounts again. SQLite remains the local storage layer.
+Exactly four named pipelines: **ingestion / processing / analytics / watchlist**.
+Each command saves data to SQLite and exits; no always-running service or broker
+is needed. Plain `booky sync` processes configured CSVs without source fetching
+or a source browser. Backend analytics runs after metadata; ranking remains future work.
+Live acquisition, retry/resume orchestration and scheduling are deferred, not
+gates before analytics. Future triggers should reuse the same application
+services. Do not activate Windows scheduling on this machine. Real-account
+source acquisition and full provider coverage remain unproven.
 
-```mermaid
-flowchart TD
-    Manual["Manual request"]
-    Weekly["Scheduled weekly job"]
-    Capture["1. Ingest Goodreads + StoryGraph"]
-    Raw[("Raw data")]
-    Process["2. Cleanse, match and structure"]
-    Catalog["Google Books / Open Library"]
-    Processed[("Processed data")]
-    Analyse["3. Analyse reading history"]
-    Analysis[("Reusable analysis + preference weights")]
-    Rank["4. Rank the next read"]
-    Rankings[("Ranked watchlist + explanations")]
+```text
+Manual command (future external triggers reuse the same application services)
+    |
+[ingestion: now]  <-- exact top-level files CSV paths; legacy explicit file flags
+    | Goodreads Read + to-read; StoryGraph personal ratings
+    | supplied file bytes archived before parsing: data\raw.sqlite3
+    v
+[processing: now] <-- Google Books + Open Library enabled by default
+    | provider query cache: data\metadata.sqlite3
+    | full provider HTTP responses: data\raw.sqlite3 (separate source/type)
+    | processed snapshots + payloads + run receipts: data\library.sqlite3
+    v
+[analytics: now, backend only]
+    | saved reports + separate taste/watchlist caches: data\analytics.sqlite3
+    v
+[watchlist: future]
+      rankings + explanations (location undecided; not created)
 
-    Manual --> Capture
-    Weekly --> Capture
-    Capture --> Raw
-    Raw --> Process
-    Catalog --> Process
-    Process --> Processed
-    Processed --> Analyse
-    Analyse --> Analysis
-    Analysis --> Rank
-    Processed -->|"Goodreads watchlist"| Rank
-    Rank --> Rankings
+Run logs: data\logs\*.log
+Backups, when created: data\backups\
+No automatic deletion of originals, raw data, library, or backups.
+Only the latest completed generated log is retained.
 ```
 
-Cylinders are persistent database datasets, not separate database servers.
-Each downstream stage is triggered only after its input snapshot is committed.
-The diagram is the target architecture, not a claim that all four stages exist.
+These are data boundaries, not separate servers. Metadata providers can be
+disabled in configuration. Their full responses share `raw.sqlite3` with source
+originals but stay separately identified; their lookup cache is a different
+database. They never supply authoritative personal history or ratings.
 
-| Stage | Responsibility | Stored output |
+Config is flat JSON: `schema_version`, `accounts`, `files`,
+`http_timeout_seconds`, `metadata` and `weekly` are top-level fields. There is no
+`settings` wrapper. Plain `booky sync` reads exact paths in `files`: `storygraph_file`,
+`goodreads_watchlist_file`, `goodreads_read_file`, or alternative official
+whole-library `goodreads_file`. Never mix whole-library and split Goodreads inputs.
+Paths resolve relative to the selected **data directory**, not the config file's
+location or cwd. Each file is archived before parsing; missing/invalid input fails
+its own scope, healthy scopes publish independently, and failed scopes retain
+their last complete snapshots. Normal sync never fetches Goodreads/StoryGraph,
+starts a source browser, or substitutes archived inputs for missing paths.
+Legacy explicit file flags remain advanced compatibility mode; only explicit
+mode can replay unspecified archived inputs. Internal replay is not a freshness claim.
+
+Nonsecret root `config.json` versions ByteMe identities (StoryGraph `byte_me`,
+Goodreads `79839274`) and settings. The editable checkout's default data directory
+uses it automatically unless ignored `data\config.json` overrides it. Explicit
+other data directories remain isolated. Profile identifiers are not passwords or
+authenticated sessions. Local status shows the actual config path plus each CSV
+filename and ready/missing state.
+
+Three inputs were restored byte-exact from the immutable archive:
+`data\inputs\storygraph-library_2026-11-02_08-27-54Z.csv` (1,054 records),
+`data\inputs\goodreads-watchlist_2026-11-02_08-27-54Z.csv` (813), and
+`data\inputs\goodreads-read_2026-11-02_08-58-33Z.csv` (730). Filename stamps are
+original archive capture UTC times, not proven export-generation times.
+These three CSVs and their structures are fixed. Do not edit them or require
+replacement exports; improve processing and metadata against the existing inputs.
+
+Sync detects a terminal and handles first-use Google client prompts/browser
+consent automatically when needed, reusing an API key or valid/refreshed OAuth
+where available. Advanced interaction overrides remain available; headless cron
+never prompts and reports required authorization instead. Ordinary status stays
+local. Archive hashes prove integrity, not full account coverage, and the current
+implementation work is not evidence that live collection or consent succeeded.
+
+| Pipeline | Responsibility | Stored output |
 |---|---|---|
-| **1. Ingest** | Accept manual exports from both sources first. Add authorized automatic collection for manual requests and weekly jobs next. Preserve the original content before parsing. | Immutable raw payloads, source/account binding, capture time, content hash, and batch lineage. |
-| **2. Process** | Parse raw data, normalize fields, reconcile works and editions conservatively, and enrich using Google Books, Open Library, or another suitable provider. | Versioned source observations, structured books/editions, reading events, ratings/reviews, Goodreads watchlist, metadata provenance, and unresolved/missing fields. |
-| **3. Analyse** | Run the agreed statistics and learn preferences from processed reading history. Keep evidence and confidence alongside findings. | Reusable statistics, features, preference weights, input snapshot references, and calculation/configuration versions. |
-| **4. Rank** | Combine the saved preference weights with the processed Goodreads watchlist. | Ranked next reads, score components, explanations, confidence, and the exact input versions used. |
+| **ingestion — now** | Exact configured CSV paths on plain sync; legacy explicit flags for advanced import/replay. Archive bytes before parsing; verify stored hashes, account/scope, and file completeness without claiming account completeness. Never silently replay missing configured paths. | Immutable source originals, source/account binding, capture time, content hash, and collection lineage. |
+| **processing — now** | Parse, validate, apply authority, conservatively match identities, and enrich through default-enabled Google Books and Open Library with a separate query cache. | Independently published source/scope snapshots, structured books/editions, Goodreads history/reviews/watchlist, StoryGraph personal ratings, and metadata provenance/coverage. |
+| **analytics — now** | Read pinned compatible snapshots, confirmed work IDs and selected identity-valid metadata after enrichment. Calculate supported findings; reuse taste/watchlist components separately. | Saved reports, preference weights, capability/coverage evidence and exact input references in ignored `data\analytics.sqlite3`. |
+| **watchlist — later** | Combine saved preference weights with the declared processed Goodreads watchlist and relevant metadata. | Ranked next reads, score components, explanations, confidence, and exact input versions. |
+
+### Saved inputs, reuse and future orchestration
+
+The analytics input reader pins an input manifest: the exact source snapshot IDs,
+accounts, observation dates, original-data references, metadata coverage and
+relevant data/code/config hashes. Reject missing required inputs or unacceptable
+age differences. If an older or partial set is allowed, state its limits.
+Never silently combine mismatched generations.
+
+Reuse analysis and preference weights when relevant inputs are unchanged.
+Watchlist-only changes must not repeat taste analysis. Keep prior results with
+their original input list and freshness labels when new results are blocked.
+Save checks and a run report for success, partial success or failure.
+
+`domain.analytics` and pure `content_analysis` own calculations. The reusable `AnalyticsService` is injected
+into `SyncService` after metadata. StoryGraph contributes ratings only; selected
+metadata must pass identity checks and work links must be confirmed. Reused
+components receive the current input references without changing cached values.
+Selected public provider work metadata follows confirmed catalog-work links,
+including StoryGraph-origin records. It never imports their raw personal/reader
+fields or another record's edition facts. Alternative descriptions are chosen
+deterministically with source evidence retained.
+
+`AnalyticsStore` saves typed, hash-verified immutable component caches and
+publishes historical reports atomically in ignored `data\analytics.sqlite3`
+(schema v2). Taste and watchlist components have separate cache keys, including
+the complete as-of date/year. An analytics
+failure keeps the last successful report. Status reads that report offline:
+JSON includes the full report and human output gives a summary.
+
+Input-only `AnalysisEvidence.public_url` comes from the current Goodreads book
+record's public URL, separately from immutable observation `source_url`/CSV
+lineage. Content validates public source, scope and text before using that
+reference. Its semantic cache key includes `description_provenance`: a public
+reference change invalidates content; observation/capture time alone does not.
+
+The current calculator version is `analytics-v5-scoped-language-validation`; the CSV parser
+version is `csv-v4-capture-quality`. For at least 64 taste works, three worker
+processes calculate profile, enjoyment and content; watch comparison follows
+enjoyment. Only the main process writes SQLite. Small inputs run serially and
+cache hits start no pool. Serial/parallel parity and failed-worker retention of
+the last report are tested.
+
+Validation also uses at most five deterministic size-balanced folds, keeping
+transitively connected coauthors together. Unknown-author works do not supply
+training or test evidence for this check. Both predictor and baseline fit only
+training works and evaluate identical held-out works. A fixed-seed 500-draw
+paired author-component resampling range requires at least 30 works and 10
+components. It describes stability, not a confidence interval or future accuracy;
+missing training/signal and fallback use are reported explicitly.
+
+Metadata retrieval splits incomplete or contaminated query batches into
+bounded narrower groups, retaining the existing individual identity/ambiguity
+gates. Validated prefixes survive later deferrals. Goodreads Read records take
+priority within a limited book budget. Provider/host retry deadlines,
+interruption guards and wire counts are durable; raw schema v3 stores only safe
+HTTP diagnostics alongside the unchanged body. Unknown legacy status/headers
+remain unknown. Authentication, cookie and token data must never be archived.
+
+Future retry/resume orchestration must:
+
+- Save dependencies, attempts and task states: pending, running, success,
+  partial, failed or skipped, with reasons.
+- Use one reader/database lock; keep network work outside short write transactions.
+- Publish validated scopes independently and retain last-good results on failure.
+- Bound transient retries. Before resuming, verify accounts, code versions and
+  saved outputs; restart unfinished work. Authentication/validation failures need
+  correction. An interrupted transaction is not a published result.
+
+This future engine is not required before analytics. File hashes and archive
+replay prove neither fresh acquisition nor unattended account access.
+
+### Storage growth, retention, and recovery
+
+Keep the authoritative library, immutable raw archive, and disposable provider
+query cache distinct. Source originals **and full provider HTTP responses** are
+durable documents in `data\raw.sqlite3`, separated by source/type and lineage;
+sharing that file does not make providers authoritative personal sources.
+`data\metadata.sqlite3` is the separate, disposable query cache.
+
+The compressed, content-addressed processed-payload migration is complete:
+`data\library.sqlite3` shrank from 85,012,480 to 16,625,664 bytes
+(81.1 to 15.9 MiB). Logical row hashes matched for all 20 legacy tables and
+the raw archive was unchanged. The migration created an ignored backup at
+`data\backups\library-v1-before-payloads.sqlite3`; the later one-off cleanup
+approval includes ignored backups.
+
+Completed replay run 4 reported all 1,054 StoryGraph rows and 813 Goodreads rows
+unchanged. No new per-record payloads were added; only two new collection payloads
+were added (2,680 to 2,682 total payloads). The library subsequently measured
+20,606,976 bytes (about 19.7 MiB), reflecting legitimate observation/snapshot audit
+growth rather than a repeat of per-record JSON duplication. Normalized
+observations still grow; a bounded retention/compaction policy remains future
+work, not permission to prune them recklessly.
+
+| Artifact | Ownership and deletion behavior |
+|---|---|
+| Three supplied timestamped `data\inputs\*.csv` files | Restored byte-exact from the raw archive and intended versioned. The earlier bounded removal of duplicate downloads does not authorize deleting current configured inputs. |
+| Root `config.json` | Versioned nonsecret ByteMe identities and settings, not credentials. |
+| `data\raw.sqlite3` | Durable original exports and complete provider HTTP responses; may be versioned. No automatic deletion. |
+| `data\library.sqlite3` | Processed snapshots, shared payloads, observations, original-data references and run reports; may be versioned. No automatic deletion or pruning. |
+| `data\metadata.sqlite3` | Local/ignored disposable query cache, not the response archive or library. TTL ignores stale entries; refreshing a query replaces that key. There is no background purge. |
+| `data\logs\*.log` | Local/ignored redacted reports; never commit logs. Group identical rendered issues with counts, keep the latest completed log and remove older generated logs only after writing its replacement. |
+| `data\backups\` | Ignored recovery copies; included in the owner's separate one-off cleanup approval. Normal sync does not delete backups. |
+| `data\analytics.sqlite3` | Ignored analytics reports and separate taste/watchlist caches, schema v2. Created when needed. |
+| Future watchlist rankings | Not implemented; no ranking output store is created. |
+
+Create runtime files/folders when needed. The three supplied timestamped CSVs,
+nonsecret root config, raw database and library database may be versioned.
+Logs, metadata cache, analytics DB, profiles, credentials and backups stay local/ignored.
+Never commit logs. The latest instruction is **commit later**.
+
+The owner's separate empty-database reset and fresh E2E are tracked in TODO.md.
+That reset is not normal sync or an automatic retention policy.
+
+Future retention must be an explicit, reviewed archive/backup policy: identify
+what can be reconstructed, preserve all referenced raw/payload lineage, define
+retention windows and export/archive locations, and verify restore before any
+pruning. Database backups must be SQLite-consistent and include the matching raw
+archive, manifests, receipts, and required configuration/version references.
+Protect local payloads, profiles, and credentials; logs contain references and
+counts, not personal payloads or secrets. Do not delete raw data or automatically
+prune history to conceal duplicate processed storage.
 
 ### Data rules
 
 - **Raw means original:** retain every supplied source field, including fields
-  that today's parser does not understand. Archive full metadata responses too,
-  before selecting fields; a disposable response cache is not the raw archive.
+  that today's parser does not understand. Retain full provider HTTP responses
+  with provenance in `data\raw.sqlite3` as separate source/type documents before
+  selecting fields. They are processing inputs, not Goodreads/StoryGraph exports;
+  `data\metadata.sqlite3` is only their separate query cache.
 - **Processing is replayable:** parser, cleansing, or matching improvements
   operate on the stored raw data without another account fetch.
 - **Completeness is explicit:** importing every row of a file does not prove that
   the export contains every account field. Preserve missing, unsupported,
-  conflicting, and failed values separately. Never invent personal history.
-- **Keep provenance:** do not overwrite her ratings with community averages or
-  merge editions on a title guess. Retain both sources' observations; StoryGraph
-  remains authoritative for her reading history and Goodreads for her watchlist.
+  conflicting, and failed values separately; confirmed empty is distinct from
+  unavailable, unsupported, or failed. Preserve every supplied row/field raw.
+  Never invent zeroes, dates, or personal history.
+- **Keep provenance and authority:** Goodreads owns the current watchlist,
+  reading history, reviews, status, and other personal data. StoryGraph contributes
+  only personal ratings and identity needed to match them. Its other supplied fields
+  remain raw-only. Never substitute community averages for personal ratings or
+  merge editions on a title guess.
 - **Publish safely:** retain the last usable processed snapshot when new input
   cannot be parsed or validated. Store failed-run evidence without publishing it.
+  Publish Goodreads `to-read` and `read` independently; one scope must not erase
+  the other.
 - **Reuse derived work:** compare relevant input content and pipeline/configuration
   versions before recalculating. A changed watchlist can reuse unchanged taste
   weights; changed reading history invalidates affected analysis and rankings.
@@ -69,34 +238,32 @@ The diagram is the target architecture, not a claim that all four stages exist.
 
 ### Delivery scope
 
-**Implement stages 1 and 2 now, with manual file intake.** A user downloads the
-official StoryGraph and Goodreads exports and supplies them locally; BookyStats
-does not need to manage website login for that path. File ownership is explicitly
-bound to the configured account, not independently verified by the CSV.
+**One command, one workflow:** `booky sync` processes the configured CSV paths,
+with optional Google Books/Open Library enrichment enabled by current
+package/local configuration. The local metadata budget is 10,000 books per run.
+CSV ownership is configured, not independently verified by a file. No source
+sign-in/browser, helper-generation, or separate metadata-mode command is required.
 
-**Everything is CLI-driven.** For this initial priority, the user manually
-supplies the files and explicitly runs their processing; there is no scheduled
-fetch, automatic export, website, or background pipeline service to set up.
-Pipeline stages are application-service boundaries with database handoffs, not a
-requirement for separate servers.
+**Current position:** implementation, the 644-test integrated gate, approved
+reset and actual source/analytics/replay acceptance are complete. Provider
+enrichment remains partial, with documented rate-limit/server-error blockers.
+No further live calls are currently being made. Source/browser
+code, dependencies, fixtures and unused shared declarations were removed.
+Source live acquisition, durable orchestration and external cron remain deferred.
+No website, frontend, broker, resident pipeline service, images or local schedule
+is requested. **Personal Year in Review and Calendar Year in Books remain deferred.**
 
-**Next in queue, not P0:** the weekly scheduler/cron job and automatic source
-capture or auto-export. Research those routes now, implement them later, and feed
-the same raw-data boundary. On Windows the scheduler can use Task Scheduler.
-Enable scheduling only after the acquisition route works reliably; reprocessing
-an old export is not fresh weekly ingestion.
-
-Stages 3 and 4 are planned next. **Personal Year in Review and Calendar Year in
-Books are deferred** and can later consume these stored datasets.
-
-This architecture and manual-first decision supersede the earlier
-direct-collection-first sequencing. The detailed feature research below remains
-the design reference for later statistics, ranking, and annual reviews.
+This latest CSV-first decision supersedes the earlier browser-default direction.
+Historical manual acceptance, migration, refactor and browser-fixture evidence
+remain useful but do not replace current acceptance evidence below.
+The detailed feature research below remains the reference for backend analytics,
+later ranking, and deferred annual reviews.
 
 ## Automatic capture research
 
-Research recorded on 2026-10-30 for the next priority, **not implemented or
-live-verified as part of the manual pipeline**. Existing browser collection
+Historical research recorded on 2026-10-30. Live acquisition is now deferred;
+these candidates are future requirements/research, not current CLI modes, proof
+of live access, or silent fallbacks. Existing browser collection
 attempts did not complete. The Goodreads RSS request already used the correct
 numeric account ID and `shelf=to-read`; its HTTP 404 remains unexplained.
 
@@ -105,8 +272,8 @@ numeric account ID and `shelf=to-read`; its HTTP 404 remains unexplained.
 | **Goodreads official auto-export** | The library export is described by a [third-party guide](https://gist.github.com/kaayru/87385f85ec577b8e3d9613ecb09c90ca). It could feed the existing CSV processor unchanged. Download timing, session lifetime, frequency limits, and unattended operation have not been verified here. | A promising first candidate to validate against the owner's actual export flow; not a claim that a weekly job already works. |
 | **StoryGraph official auto-export** | [Ryot's import guide](https://docs.ryot.io/importing/storygraph) and [Endleaf's guide](https://getendleaf.com/blog/how-to-export-your-storygraph-data/) describe export generation and email notification. These are third-party descriptions. Whether email access is essential, or an on-page link can be polled, remains unknown. | Inspect the manually supplied file and owner-visible flow before designing acquisition. Do not assume mailbox access or that login resolves the existing block. |
 | **Goodreads native RSS** | A [third-party account](https://www.jordankatzen.com/posts/notes/goodreads-rss/) documents the feed mechanism. This is separate from the old developer API. This reader's feed failed; pagination and large-shelf completeness remain unverified. No fixed row cap is established by this research. | Compare accessible feed pages with known export counts before making RSS authoritative. Surface failures explicitly. |
-| **Owner-authorized page capture** | Existing browser adapters can parse authorized pages, but real-account acquisition is unresolved. Saved sessions can expire. A successful ordinary-browser visit would not establish why another client was blocked. | Validate access and personal-field coverage before scheduling; preserve source controls and report reauthentication needs. |
-| **Local browser extension/helper** | A possible user-triggered way to capture authorized rendered pages or structured responses in the owner's browser. It grants no additional access and does not inherently solve blocking, pagination, or missing fields. No such helper exists in BookyStats. | Consider only if it materially improves reliable capture over export/browser adapters. Weekly unattended operation is unverified. |
+| **Owner-authorized page capture** | Historical browser adapters parsed fixtures, but real-account acquisition was unresolved. Saved sessions can expire. An ordinary-browser visit does not explain another client's block. Unused adapters were removed. | A future implementation needs access/field-coverage checks; preserve source controls and report reauthentication needs. |
+| **Historical manual browser helper** | The earlier user-run JavaScript generator is retired. Later Python collection was fixture-tested but is no longer the CLI default; unused scaffolding is not a retention goal. | Preserve acceptance evidence from supplied files without presenting retired helpers as unattended collectors or required setup steps. |
 | **Official account API/OAuth** | StoryGraph's [API roadmap request](https://roadmap.thestorygraph.com/features/posts/an-api) remains the relevant public reference. Comments about export omissions are user testimony, not official field guarantees. Goodreads' [archived API page](https://web.archive.org/web/20210301235127/https://www.goodreads.com/api) describes historical access, not a new-app integration available today. | No usable public account-API integration was established. Do not treat private partner integrations or internal endpoints as an available public API. |
 
 Before implementation, confirm the actual export schemas and owner-visible
@@ -117,12 +284,16 @@ pagination, export readiness, and failure behavior matter more than a scraper's
 feature list. No security-control evasion, credential extraction, remote sharing
 of browser sessions, or silent fallback is part of this plan.
 
-The preferred evaluation order is official auto-export into the same raw
-boundary, then RSS or authorized page capture where needed for missing coverage.
-Only after a route is reliable should the CLI register the weekly job. Keep
-manual input available as an explicitly chosen mode.
+The earlier evaluation order favored official auto-export, then RSS or authorized
+page capture; the subsequent browser-default direction is also superseded.
+The current default is configured CSV processing. No acquisition route may
+silently replace it, and missing configured paths must not trigger archive replay.
+Only after a route and deployment host are reliable should an explicitly approved
+external cron trigger invoke the shared workflow. Do not register a task on this
+machine. Future acquisition must remain explicitly chosen rather than replacing
+the current CSV contract implicitly.
 
-## Status and later decisions — 2026-10-30
+## Status and later decisions — 2026-11-02
 
 The detailed roadmap below preserves the earlier feature research, with intake
 and delivery order revised to match the architecture above. It is **not a
@@ -131,8 +302,8 @@ succeeded**.
 
 | Phase | Current position |
 |---|---|
-| 1 — Collection and persistence | Raw-first manual capture and processing are the current implementation scope. Real exports still require reconciliation; automatic account access remains unresolved. |
-| 2 — Statistical engine | Planned; not implemented. |
+| 1 — Collection and persistence | The approved clean reset preserved CSV/root-config hashes and Google authorization. Fresh run 1 imported all 2,597 rows; new databases are retained. Final runs 8–11 verified recalculation, unchanged/cache reuse, missing-scope retention and recovery. Provider completeness remains open. |
+| 2 — Statistical engine | All-Read profile, enjoyment/content, descriptive watchlist comparison and three-worker calculations passed the 644-test gate and actual/offline CLI acceptance. Current Read input has 730 works, 314 confirmed ratings and 286 accepted descriptions. No ranking is implemented. |
 | 3 — Watchlist recommendations | Planned; not implemented. |
 | 4 — Personal Year in Review | Deferred; not implemented. |
 | 5 — Calendar Year in Books | Deferred; not implemented. |
@@ -143,30 +314,333 @@ succeeded**.
   tests, belongs in `src\bookystats\strings.py`; other fixed values belong in
   `src\bookystats\constants.py`. Keep modules and folders plain and modular.
   The repository instructions define the exact policy and type-syntax exceptions.
-- **Built-in reader profiles:** StoryGraph `byte_me` and Goodreads `79839274` are
-  the authorized defaults. Configuration and environment overrides remain available.
-  These identifiers are not login credentials and do not grant private access.
-- **Current commands and output:** only `booky sync` and `booky status` are public
-  commands. Terminal and JSON output exist. CSV reporting below is a future output
+- **Revised source authority:** Goodreads is authoritative for the current
+  watchlist and reading history/status/other personal data. StoryGraph supplies
+  only personal ratings and matching identity, never processed reviews, statuses,
+  dates, or rereads. This supersedes the earlier StoryGraph-history design.
+- **Scoped manual inputs:** retain official whole-library `--goodreads-file`;
+  use `--goodreads-watchlist-file` and `--goodreads-read-file` for supplied browser
+  CSVs with `Goodreads_URL` and `Row_Details`. Archive scoped captures separately,
+  migrate raw schema v1 to v2, and publish read/to-read snapshots independently.
+  Validate labeled row metadata; do not infer personal assessments or reading
+  dates from flattened UI text or trust script-derived `Series_Number`.
+- **Configured reader profiles:** personal account IDs and URLs are configuration,
+  not package defaults. Nonsecret root `config.json` versions the ByteMe accounts
+  and settings for the editable checkout's default data directory; ignored local
+  `data\config.json` overrides it. Other data directories stay isolated.
+  Environment overrides remain available. These identifiers do not grant private access.
+- **Current commands and output:** only `booky fetch`, `booky sync` and
+  `booky status` are public commands. `fetch` generates the Goodreads console
+  helper for explicit manual shelf capture; it makes no source requests or
+  configuration changes. Terminal and JSON output exist. CSV reporting below is a future output
   idea, distinct from the now-approved manual export input.
 - **Credentials:** the current Google Books connector reads its optional key from
-  `GOOGLE_BOOKS_API_KEY`, not from `config.json`. Browser sessions remain local and
-  isolated by source/account. A shared Playwright runtime does not share cookies
-  between their browser contexts.
-- **Optional providers:** Google Books and opt-in Open Library are implemented.
+  `GOOGLE_BOOKS_API_KEY`, not from `config.json`; an authorized OAuth session is
+  reused/refreshed automatically during sync as fallback. Interactive sync handles
+  first-use client prompts and normal browser consent; headless execution reports
+  required authorization without prompting. New machines need local client
+  credentials and visible consent (or an API key); credentials cannot be shipped
+  in the repository. Any future source-browser sessions must remain local and
+  isolated by source/account; current CSV operation needs no source browser.
+- **Provider policy:** Google Books and Open Library are enabled by default;
+  advanced configuration may disable either. Google uses an API key first, then
+  valid/refreshed OAuth; local credentials are never committed.
+  Both connectors are implemented.
   Hardcover, awards datasets, and other public-year sources below remain research
   or future integration options, not installed or verified dependencies.
-- **Weekly activation:** scheduling remains disabled. The implementation requires
+- **Retained Windows scheduling code:** existing code remains disabled and
+  unregistered; it is not the recommended deployment target. Its guards require
   both accounts, two consecutive complete account runs including an unattended
   run, consistent implementation/account fingerprints, recent evidence matching
   the database, and an explicitly chosen weekday, time, and Windows time zone.
   Activation also binds subsequent scheduled execution to the implementation,
-  accounts, interpreter, and schedule. Actual scheduled execution still needs
-  live verification.
+  accounts, interpreter, and schedule. These retained guards do not establish an
+  external cron deployment. The target is external cron invoking the same
+  application workflow as a manual command; host deployment, equivalent safety
+  gates, and unattended execution still need design/implementation verification.
+- **Layered refactor:** the approved module layout in
+  [The application structure](#3-the-application-structure) is implemented.
+  Historical integrated evidence includes the earlier 658-test gate, followed by
+  the 663-test gate, with Ruff lint/format, strict mypy and package build.
+  Neither is a claim about the new CSV-default suite count or E2E.
+  No old compatibility shims
+  or empty future folders are retained.
+- **Google Books OAuth:** the local implementation passed 84 focused tests and
+  mypy/Ruff checks before the layered move. That is fixture/local implementation
+  evidence, not completed human consent or live provider access. Integrated
+  post-refactor validation passed at that point.
 
 ### Known live-access gaps
 
-No books have been imported successfully from the configured real accounts.
+**Latest verified code gate:** the full gate passed **695 pytest tests and 51
+JavaScript tests**, Ruff lint/format over 87 Python files, strict mypy over 43
+source files, sdist/wheel builds and diff checks.
+
+The second-pass matching audit covered 1,024 pairs: 609 confirmed ISBN links
+(270 exact and 339 normalized), plus 415 unresolved pairs, with a deterministic
+review sample of 77. No safe recall relaxation was justified. This is
+identifier/evidence consistency, not independently labelled matching precision.
+An edition-observation freshness correction leaves all 2,597 actual identity
+hashes unchanged.
+
+Before the new provider pass, the 314-rated-work cohort formed 201 author
+components (largest 14 works). Author-blocked MAE was 0.2034619353 versus
+0.2037709036 for the training-only baseline; RMSE was 0.3684661653 versus
+0.3701117527. Two of five folds had worse MAE, and the paired resampling gain
+range [-0.0064641234, 0.0053374033] crossed zero. The roughly 0.15% MAE advantage
+does not establish robust prediction. The input and metrics are saved locally
+for an unchanged-cohort comparison after enrichment.
+
+These are pre-correction metrics. A scope audit found that work-level available
+translation languages were being promoted to matched-edition language features.
+The saved baseline has no supported matched-edition languages; ten works have
+work-language availability only. The v5 correction is integrated and both baseline
+and final validation were recomputed under that same policy, as detailed below.
+
+The guarded second-pass provider run 12 finished with complete parallel analytics
+and partial metadata. Open Library reported 2,333 completed outcomes across
+2,561 targets, 2,250 candidates and zero deferred targets. Its 1,618 archived
+responses were all HTTP 200; invalid/ambiguous field or identity evidence remains
+partial. Google returned HTTP 429 on its first request with an explicit daily
+quota limit; its reset time is unknown. No quota controls were reset or bypassed.
+
+The corrected v5 comparison pins 314 unchanged ratings and stable Goodreads IDs,
+with identical 201 author components and five folds. There are 24 new links,
+zero lost links and zero changed existing ratings. The new pairs share selected
+Open Library work IDs, with 48 fresh, selected, lineage-valid provider proofs.
+Their source titles/authors already agreed (10 exact, 14 structurally normalized),
+but no pair shared a source ISBN. Editions remain separate. This is consistency
+evidence, not independent matching precision.
+
+Installed-CLI v5 acceptance passed: run 13/report 11 recalculated 2,151 findings
+in parallel for 338/730 rated Read works; run 14 reused both caches. Missing-Read
+run 15 completed the other two scopes and retained report 12. Recovery run 16
+reused both caches and left final report 13. All 2,597 rows stayed unchanged.
+Original CSV/root-config hashes and latest archived source bytes are identical;
+saved authorization remains present and the temporary override is removed.
+Providers were explicitly disabled for these replay/failure checks; actual
+provider evidence is run 12. Root defaults enable both providers and keep weekly
+operation disabled.
+
+| Same-cohort error | Before enrichment | After enrichment | Training-only baseline |
+|---|---:|---:|---:|
+| Work-held-out MAE | 0.198203 | 0.202728 | 0.203252 |
+| Work-held-out RMSE | 0.360597 | 0.361620 | 0.369090 |
+| Author-blocked MAE | 0.201299 | 0.206135 | 0.203094 |
+| Author-blocked RMSE | 0.366480 | 0.368907 | 0.369220 |
+
+Both MAEs worsened. Author-blocked MAE now exceeds its baseline, with a
+baseline-minus-predictor resampled gain range [-0.007761, 0.001611] crossing zero.
+This range describes stability, not a confidence interval. These canonical v5
+folds differ from older work-ID ordering; compare these two results only, not the
+full 338-rated cohort against the former 314-rated cohort.
+
+| Trusted Read coverage | Before | After |
+|---|---:|---:|
+| Read works | 730 | 730 |
+| Personal-rating links | 314 | 338 |
+| Descriptions | 286 | 461 |
+| Genre/subject-known works | 9 | 291 |
+| Series-known works | 2 | 46 |
+| Matched-edition language | 0 | 0 |
+| Work-language availability | 10 | 319 |
+| Page counts | 722 | 722 |
+| Original-work publication years | 277 | 477 |
+| Edition publication years | 7 | 7 |
+| Rating conflicts | 0 | 0 |
+| Selected references, all pinned inputs | 19 | 1,228 |
+| Selected references associated with Read origins | 11 | 597 |
+
+Calculator `analytics-v5-scoped-language-validation` excludes work-language
+availability from edition-language preferences/predictions while retaining its
+evidence and separate coverage. The following details retain the earlier
+acceptance baseline and historical pre-correction metrics.
+
+The approved reset removed old databases, runtime files, environment, cache and
+temporary files, preserving the exact three CSV/root-config hashes and saved
+Google authorization. The environment was recreated. New useful databases
+created by E2E are retained; the current data directory is not empty.
+
+Fresh actual run 1 imported all 2,597 rows (1,054 StoryGraph, 813 watchlist,
+730 Read) and completed parallel analytics with 400 findings and 314 rated Read
+works. Finding counts are observations, not fixed targets.
+The current trusted Read input contains:
+
+| Coverage | Works/observations |
+|---|---:|
+| Read works | 730 |
+| Confirmed personal-rating links | 314 |
+| Accepted description evidence | 286 |
+| Missing description evidence | 444 |
+| Trusted genre-known works | 9 |
+| Page counts | 722 |
+| Edition publication years | 7 |
+| Original-work publication years | 277 |
+| Supported matched-edition languages | 0 |
+| Work-language availability | 10 |
+| Conflicting personal ratings | 0 |
+| Selected metadata references | 19 |
+
+Raw quarantined browser genres are not trusted coverage. Content now accepts
+all 286 descriptions using the separate public reference; file lineage remains
+unchanged. Current word-rule mention counts are relationships 19,
+mystery/crime 5 and danger/adversity 5; hunger-content mentions are connection 9
+and intensity 6. These are mentions, not complete book classifications, reader
+traits, colors or official assessment scores.
+
+Rating-linked coverage increased from 122 to 314 (+192), or 16.7% to 43.0%.
+That is coverage, not a measured matching-accuracy percentage.
+Held-out validation on the **same 314-work cohort** gave:
+
+| Error | Model | Training-only mean baseline |
+|---|---:|---:|
+| MAE | 0.19845504492669255 | 0.20325186707637174 |
+| RMSE | 0.36070751448382343 | 0.36908996676479056 |
+
+MAE was lower by 0.004796822149679192 (2.36%). The older 122-work cohort is
+different; this is not an apples-to-apples improvement over that older result,
+a matching-accuracy estimate or future recommendation accuracy.
+
+Provider coverage remains **partial**:
+
+- Google Books hit `rate_limited` on its first lookup and deferred 2,596.
+- Open Library persisted 140 outcomes, selected 19 records and deferred 2,457.
+  One archived search reported `InternalServerError`, followed by 20 `http_error`
+  record outcomes and process-local backoff. Nineteen work-detail URLs were validated.
+  This does not prove Open Library quota exhaustion.
+- Exact HTTP status, Retry-After/deadline and wire-request counts were not saved,
+  so those historical details must remain unknown.
+
+Installed-CLI offline acceptance used a temporary metadata-disabled config:
+final run 8 recalculated in parallel with 400 findings and 314/730 rated Read
+works; run 9 reported all 2,597 unchanged and reused both caches. Run 10 changed
+only the configured Read path, failed that scope while StoryGraph/watchlist
+completed, and retained report 8. Run 11 recovered all source scopes, reused both
+caches and reported all 2,597 unchanged, leaving final report 9.
+Inputs were never renamed or changed; original CSV/root-config hashes and each
+latest raw source's bytes remain identical. The temporary `data\config.json`
+override has been removed. Root defaults enable both providers and keep weekly
+operation disabled. Those checks made no additional provider calls.
+These checks accept source/analytics replay and retention, not complete enrichment.
+The new durable retry/diagnostic implementation does not retrospectively
+recover missing evidence or establish unattended collection reliability.
+
+Metadata processing has a schema/version refresh to v3, narrow recovery of
+otherwise verified fields when optional-field validation fails, and optional
+confirmed-work details enabled by the CLI. Identity checks and truncation/
+unverified/duplicate blockers remain. Archived network-disabled replay includes
+multiple captures and is not normal-run coverage or accuracy evidence; no gain
+from it is claimed. Confirmed provider-work reconciliation and alternate-edition
+links are implemented; current actual coverage is recorded above.
+
+**Earlier evidence:** deeper-math ownership tests passed 30 cases. After recreating
+the virtual environment, the full integrated gate passed **535 tests**, Ruff
+lint/format over 84 files, strict mypy over 41 source files, sdist/wheel builds
+and diff checks.
+
+Configured CSV acceptance passed all 2,597 rows and byte hashes, an unchanged
+repeat and independent failure retention; local run 10 passed. An interim actual
+analytics run reported 730 Read books, 122 confirmed personal-rating links
+(about 16.7%), 603 StoryGraph rating records and 305 Read books with genres.
+That genre count predates the stricter browser-label capture gate and is not
+current verified genre coverage. Finding counts are dynamic, not an acceptance constant.
+
+Bounded live metadata run 12 made 40 attempts per provider and selected 13 Google
+Books and 6 Open Library results, with no provider-wide failures. Full run 13 was
+stopped at the owner's request for a clean reset; full coverage is not accepted.
+The requested cleanup is complete: all four databases and old ignored runtime
+files were deleted, including the old virtual environment, profiles, backups and
+logs. Google authorization was retained. The environment was recreated and
+dependencies restored. Immediately before E2E, `data` contained only the inputs
+and saved authorization; all three CSV SHA-256 values were unchanged and root
+config was retained.
+
+Installed `booky sync --unattended --json` finished from empty databases as run 1,
+with the 10,000-book provider budget and no source browser. It exited 3:
+
+- All 2,597 source records and six raw SHA/row-count checks passed.
+- Analytics completed for 730 Read books and 122 confirmed personal ratings.
+  It produced 569 findings in this run; that count is an observation, not a fixed target.
+- Google Books hit `rate_limited` on its first lookup, then deferred 2,596.
+- Open Library attempted all 2,597, completed 1,553, returned 2,245 candidates
+  and used 295 cache hits, with zero deferred. Recorded issues included 109
+  `invalid_metadata_field`, 60 `invalid_work`, 120 `search_truncated` and 979
+  `unverified_candidates`; these are issue counts, not an additive book total.
+
+That run's provider coverage was **partial**, not accepted as complete. The
+subsequent archive-only diagnosis checked provider gaps versus parser bugs without
+network requests. Replay checks used a temporary metadata-disabled override to
+avoid further Google requests; these are separate from fresh provider acceptance.
+That historical run was followed by the approved reset and latest acceptance
+recorded above; it is not the final run's provider coverage.
+
+**Historical evidence:** the bounded unattended live CLI diagnostic on
+2026-11-02 (run 9) was **partial**:
+all three collection attempts encountered source challenges. Existing counts
+remained 730 Goodreads Read, 813 watchlist and 1,054 StoryGraph rows. One Google
+lookup reported `invalid_metadata_field`; one Open Library lookup completed.
+An OAuth credential file existed during that probe, but neither a saved file nor
+a completed lookup proves complete metadata coverage. The 10,000-book budget was saved;
+diagnostic limits were applied in memory only.
+
+Separately, the earlier installed-executable export-processing E2E rebuilt all
+2,597 records in isolated storage with raw-byte verification and metadata
+disabled. The prior full gate passed 663 tests, Ruff lint/format, strict mypy and
+package build. That 663-test gate is historical, not the current suite count.
+Source-only tests explicitly disable enrichment and cannot prove full provider coverage.
+That implementation closed source contexts before enrichment and saved verified
+sequential metadata results per book. These historical checks do not require
+retaining now-unused source/browser code.
+
+**Deferred acquisition research:** future work may investigate official exports
+through the owner's ordinary signed-in browser, with explicit human-action
+states. This is not the selected next pipeline. Do not equate personal Edge
+authentication with a separate application's isolated
+Chromium profiles, copy cookies, attach to personal profiles implicitly, bypass
+challenges, or silently replay stale files.
+The [Goodreads export guide](https://gist.github.com/kaayru/87385f85ec577b8e3d9613ecb09c90ca)
+describes `review/import`, asynchronous generation and a generated CSV link.
+The [StoryGraph guide](https://getendleaf.com/blog/how-to-export-your-storygraph-data/)
+describes Manage Account -> Manage Your Data -> Export StoryGraph Library.
+These are third-party descriptions, not verified account/API contracts.
+Comments on the [StoryGraph API roadmap](https://roadmap.thestorygraph.com/features/posts/an-api)
+also describe manual emailed exports, conflicting with direct-download guidance.
+Public access to the app export page returned 403; the current signed-in UI,
+delivery timing and unattended feasibility remain unverified. No official export
+adapter is implemented or claimed working.
+
+Offline manual acceptance on 2026-11-02 succeeded (run 2), archiving both originals
+and publishing 813 Goodreads watchlist books and 603 personal ratings from 1,054
+StoryGraph rows. No StoryGraph reading events or other personal facts were
+published. Three invalid StoryGraph ISBNs were reported and retained raw-only:
+ratings survived, but those identifiers were not used for matching.
+
+The watchlist yielded 665 valid ISBN identities; all 813 books had community
+ratings/counts and dates added. Coverage included 812 formats, 806 positive page
+counts, 515 descriptions and genre sets, 261 series labels, 498 first-publication
+dates, and 16 edition-publication dates. No language values were present.
+These are observed file-processing results, not independently verified account
+completeness. Replay run 4 subsequently reported all 1,054 StoryGraph rows and
+813 Goodreads rows unchanged; remaining final cross-cutting checks are tracked
+separately. The verified migration and storage measurements are recorded above.
+Run 5 then completed the supplied Goodreads Read import: 730 Read books were
+added; all 813 watchlist books and 1,054 StoryGraph rows were unchanged. Read and
+watchlist membership overlap was zero. There were 2,597 active source records;
+the works table then had 2,469 rows, including retained history. That table count
+is not a count of unique active books and may differ after a clean rebuild.
+These are stored-import observations, not a
+verified complete live-account collection.
+
+All 730 Read memberships are authoritative. Of the 603 StoryGraph personal
+ratings, 122 were conservatively linked to Read books; the other 608 Read books
+remain without a confirmed personal-rating link, whether unrated or ambiguous.
+No speculative matches were made. Read coverage includes 493 valid ISBNs,
+722 page counts, 278 descriptions/genre sets, and community ratings for all 730.
+The original flattened CSV supplied no usable dated reading events or personal
+reviews, so both counts remain zero: Read membership is not a dated completion
+event, and community ratings are not personal ratings.
+
+Automatic collection has not succeeded against the configured accounts.
 StoryGraph blocked the attempted collection. The anonymous Goodreads RSS request
 for `79839274` returned HTTP 404; the browser path reached sign-in, but its window
 was not visible to the user in the automation runner and collection did not finish.
@@ -176,15 +650,26 @@ profile is private, or that signing in will resolve StoryGraph's block.
 Anonymous collection can only use genuinely public, accessible data. A saved
 owner session may support later unattended runs, but it can expire or be rejected.
 Neither route may claim a complete account snapshot without evidence. Manual
-exports are now an explicitly selected input route, not a hidden fallback.
+exports are now the configured default input route, not a hidden fallback.
 No access-control workaround is permitted.
 
-The immediate gate is raw-first manual import with reconciled file counts,
-field coverage, durable processing, and replay. Automatic collection later needs
-successful authorized access, repeat-run, and unattended verification.
+The historical manual import, unchanged replay run 4, and Read acceptance run 5
+have succeeded. Current configured CSV/source/analytics acceptance and offline
+follow-up checks have also passed; complete provider enrichment remains open.
+Authorized repeat/unattended source collection remains a future gate only.
 Fixtures cannot substitute for that evidence. External links below preserve the
 planning research references; their continued availability and suitability must
 be checked before relying on them.
+
+The earlier guarded Goodreads browser seam covered only `to-read`; it did not
+provide raw HTML recording or complete two-shelf acquisition. Python raw-first
+collectors for `read`/`to-read` and StoryGraph ratings replaced that limited
+route and the manual JavaScript generator in the earlier fixture-tested
+browser-default contract, now superseded by configured CSV sync. Those unused
+adapters, browser dependencies and fixtures have been removed. Historical
+fixtures do not establish live completeness or unattended authentication.
+The old script's capped pagination and flattened personal fields
+remain historical limitations of those supplied files.
 
 Use [README.md](README.md) for current operation,
 [CONTRIBUTING.md](CONTRIBUTING.md) for development, and
@@ -193,8 +678,11 @@ rules. The remainder preserves the agreed detailed roadmap.
 
 ---
 
-**Manual export intake comes first.** Automatic collection later feeds the same
-raw database, followed by processing, cached analysis, and watchlist ranking.
+**Current intake is exact configured CSV paths on plain sync.** Legacy explicit
+file flags remain advanced compatibility mode. Processing is followed by the
+implemented backend analytics pipeline; watchlist ranking comes later. Live
+fetching is a deferred requirement, not a runtime dependency. Read the retained
+roadmap below with this current contract; historical evidence remains labeled.
 
 The five phases remain:
 
@@ -215,16 +703,17 @@ Produce a standalone Calendar Year in Books
 | Area | Decision |
 |---|---|
 | Language | **Python**, primarily for the statistical and recommendation work |
-| Initial interface | A script with only **`booky sync`** and **`booky status`** |
+| Initial interface | Exactly **`booky fetch`**, **`booky sync`** and **`booky status`** |
 | Database | **SQLite**, persisted across runs |
-| StoryGraph access | Manual official export first; authorized automatic capture next |
-| Goodreads access | Manual official export first; usable shelf feed or authorized page capture next |
-| Metadata | Google Books API, supplemented where useful by other providers |
-| Exports | **Explicit manual input for now; preserve originals in the raw database** |
-| Refresh cadence | **Weekly once ingestion is stable**, with on-demand sync available |
+| StoryGraph access | Configured supplied CSV for personal ratings/identity; live acquisition deferred |
+| Goodreads access | Explicit console helper via `fetch`; configured split Read/to-read CSVs or alternative official whole-library CSV; never mix the modes |
+| Source authority | Goodreads watchlist and history/personal data; StoryGraph personal ratings only |
+| Metadata | Google Books and Open Library enabled by default; API-key priority, automatic interactive OAuth setup when needed |
+| Exports | Default configured input; preserve original bytes before parsing, never silently replay missing paths |
+| Refresh cadence | On-demand CSV processing now; weekly automatic acquisition requires later approval and evidence |
 | Normal reads | Use the database, not fresh scraping |
 | Future clients | Website and app call an API built over the same application services |
-| Current presentation | Terminal output, CSV, and JSON only |
+| Current presentation | Terminal and JSON output; CSV is input, reporting is future work |
 | External writes | None: no changing ratings, shelves, reviews, or watchlist membership |
 | AI dependency | None required for initial ingestion or core statistics |
 
@@ -240,8 +729,8 @@ The first usable version should:
 
 - Connect to the correct StoryGraph and Goodreads accounts.
 - Retrieve all accessible records within the agreed account scope.
-- Capture personal ratings and reviews—not confuse them with community data.
-- Preserve reading dates and rereads where accessible.
+- Capture StoryGraph personal ratings, never confuse them with community data.
+- Preserve Goodreads personal data, reading dates, and rereads only where explicitly represented.
 - Identify the same book across services.
 - Save everything useful in SQLite.
 - Fetch missing book metadata.
@@ -249,7 +738,11 @@ The first usable version should:
 - Explain incomplete collection or unavailable fields.
 - Eventually run weekly without needing routine intervention.
 
-**The first milestone is a replayable raw-to-processed import of real exports.**
+**Configured CSV ingestion, analytics and offline follow-up checks are accepted;
+complete provider enrichment remains open.**
+The direct/live collection requirements in this phase are retained future work,
+not the current command contract or prerequisites for implemented backend analytics.
+Historical real-export acceptance does not replace current provider/follow-up checks.
 
 A library list containing book names is not enough. We need to establish access to the actual information the later phases depend on.
 
@@ -266,34 +759,60 @@ The important boundary is between **application logic** and **how it is invoked*
 
 The CLI should not contain the synchronization or statistical logic. A future API should call the same services, not run shell commands and parse their printed output.
 
+### Layered package layout
+
+The package root is `src\bookystats`. The following fully qualified module paths
+describe the implemented layered structure. Unused source/browser code was removed:
+
+| Area | Modules and responsibility |
+|---|---|
+| Root | `bookystats.__init__`, `bookystats.__main__`, `bookystats.strings`, `bookystats.constants`: entry points and the existing centralized literal/policy declarations. |
+| CLI | `bookystats.cli.commands`, `bookystats.cli.report`: parsing/wiring, rendering, and exit codes. |
+| Application | `bookystats.application.sync`, `bookystats.application.verification`, plus the injected `AnalyticsService`: reusable sync, checks and report calculation/reuse. |
+| Domain | `bookystats.domain.models`, `bookystats.domain.interfaces`, `bookystats.domain.errors`, `bookystats.domain.dates`, `bookystats.domain.identifiers`, `bookystats.domain.matching`, `bookystats.domain.analytics`: contracts, dates, identity policy and pure analytics calculations. |
+| Metadata adapters | `bookystats.adapters.metadata` owns catalog lookups. Historical source/browser modules and dependencies were removed. |
+| Export adapters | `bookystats.adapters.exports.csv_import` owns the default configured CSV path and legacy explicit file flags. |
+| Transport/auth adapters | `bookystats.adapters.http` (formerly net), `bookystats.adapters.google_oauth`: bounded HTTP and explicit local consent/token handling. No source-browser runtime dependency for CSV processing. |
+| Persistence | `bookystats.persistence.library`, `bookystats.persistence.raw`, `bookystats.persistence.payloads`, `bookystats.persistence.cache`, plus the analytics input reader and `AnalyticsStore`: library, originals, shared payloads, provider cache and saved analytics. |
+| Runtime | `bookystats.runtime.config`, `bookystats.runtime.locking`, `bookystats.runtime.scheduling`, `bookystats.runtime.runlog`, `bookystats.runtime.redaction`: local lifecycle, disabled scheduling, logs, and privacy. |
+
+Tests mirror implemented areas; shared `tests\conftest.py` and
+`tests\test_literal_policy.py` remain global, source fixture data stays in
+`tests\fixtures`, and shared builders live in `tests\support`. Remove builders
+and fixtures used only by deleted adapters rather than preserving dead scaffolding. CLI command tests
+are in `tests\cli\test_commands.py`; integration tests are in
+`tests\application\test_integration.py`. The console target is
+`bookystats.cli.commands:main`. Do not retain old flat-module
+compatibility shims, move literals out of the root shared modules, or create
+empty watchlist/future folders.
+
+`bookystats.runtime.runlog` accepts injected, rendered report lines; it does not
+import CLI reporting. CLI concerns stay out of application/domain/persistence
+logic. The existing public commands and persistence semantics must survive the
+move; final validation requires targeted and cross-cutting checks
+as documented in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ---
 
 ## 4. Source connectors
 
 ### StoryGraph
 
-**First input:** the user-supplied official export, archived before parsing.
-**Later automatic route:** authenticated browser extraction using Playwright and
-a dedicated local browser session, subject to verified access.
+**Plain-sync input:** the configured supplied CSV, archived before parsing.
+Advanced explicit file import remains available. Normal sync does not access
+StoryGraph. Live acquisition is deferred and unverified.
 
-The connector should investigate these surfaces:
+The processed contract is deliberately narrow: book identity and her personal
+rating only. Reviews, reading history, dates, status, rereads, moods, pace, and
+other attributes in the export stay in the original raw payload and do not become
+processed facts. A row is not a reading event merely because it appears here.
 
-| Surface | Required information |
-|---|---|
-| Completed/read library | Book identities and recorded reading history |
-| Personal book/review pages | Her rating, review, and available reading attributes |
-| Reading history or journal surfaces | Reading dates and separate rereads, where accessible |
-| Currently reading | Current state |
-| Paused and DNF collections | Separate states rather than treating everything as unread |
-
-Existing scraper documentation is useful as a reference, but not a complete solution. The [current StoryGraph scraper](https://github.com/Tzahi12345/storygraph-api) documents list identities and catalog details, and notes that its read list deduplicates rereads. That does not establish access to all the personal data we need.
-
-The implementation must therefore verify the real page structures and distinguish:
+The [existing StoryGraph scraper reference](https://github.com/Tzahi12345/storygraph-api)
+may inform identity/rating acquisition, but does not establish authorized
+access or alter this authority policy. Extraction must distinguish:
 
 - Her personal rating from the community average.
 - A work from a particular edition.
-- A unique book from multiple reading events.
-- An absent review from an extraction failure.
 - An unrated book from a rating that could not be retrieved.
 
 Manual files and automatic collection are explicit modes. An automatic run must
@@ -301,16 +820,31 @@ not pretend an old export is fresh account data or silently change intake modes.
 
 ### Goodreads
 
-Start with the user-supplied official library export and preserve all its rows
-and columns, including non-watchlist records. Derive the watchlist from its shelf
-membership rather than discarding the rest of the export.
+Plain sync reads configured `goodreads_watchlist_file` (`to-read`) and
+`goodreads_read_file` (`read`) CSVs. Alternatively configure `goodreads_file`
+for a supplied official whole-library CSV; derive membership from its shelves.
+Never mix whole-library and split inputs. Legacy flags `--goodreads-file`,
+`--goodreads-watchlist-file`, and `--goodreads-read-file` remain advanced explicit
+mode. Preserve all rows/columns, retain separate raw captures and
+independently atomic snapshots. The supplied watchlist is the current watchlist;
+Goodreads Read is authoritative history, not StoryGraph's export.
 
-For later automatic collection, use the least complex reliable route:
+Validated labeled `Row_Details` can supply ISBN, pages, community rating/counts,
+date added, and format. Do not infer personal ratings, reviews, or reading-event
+dates from flattened UI text. The `booky-goodreads-shelf-v1` contract does not
+establish verified genre/series capture. Nonempty browser genre/series labels
+become `UNAVAILABLE` as canonical facts, with verbatim raw observations
+`unverified_capture_genres`, `unverified_capture_series` and
+`unverified_capture_series_number`, plus `unverified_browser_capture` issues.
+Empty/absent fields retain `EMPTY`/`UNSUPPORTED` states. Trusted selected metadata
+may supply labels separately; the browser helper's version alone cannot.
+No new domain state is needed, and no covers are downloaded.
 
-1. A paginated shelf feed, if accessible and sufficiently complete.
-2. Authenticated page extraction where the feed is unavailable or missing required information.
-
-The [current Goodreads RSS client](https://github.com/icco/goodreads) demonstrates a public-shelf route, including pagination and explicit truncation handling. We still need to establish its behavior for her actual watchlist.
+Historical alternatives include a paginated shelf feed when accessible and
+complete. The [Goodreads RSS client](https://github.com/icco/goodreads)
+demonstrates such a public-shelf route, but the current default is configured
+CSV processing; RSS is not a silent fallback and its real-account
+behavior remains unverified.
 
 The connector should collect:
 
@@ -322,6 +856,8 @@ The connector should collect:
 - Custom shelves.
 - Shelf ordering, if accessible.
 - Available edition metadata.
+- Reading status and other personal history only where the input explicitly
+  represents it; a read-shelf observation alone supplies no reading-event date.
 
 Her profile should not have to become public. A private profile needs an appropriate authenticated route.
 
@@ -341,9 +877,12 @@ A connector must return more than records. It must also report:
 
 ---
 
-## 5. Initial connection and authentication
+## 5. Configuration, optional enrichment auth, and future source authentication
 
-The first interactive sync should guide setup without adding a separate collection of commands.
+The current CSV path binds files to configured accounts; a file does not
+independently prove ownership. No source session or browser is needed.
+The source setup steps below are deferred live-acquisition requirements, not
+instructions for current CSV sync.
 
 ### StoryGraph setup
 
@@ -351,7 +890,7 @@ The first interactive sync should guide setup without adding a separate collecti
 - Let the account owner sign in normally.
 - Verify that the authenticated account is the intended one.
 - Store the session locally for reuse.
-- Discover the accessible reading and review surfaces.
+- Discover the accessible identity and personal-rating surfaces only.
 
 ### Goodreads setup
 
@@ -368,6 +907,27 @@ A Goodreads author ID must not be mistaken for a reader profile ID.
 - Browser session state stays in a user-private application directory.
 - Tokens, cookies, and authorization headers never enter source control or logs.
 - The script should not require passwords to be pasted into a configuration file.
+
+### Google Books authorization during sync
+
+Plain `booky sync` reuses an API key or a valid/refreshed OAuth session. When
+authorization is needed in an interactive terminal, it prompts for client ID/
+secret and opens normal browser consent; no one-time auth command is required.
+`GOOGLE_BOOKS_CLIENT_ID` / `GOOGLE_BOOKS_CLIENT_SECRET` may be supplied locally;
+sensitive prompts are hidden. A Desktop client is recommended. A Web client requires
+the exact registered redirect URI `http://127.0.0.1:8765/oauth2/callback`.
+The Google Books scope is `https://www.googleapis.com/auth/books`; BookyStats
+uses it for metadata reads only, not account-source acquisition or library writes.
+
+Client credentials alone are not authenticated access: actual human browser
+consent is still required. The selected data directory's ignored
+`google-books-oauth.json` is written atomically with private-file protections;
+never commit or log it. An API key takes priority and valid/refreshed OAuth is the
+fallback. Consent and refresh occur only during sync. TTY detection is the normal
+interaction default; advanced `--interactive` / `--unattended` overrides remain.
+Headless cron never prompts or launches consent and reports needs-auth when
+required. Ordinary status remains local/non-networking. No live Google
+authentication success is claimed.
 
 ### Reauthentication
 
@@ -393,11 +953,11 @@ Normal login or browser challenges may require human interaction. We will not in
 
 | Category | Target |
 |---|---|
-| StoryGraph identities | Every accessible book in the relevant reading collections |
-| Personal assessments | Ratings and reviews where present |
-| Reading events | Dates and rereads where the source exposes them |
-| Reading states | Completed, current, paused, DNF, and other supported states |
-| Reading attributes | Moods, pace, tags, and other accessible personal answers |
+| StoryGraph identities | Identity needed to conservatively match personal ratings |
+| Personal ratings | StoryGraph only; distinguish unrated from unavailable |
+| Personal reviews and other attributes | Goodreads only where explicitly represented; never StoryGraph processed facts |
+| Reading events | Goodreads dates and rereads only where explicitly represented |
+| Reading states | Goodreads read/current/paused/DNF and other explicitly supported states |
 | Goodreads watchlist | Every accessible active watchlist entry |
 | Watchlist context | Shelves, dates added, ordering, and identifiers where available |
 
@@ -425,13 +985,18 @@ This distinction is essential. Otherwise a broken selector can turn an entire co
 
 ## 7. The first full synchronization
 
-The initial manual sync must archive the original files from both sources before
-parsing, then validate schemas and row counts, process/enrich, and publish a
-processed snapshot with raw lineage. Repeat processing must not require the
-original download paths or website access.
+Plain sync must read exact configured CSV paths and archive their original bytes
+before parsing, then validate scope/counts, process, and independently publish
+each complete file/scope snapshot with raw lineage. Missing/invalid scopes retain
+last complete snapshots; no automatic archive replay or source fetching occurs.
+Provider enrichment has
+separate provenance and coverage; it must not prevent a valid source snapshot
+from being retained. Internal/advanced explicit replay need not require the
+original download path or website access, but normal sync requires its configured files.
 
-For later automatic collection, the capture stage should perform the following
-source-discovery steps before handing stored raw data to processing.
+The following source-discovery steps are requirements for a future live capture
+stage, not current CSV behavior; they still need implementation and live evidence.
+Normalization, matching, publication and receipts also apply to CSV processing.
 
 ### Establish identity
 
@@ -474,13 +1039,18 @@ Keep ambiguous cases visible.
 
 Save validated records and the evidence needed to explain the collection.
 
-### Enrich metadata
-
-Fetch missing information using suitable providers and cache it.
-
 ### Publish a usable snapshot
 
-Make the completed source snapshot available to downstream calculations.
+Commit the completed source/scope snapshot independently. Future downstream
+calculations consume only a declared compatible input manifest, not whichever
+source snapshots happen to be latest when each query executes.
+
+### Enrich metadata
+
+Fetch missing information using default-enabled Google Books and Open Library
+with bounded work and caching; honor advanced provider-disable configuration.
+Record incomplete coverage separately; the future
+input manifest pins the metadata observations used.
 
 ### Produce a receipt
 
@@ -543,7 +1113,7 @@ The database should preserve several distinct concepts.
 | **Edition** | A particular format, language, publisher, or ISBN |
 | **Source record** | The service-specific identity and original observations |
 | **Reading event** | A particular reading attempt or completion |
-| **Personal assessment** | An observed rating or review |
+| **Personal assessment** | StoryGraph personal rating or explicitly represented Goodreads review; never a StoryGraph review |
 | **Watchlist membership** | Whether a Goodreads entry is currently on the watchlist |
 | **Metadata observation** | A provider’s value and when it was obtained |
 | **Match decision** | How source identities were connected |
@@ -725,11 +1295,19 @@ StoryGraph can fail while Goodreads succeeds.
 The run should report that accurately rather than declaring everything failed or everything current.
 
 Downstream outputs must know which source snapshots they are using.
+Independent publication is not permission to implicitly mix their generations.
+Future analysis must first commit the compatible manifest described in the
+opening architecture; failure to satisfy required freshness/coverage blocks new
+derived outputs, not the independent successful source publication.
 
 For example:
 
-- Historical statistics may remain usable from the last StoryGraph snapshot.
-- Watchlist recommendations may need to disclose that reading history is older than watchlist membership.
+- Historical statistics may remain usable from the last Goodreads Read snapshot,
+  with personal-rating coverage tied separately to the StoryGraph snapshot and
+  the original manifest/freshness labels retained.
+- Watchlist recommendations can use older reading history only when the declared
+  compatibility policy permits it and the manifest explicitly records the age/skew;
+  otherwise the new ranking is blocked and prior rankings remain visibly dated.
 
 ### Removal rules
 
@@ -749,9 +1327,17 @@ Keep historical membership observations rather than deleting the book itself.
 
 ## 14. Metadata enrichment and caching
 
+Google Books and Open Library are both enabled by default. Google Books uses
+an API key or valid/refreshed OAuth; first interactive sync handles normal
+client prompts/consent if required, while headless runs report needs-auth.
+Advanced configuration may disable a provider. Both serve processing only; they do not supply
+authoritative personal account facts. Retain their full HTTP responses in
+`data\raw.sqlite3` under separate provider source/type documents and use
+`data\metadata.sqlite3` for disposable query caching.
+
 ### Google Books
 
-Your key is useful for:
+An optional locally supplied key is useful for:
 
 - ISBN and title/author lookup.
 - Descriptions.
@@ -788,6 +1374,8 @@ Use a catalog-read token and respect the current [API contract](https://docs.har
 | Personal ratings and reviews | Follow the account synchronization policy |
 
 Cache age and successful retrieval are separate concepts. A failed refresh must not reset the freshness timestamp.
+The query-cache TTL ignores stale entries and a refresh replaces that query key;
+it does not run a background purge or delete the durable provider-response archive.
 
 ### Large-library behavior
 
@@ -796,28 +1384,43 @@ Account collection and metadata enrichment have separate completion states.
 We can have:
 
 - A complete Goodreads watchlist.
-- Complete StoryGraph personal records.
+- A complete supplied Goodreads Read file and StoryGraph rating file.
 - Incomplete metadata enrichment.
 
 That is a useful, honest state—not a failed project and not “everything complete.”
 
 ---
 
-## 15. Weekly ingestion once stable
+## 15. External weekly trigger once stable
 
 ### The scheduled operation
 
-A weekly job invokes the same sync service used by `booky sync`.
+A future external cron job and a manual command invoke the same CLI/application
+services: ingestion, processing, analytics, and watchlist. They differ only in
+trigger and explicit run inputs, not business logic. Analytics is implemented;
+watchlist ranking is not. Existing private Windows `--scheduled` plumbing is retained
+disabled/unregistered, not assumed portable or ready for external cron.
+Current plain `booky sync` processes configured CSVs without source access.
+A future acquisition/cron workflow needs separate implementation and approval;
+CSV imports and raw replay are not fresh weekly account-collection evidence.
+Cron does not make source sessions or required Google authorization valid.
 
 It should:
 
-1. Check connection health.
-2. Reconcile account collections and personal details.
-3. Persist successful source updates.
-4. Refresh required metadata.
-5. Save dated observations.
-6. Refresh affected derived results once those phases exist.
-7. Record a clear receipt.
+1. Acquire the reader/database lock and validate activation fingerprints before
+   any account access.
+2. Acquire each intended source/scope explicitly, saving original bytes and dated
+   acquisition evidence.
+3. Parse, validate, authority-filter, and publish successful scopes independently;
+   failed/missing scopes keep their last good snapshot.
+4. Perform bounded metadata refresh with both default providers, respecting
+   advanced disable settings and recording separate coverage/authentication needs.
+5. Once implemented, commit a compatible input manifest; block dependent tasks
+   when its required inputs fail validation or freshness checks.
+6. Once implemented, reuse or refresh analysis, saved preference weights, and
+   rankings only when their relevant input/version/configuration keys change.
+7. Verify committed results, record a durable receipt/log including partial,
+   failed, and skipped task outcomes, release the lock, and exit.
 
 ### Activation criteria
 
@@ -833,16 +1436,30 @@ Before activation, establish that:
 - Sessions are reusable.
 - The actual scheduled execution context works.
 - An unattended run handles expired authentication without hanging.
+- Both configured accounts have two consecutive complete same-account,
+  same-implementation runs including unattended evidence, with recent consistent
+  receipts matching stored snapshots.
+- The explicitly chosen external host, cron expression/time zone, interpreter,
+  account identities, and implementation are bound to verified run configuration;
+  configuration changes invalidate incompatible activation evidence.
 
-This does not require waiting several weeks. Repeated runs and controlled fixtures can establish much of the behavior.
+This does not require waiting several weeks. Controlled fixtures can establish
+recovery logic, but cannot replace complete real-account repeat/unattended
+evidence. Complete manual files and replays never satisfy those acquisition gates.
 
-### Scheduling locally
+### External cron deployment — future, not this machine
 
-For the initial Windows script, an OS-level scheduler is appropriate.
+Choose an external cron-capable host only when deployment is explicitly approved.
+It must have durable local storage, the supported runtime, protected configuration
+and account access, tested backups, and a verified unattended acquisition route.
+No Windows Task Scheduler registration or local-machine scheduling is wanted.
+Do not add a scheduler dependency, broker, or always-running pipeline process.
 
 It should not depend on a Copilot conversation remaining open.
 
-Choose the weekday, local time, and time zone when scheduling is activated. Configure missed-run behavior so a powered-off machine does not silently appear current.
+Choose the cron cadence and time zone explicitly; define missed-run behavior so
+an unavailable host cannot silently appear current. Keep manual and cron entry
+paths bound to the same application services and compatible data/configuration.
 
 Browser execution also needs to work in that environment. A connector that only works during an interactive desktop session is not yet a proven unattended connector.
 
@@ -850,7 +1467,10 @@ Browser execution also needs to work in that environment. A connector that only 
 
 Manual and scheduled runs must not update the same account simultaneously.
 
-Use one active synchronization per reader/database, with a clear “already running” outcome rather than launching duplicate crawls.
+Use one lock across acquisition, publication, and future manifest/derived-output
+commits per reader/database, with a clear “already running” skipped outcome rather
+than launching duplicate crawls. Verify ownership before recovering an abandoned
+lock; never steal a live run's lock.
 
 ### Failure behavior
 
@@ -894,6 +1514,7 @@ It should answer:
 
 | Area | Information |
 |---|---|
+| Configuration and input files | Actual selected config path, each configured CSV filename and ready/missing state |
 | Connections | Configured, usable, or needing authentication |
 | Freshness | Last successful collection for each source |
 | Completeness | Complete, partial, unresolved, or unsupported portions |
@@ -910,9 +1531,14 @@ No new command family is needed for every subsystem.
 
 ---
 
-## 18. Phase 1 completion
+## 18. CSV milestone and deferred live completion
 
-The deliverables are:
+Current CSV acceptance requires exact configured paths, raw-first integrity,
+independently atomic scopes, retention on missing/invalid inputs, no source
+browser/fetching or archive fallback, local status and installed-command real-input
+E2E. Enrichment-disabled source acceptance is not provider acceptance.
+
+The broader deferred live-collection deliverables are:
 
 - Working direct source connectors.
 - Persistent SQLite storage.
@@ -929,6 +1555,52 @@ Those cases should be exercised using controlled data and fixtures—not by auto
 ---
 
 # Phase 2 — Understand the data and build the statistical engine
+
+This **backend** pipeline is implemented and integrated, not a frontend or a new
+acquisition mode. The detailed requirements below still include deeper work;
+only supported findings may be produced. The implemented baseline includes a
+capability inventory: current exports provide 730 Read memberships but no usable
+dated reading events or personal reviews. The latest actual Read input has
+314 confirmed personal-rating links across 730 works; previously it had 122.
+Unlinked Read books are not automatically unrated. StoryGraph
+moods, pace and other non-rating attributes remain raw-only under current
+authority rules; do not silently promote them to fill an analytics feature.
+Optional provider coverage must be measured independently of source-only E2E.
+
+Reader and content analysis uses all Read books, independent of rating availability:
+
+- Reading profile, page quartiles and distinct-work first-publication years,
+  kept separate from edition-year observations.
+- Known-feature combinations, metadata quality and a rating-availability
+  representativeness audit, not a profile restricted to rated books.
+- Versioned description themes and six-hunger **content mentions**, with evidence
+  quotes. These do not infer reader personality, colors or official scores,
+  depend on ratings, or use genre proxies.
+- Descriptive watchlist composition/missingness and a fractionally weighted
+  Read/watchlist comparison (Jensen–Shannon divergence), not recommendations.
+
+Enjoyment calculations separately use confirmed ratings for exposure/enjoyment
+comparisons, shrunk means, group support, conditions and provider-specific
+community comparisons. The current combined implementation passed the full
+644-test gate and actual/offline analytics acceptance:
+
+- Complements use only known features: unknown does not mean negative.
+- Effects and rating lifts are shrunk for small samples, with author-fragility checks.
+- Predictive validation leaves out a whole work at a time to prevent leakage.
+  MAE/RMSE are compared with a training-only mean baseline; fallback use is explicit.
+- Yearly genre breadth uses equal-volume rarefaction rather than rewarding larger years.
+- Shared-stratum standardized comparisons use **current** ratings grouped by
+  actual reading year, not invented historical ratings.
+- `en`/`eng` share a language group while original values/provenance remain saved.
+- Matched-edition language requires edition-scoped evidence. Work-level
+  translation availability stays separate and cannot fill missing edition
+  language or establish the language actually read.
+- Cache keys include the full as-of date/year.
+
+The actual files have no reading dates, so dated-cohort/breadth results still
+need observations. Review analyses also remain gated. Implementation tests do
+not fill those data gaps. Actual analytics and replay acceptance passed, while
+full provider enrichment remains incomplete.
 
 ## 19. Let the collected data determine the analyses
 
@@ -1025,7 +1697,10 @@ Where comparing years with different numbers of books, use a comparable-volume a
 
 ### Watchlist mismatch
 
-Compare the composition of her Goodreads watchlist with supported preferences from her reading.
+Current output only describes watchlist composition, missing information and
+differences from Read. Preference-based candidate assessment belongs to later
+recommendation work. That later work may compare the watchlist with supported
+preferences from reading.
 
 This can reveal:
 
@@ -1060,7 +1735,11 @@ A blank rating on an abandoned book is not a zero-star rating.
 
 Use the idea of reading appetites to go beyond genre.
 
-The [Read Your Color site](https://readyourcolor.com) describes dimensions around feeling/thinking and grounded/imaginative reading, alongside wonder, surprise, intensity, meaning, connection, and clarity.
+The [Read Your Color site](https://readyourcolor.com) and public
+[assessment](https://readyourcolor.com/assessment) describe a heart/head and
+roots/wings compass, plus six hungers: wonder, surprise, intensity, meaning,
+connection and clarity. The assessment uses attraction to blurbs and statements,
+not historic genre counts. No validated official scoring weights are available here.
 
 For BookyStats:
 
@@ -1068,6 +1747,9 @@ For BookyStats:
 - The dimensions do not need to sum to 100%.
 - They are not a diagnosis or permanent identity.
 - We do not claim to reproduce the site’s assessment.
+- Do not guess colors, derive personality from genre counts, or invent official weights.
+- The implemented inspired view uses explicit supported appetite labels only;
+  unsupported dimensions remain unavailable.
 
 Maintain three views:
 
@@ -1595,8 +2277,8 @@ The annual report should be independently useful, calendar-aware, source-labeled
 
 - Python.
 - SQLite.
-- Playwright for browser collection where required.
-- HTTPX for API and feed requests.
+- Configured CSV ingestion; no source-browser runtime dependency.
+- HTTPX for optional metadata API requests.
 - Typed internal records.
 - A small CLI entry point.
 
@@ -1604,6 +2286,7 @@ Use standard-library functionality where it is sufficient.
 
 ### Add later
 
+- A separately approved live acquisition route and only the dependencies it needs.
 - NumPy and SciPy for statistical calculations.
 - pandas if it materially simplifies tabular analysis.
 - scikit-learn when a learned recommender is justified.
@@ -1625,7 +2308,11 @@ For a future hosted multi-user product, PostgreSQL is a sensible candidate. That
 
 A website for one reader does not automatically require abandoning SQLite.
 
-Keep private runtime state outside source control, preferably under a user-local BookyStats directory. Code remains in:
+Keep generated databases, logs, caches, profiles, backups and credentials outside
+source control. Preserve the useful local databases; the library exceeds GitHub's
+regular-file size limit. Version the three supplied CSVs and nonsecret root
+config. Any explicit database transfer needs suitable storage rather than a
+normal Git commit. Code remains in:
 
 ```text
 Q:\repos\TIMTS\BookyStats
@@ -1696,17 +2383,16 @@ A changed historical record can legitimately change a regenerated annual report.
 
 | Milestone | Concrete outcome |
 |---|---|
-| **Manual raw capture** | Archive both official exports and their provenance before parsing |
-| **Processing and enrichment** | Build structured records, preserve all supplied fields, and archive provider responses |
-| **Replay and repeat imports** | Reprocess stored raw input without account access, duplicates, or destructive partial updates |
-| **Automatic capture** | Establish authorized source access feeding the same raw-data boundary |
-| **Weekly ingestion** | Validate unattended execution, then enable the agreed cadence |
-| **Statistical capability inventory** | Determine which analyses are supported |
-| **Statistical engine** | Produce traceable, useful findings |
+| **Configured CSV ingestion and processing — accepted** | Fixed inputs, raw-first bytes, independent scope publication and last-good retention passed actual and offline repeat/cache/missing-file/recovery checks. Provider completeness is separate. |
+| **Advanced explicit files and internal replay — retain** | Preserve legacy explicit flags/replay, supplied rows/fields and raw lineage; only explicit mode may replay unspecified archived inputs. |
+| **Statistical capability inventory — implemented** | Pin compatible processed inputs and classify analyses as supported, subset-only, enrichment-dependent, observation-dependent or unsupported. |
+| **Backend statistical engine — accepted** | All-Read profile, enjoyment/content, descriptive watchlist comparison, separate caches, offline status and three-worker calculations passed the 644-test gate plus actual/offline CLI acceptance. Dated/review capabilities remain evidence-gated. |
 | **Watchlist ranking** | Generate explainable next-book recommendations |
+| **Live acquisition — deferred** | Implement and validate an approved route, account binding, full scope coverage, repeats and unattended evidence; do not keep dead browser scaffolding speculatively. |
+| **Durable task engine and external cron — deferred** | Add persisted dependencies/retry/resume and verify unattended execution before explicitly enabling an agreed external cadence. Not a prerequisite for backend analytics. |
 | **Personal annual review — deferred** | Assemble a correct reading-year report |
 | **Public annual review — deferred** | Build the calendar-year report and discovery bridge |
 
-**The immediate implementation scope is raw capture and processing/enrichment
-with manual input. Automatic capture comes next. Analysis and ranking are
-separate later pipelines; annual reviews remain deferred.**
+**Remaining: complete provider enrichment when authorized and operationally
+available; watchlist ranking later. Live acquisition, durable orchestration, scheduling and annual
+reviews remain deferred. No frontend or new documentation/spec folders are requested.**
