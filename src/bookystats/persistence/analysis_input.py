@@ -19,6 +19,7 @@ from bookystats.domain.analytics import (
     AnalysisSnapshot,
     AnalyticsSettings,
 )
+from bookystats.domain.categories import analytical_categories
 from bookystats.domain.errors import BookyError
 from bookystats.domain.models import (
     Account,
@@ -157,6 +158,12 @@ def _work(
             if field not in C.AV_FEATURE_SCOPES
             or item.observation.scope == C.AV_FEATURE_SCOPES[field]
         ]
+        if field == S.GENRES:
+            items = [
+                item
+                for item in items
+                if item.source in C.ANALYTIC_CATEGORY_SOURCES and item.observation.scope == S.WORK
+            ]
         preferred = [item for item in items if item.source == Source.GOODREADS.value]
         labels: set[str] = set()
         for item in preferred or items:
@@ -164,11 +171,39 @@ def _work(
             for label in value if isinstance(value, list) else [value]:
                 if isinstance(label, str) and label.strip():
                     labels.add(S.SPACE.join(label.split()).casefold())
+        if field == S.GENRES:
+            labels = set(analytical_categories(labels))
+            for item in items:
+                value = item.observation.value
+                categories = (
+                    analytical_categories(label for label in value if isinstance(label, str))
+                    if isinstance(value, list)
+                    else (analytical_categories((value,)) if isinstance(value, str) else ())
+                )
+                if categories:
+                    evidence.append(
+                        AnalysisEvidence(
+                            source=item.source,
+                            source_id=item.source_id,
+                            public_url=item.public_url,
+                            detail=S.ANALYTIC_CATEGORY_VERSION,
+                            observation=item.observation.model_copy(
+                                update={
+                                    S.FIELD: S.ANALYTIC_CATEGORY_FIELD,
+                                    S.VALUE: list(categories),
+                                }
+                            ),
+                        )
+                    )
         if labels:
             features[field] = tuple(sorted(labels))
             states[field] = FieldState.PRESENT
         else:
-            states[field] = _missing_state(evidence, field)
+            states[field] = (
+                FieldState.UNAVAILABLE
+                if field == S.GENRES and _present(evidence, field)
+                else _missing_state(evidence, field)
+            )
     declared = [label for label in settings.book_labels if label.goodreads_id in source_ids]
     if declared:
         features[S.AN_APPETITE] = tuple(sorted({label.dimension for label in declared}))

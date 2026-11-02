@@ -188,11 +188,25 @@ class HttpClient:
                             code=S.RESPONSE_TOO_LARGE,
                         )
                     parts.append(part)
+                body = S.EMPTY_BYTES.join(parts)
+                if self._google_daily_quota(host, response.status_code, body):
+                    state = replace(
+                        state,
+                        retry_at=max(
+                            state.retry_at or C.ZERO,
+                            self._wall_clock() + C.QUEUE_GOOGLE_DAILY_COOLDOWN_SECONDS,
+                            self._wall_clock()
+                            + self._retry_delay(safe_headers.get(S.RETRY_AFTER), state.failures),
+                        ),
+                        failures=state.failures + (response.status_code not in C.NET_RETRYABLE),
+                        error_code=S.DR_HTTP_RETRYABLE,
+                    )
+                    self._save_state(host, state)
                 result = HttpResponse(
                     url=public_url(str(response.url)),
                     status_code=response.status_code,
                     headers=safe_headers,
-                    body=S.EMPTY_BYTES.join(parts),
+                    body=body,
                 )
                 return (result, response.headers.get(S.LOCATION))
         except httpx.TimeoutException:
@@ -219,6 +233,46 @@ class HttpClient:
         except ConnectorError as error:
             self._record_error(host, error)
             raise
+
+    def _google_daily_quota(self, host: str, status: int, body: bytes) -> bool:
+        if (
+            self._provider != Source.GOOGLE_BOOKS
+            or host != S.WWW_GOOGLEAPIS_COM
+            or status not in C.QUEUE_GOOGLE_DAILY_STATUSES
+        ):
+            return C.FALSE
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeError, RecursionError):
+            return C.FALSE
+        error = payload.get(S.ERROR) if isinstance(payload, dict) else C.NONE
+        if not isinstance(error, dict):
+            return C.FALSE
+        reasons = error.get(S.ERRORS)
+        if isinstance(reasons, list) and any(
+            isinstance(item, dict) and item.get(S.REASON) == S.DAILYLIMITEXCEEDED
+            for item in reasons
+        ):
+            return C.TRUE
+        details = error.get(S.QUEUE_GOOGLE_ERROR_DETAILS)
+        if isinstance(details, list):
+            for detail in details:
+                if not isinstance(detail, dict):
+                    continue
+                metadata = detail.get(S.METADATA)
+                unit = (
+                    metadata.get(S.QUEUE_GOOGLE_QUOTA_UNIT)
+                    if isinstance(metadata, dict)
+                    else C.NONE
+                )
+                if (
+                    detail.get(S.QUEUE_GOOGLE_DETAIL_TYPE) == S.QUEUE_GOOGLE_ERROR_INFO
+                    and isinstance(unit, str)
+                    and unit.startswith(S.QUEUE_GOOGLE_DAILY_UNIT_PREFIX)
+                    and unit != S.QUEUE_GOOGLE_DAILY_UNIT_PREFIX
+                ):
+                    return C.TRUE
+        return C.FALSE
 
     @staticmethod
     def _safe_headers(
@@ -353,7 +407,10 @@ class HttpClient:
                     continue
                 host = urlsplit(request_url).hostname or S.EMPTY
                 state = self._state(host)
-                if result.status_code not in C.NET_RETRYABLE:
+                if (
+                    result.status_code not in C.NET_RETRYABLE
+                    and state.error_code != S.DR_HTTP_RETRYABLE
+                ):
                     self._save_state(
                         host,
                         replace(

@@ -25,6 +25,20 @@ Bare `booky` shows help. `status` makes no network requests: it shows the select
 config path, each CSV filename and whether it is ready or missing, plus a saved
 analytics summary. JSON status includes the complete saved report.
 
+To inspect or export that report without fetching or recalculating:
+
+```powershell
+.\.venv\Scripts\booky.exe status
+$status = .\.venv\Scripts\booky.exe status --json | ConvertFrom-Json
+$status.analytics.taste.findings
+$status.analytics.taste.capabilities
+$status.analytics.taste.preferences
+$status.analytics.watchlist.findings
+$status.analytics | ConvertTo-Json -Depth 100 | Set-Content -Encoding utf8 .\data\analytics-report.json
+```
+
+The export is an ignored local file, not a frontend or another public command.
+
 ### Capture Goodreads CSVs
 
 `booky fetch` writes `goodreads-export.txt` in the selected data directory and
@@ -103,6 +117,13 @@ Their filename timestamps are original archive capture times in UTC, **not
 proven export-generation times**. These three CSVs and their structures are fixed
 inputs: improve parsing and metadata without editing them or requiring new exports.
 
+The StoryGraph file contains **610 Read rows and 444 to-read rows**. All 1,054
+rows remain archived byte-for-byte, but only explicit Read rows enter processed
+StoryGraph ratings, matching and enrichment. A missing, empty or unknown Read
+Status fails that source import rather than guessing; other healthy scopes can
+still publish. StoryGraph status selects this scope only: Goodreads remains the
+authority for reading history and current watchlist membership.
+
 ## What sync does
 
 1. Saves each file's original bytes before parsing.
@@ -118,20 +139,47 @@ Metadata failures do not undo successful CSV imports. Processing does not
 automatically delete inputs, archived data or backups.
 
 Goodreads supplies Read/watchlist membership and personal history where the input
-supports it. StoryGraph supplies personal ratings and matching identity only;
+supports it. StoryGraph supplies personal ratings and matching identity from
+explicit Read rows only;
 its other fields stay raw-only. Community ratings never replace personal ratings.
 Missing information is not zero, and uncertain book matches stay unresolved.
 Browser-captured CSV genre/series labels are not verified catalog facts; their
 original values stay in the archive and cannot drive analytics as trusted labels.
 
-The accepted imports contain 2,597 source records. The library's works table also
-retains history, so its row count is not a count of unique active books.
-StoryGraph has 603 personal ratings. The verified current Read input has 730
-works and 338 confirmed personal-rating links (46.3%), up from 314 before the
-latest enrichment pass and 122 before the earlier matching upgrade.
+### Tomorrow's export
+
+Each configured CSV is a **complete collection snapshot**, not a delta-only
+patch file. For the same reader, retain the original and point the configured
+path at the new full export for that scope. A file containing only new books
+would replace that scope's membership rather than append to it.
+
+Unchanged book identities reuse saved enrichment. New records and changed
+identities can queue lookups; rating/status-only changes do not invalidate
+provider metadata. Previously never-attempted records or due transient failures
+may also queue, so this is not strictly “new rows only.” Successful lookups do
+not refresh merely because a day passed, and saved provider gates still apply.
+Analytics uses its own semantic/as-of cache: changed ratings, membership or
+relevant metadata can recalculate affected components without repeating
+unchanged provider lookups.
+
+The files contain 2,597 raw rows; the active processed scopes contain **2,153**
+records (610 StoryGraph Read, 730 Goodreads Read and 813 watchlist).
+The library's works table also retains history, so its row count is not a count
+of unique active books. StoryGraph has 603 personal ratings, all in its Read scope.
+The clean rebuilt report has **576 of 730 Read works rating-linked (78.9%)**,
+compared with 338 (46.3%) before these repairs: 238 additional links. All 603
+StoryGraph Read ratings remain preserved; 27 remain unlinked rather than forcing
+catalog, subtitle, coauthor or ambiguous candidates together.
 This is linked-rating coverage, not a matching-accuracy score.
 The supplied Read CSV has no usable dated reading events or personal reviews.
 Importing every file row does not prove complete account coverage.
+
+Matching can confirm reversible work-only links from reciprocal unique full
+canonical titles and full authors across different or missing ISBNs. Active-scope,
+series/volume/omnibus and selected-catalog conflict checks still apply. Edition
+identity remains separate without a shared validated ISBN; synthetic record IDs
+are never bibliographic identifiers. Shared-ISBN repairs also require compatible
+title/author evidence and the conflict guards.
 
 ## Saved analytics
 
@@ -162,11 +210,19 @@ the reader's personality, and do not depend on ratings or use genre proxies.
 No colors or official scores are guessed. It does not reproduce the official
 [assessment](https://readyourcolor.com/assessment). Dated reading-history and
 review-based findings remain unavailable for the supplied Read file.
-Current trusted Read coverage includes 461 descriptions, 291 genre/subject-known
-works, 46 series-known works and 477 original-work publication years. Before the
-latest pass these were 286, 9, 2 and 277 respectively. Quarantined CSV genre
-labels do not count. Matched-edition language remains unknown for all Read works;
-319 have work-level translation availability, which is not a language preference.
+The clean rebuilt Read report has 529 descriptions, 271 normalized-genre-known
+works, 70 series-known works and 552 original-work publication years; 722 works
+have page counts and 729 have formats. Before these repairs, coverage included
+461 descriptions, 46 series-known works and 477 original-work years.
+The versioned genre mapping uses 77 exact aliases across 25
+families; raw subjects, marketing/classification labels and unmapped values are
+not automatically genres. Original provider observations remain preserved, and
+unknowns remain unknown. Consequently normalized genre coverage is intentionally
+lower than earlier broad subject coverage. Quarantined CSV labels do not count.
+The former 291 broad-subject-known works are not comparable with the new 271
+normalized-genre-known works. Matched-edition language remains unknown for all
+Read works; work-level translation availability cannot establish a language
+preference.
 Quotes use a separate public book reference without
 changing the original CSV observation's file lineage. Reported theme/hunger
 counts are text mentions, not whole-book labels or reader traits.
@@ -177,14 +233,21 @@ baseline and reports fallback use. It also supports equal-volume yearly genre
 breadth and like-for-like comparisons of current ratings grouped by actual
 reading year. The supplied data has no reading dates, so those dated findings
 still need observations. Unknown features never count as negative examples.
-The corrected before/after comparison uses the same 314 unchanged ratings, 201
-author components and identical five folds, with stable Goodreads-ID ordering.
-The 24 new links are excluded from that accuracy comparison. Work-held-out MAE
-worsened from 0.19820 to 0.20273 (baseline 0.20325). Author-blocked MAE worsened
-from 0.20130 to 0.20613, now above its 0.20309 training-only baseline.
-The resampled gain range [-0.007761, 0.001611] crosses zero and describes
-stability, not a confidence interval. **Coverage improved; predictive accuracy
-did not.** These retrospective errors are not future recommendation accuracy.
+On the current 576-work cohort, author-blocked MAE is 0.214046 versus its own
+training-only mean baseline of 0.203587, with one fallback. Leave-one-work-out
+MAE is 0.209932 versus its own 0.203120 baseline. Both predictors are worse than
+their baselines: **coverage improved, but predictive accuracy gains are not
+established.** These errors are not future recommendation accuracy. The earlier
+fixed-314-work comparison remains historical evidence in PLAN.md; do not compare
+different cohorts as an accuracy improvement.
+
+To increase usable coverage, keep supplying full snapshots and improve
+conservative identity evidence and validated provider fields when providers are
+available. Inspect report capabilities and missingness before interpreting
+results. More descriptions or rating links can enable more analysis, but cannot
+prove better prediction. Evaluate predictive changes on the same held-out
+cohort against a training-only baseline; do not lower matching safeguards to
+inflate coverage. The offline commands above expose the saved analysis.
 
 ## Advanced file imports
 
@@ -205,7 +268,14 @@ Runs report `SUCCESS`, `PARTIAL` or `FAILED`. Exit codes: `0` success,
 Google Books and Open Library are enabled by default; saved configuration can
 disable either. The selected local book budget is 10,000 per provider per run,
 not a guarantee of full coverage or permission to exceed provider limits.
-The package default is 200, with 30-day freshness.
+The package default is 200. Successful and deterministic partial lookups are not
+repeated merely because time passes. Identity or provider-implementation changes
+make them eligible again. Retryable failures wait at least six hours after the
+saved attempt, while durable provider/host gates may defer them longer. Legacy
+`metadata.max_age_days` remains load-compatible but is ignored and omitted when
+configuration is saved; it no longer schedules refreshes.
+No lookups due does not mean full coverage: parked incomplete or ambiguous
+attempts remain visible in the run receipt and active-scope metadata status.
 Open Library needs no credentials. Lookups remain bounded and cached.
 The CLI enables details for confirmed Open Library works. Optional-field
 validation errors may leave other verified fields usable; identity problems,
@@ -219,6 +289,11 @@ Provider/host retry deadlines, interruption guards and wire-request counts now
 persist across runs. Raw archive schema v3 retains allowlisted HTTP diagnostics
 without credentials. Legacy captures keep unknown diagnostics; their missing
 headers are not invented. A new process does not clear an active retry gate.
+The saved Google rejection explicitly identifies a 1,000-query daily project
+quota. The configured 10,000-book run budget does not override that cap.
+An explicit structured daily-quota rejection requires a durable six-hour minimum
+cooldown, respecting a longer provider deadline; it does not establish a reset
+time. Unknown or generic quota failures must not be relabeled as daily exhaustion.
 
 Google Books uses `GOOGLE_BOOKS_API_KEY` first, or local OAuth authorization.
 Interactive sync can ask for client credentials and open normal Google consent.
@@ -241,7 +316,7 @@ Never put keys, secrets, passwords, tokens or cookies in commits, logs or chat.
 | Three supplied timestamped `data\inputs\*.csv` files | Configured source inputs | Versioned |
 | `data\raw.sqlite3` | Original input bytes and full metadata responses | Ignored; retained locally |
 | `data\library.sqlite3` | Processed results and history | Ignored; retained locally |
-| `data\metadata.sqlite3` | Replaceable metadata lookup cache | Ignored |
+| `data\metadata.sqlite3` | Provider lookup cache and durable retry gates | Ignored; retained during the approved rebuild |
 | `data\analytics.sqlite3` | Saved analytics and separate component caches (schema v2) | Ignored |
 | `data\logs\`, `data\backups\`, profiles and credentials | Local runtime files | Ignored; never commit logs |
 | `data\config.json` | Optional local override | Ignored |
@@ -255,42 +330,43 @@ automatically prune library history or delete raw data/backups.
 
 ## Validation and remaining work
 
-The latest integrated gate passed **695 Python tests and 51 JavaScript tests**,
-Ruff lint/format over 87 Python files, strict mypy over 43 source files,
+The frozen-source final gate passed **760 Python tests and 51 JavaScript tests**,
+Ruff lint/format over 90 Python files, strict mypy over 44 source files,
 sdist/wheel builds and diff checks.
-The approved reset removed old databases/runtime files, preserved the exact
-CSV/root-config hashes and saved Google authorization, and rebuilt the environment.
-New useful databases created by E2E are retained.
 
-The actual guarded provider run 12 completed parallel analytics. Open Library
-reported 2,333 completed outcomes across 2,561 targets, 2,250 candidates and no
-deferred targets; field/identity issues remain explicitly partial.
-There are 1,228 selected metadata references in the pinned inputs, all Open
-Library, including 597 Read-origin references. Candidates are not selected
-reference counts. Google returned HTTP 429 on its first lookup with an explicit
-daily quota error; its actual reset time is unknown. **Full enrichment is not
-accepted.** This run archived 1,618 Open Library responses, all HTTP 200.
+The actual provider-enabled, cache-backed clean rebuild completed as run 1
+(2026-11-02 18:33:13–18:38:19 UTC; 5m06s). All three CSV imports completed:
+610 StoryGraph Read, 813 watchlist and 730 Goodreads Read. All 1,054 StoryGraph
+rows were archived, with 444 excluded from processing. Six raw-hash/row checks
+passed. Analytics completed in parallel as report 1 with **219 findings**.
+Repeat run 2 left all 2,153 records unchanged (zero additions/updates/removals),
+reused both analytics caches and published report 2.
 
-Installed-CLI runs 8–11 passed parallel recalculation, unchanged repeat with both
-caches reused, missing-Read-path failure with last-good report retention, and
-recovery with both caches reused. Input/config hashes and latest archived source
-bytes remain unchanged. The temporary override is removed: both providers are
-enabled by root config, and weekly operation is disabled.
+Both runs correctly returned `PARTIAL`/exit 3 solely for provider incompleteness,
+not source-import or analytics failure. Open Library's rebuild requested 2,153
+targets: 1,958 complete and 195 partial outcomes, 2,052 cache hits and 1,139
+selected records. Google received one explicit daily-quota 429 and deferred
+2,152 targets behind its persisted six-hour floor. Repeat made **zero new wire
+requests to either provider**: cumulative counters stayed at Google 6/Open
+Library 1,995. Open Library requested zero targets while still reporting
+`metadata_coverage_incomplete`. **Full enrichment is not accepted.**
 
-Final v5 runs 13–16 repeated these checks with the enriched input: parallel
-recalculation, both caches reused on repeat, missing-Read failure retaining the
-last report, and recovery with both caches reused. Final report 13 has 2,151
-findings and 338/730 rated Read works. All 2,597 rows and original/raw source
-bytes stayed unchanged. Providers were explicitly disabled for these checks;
-actual fresh-provider evidence is the separate guarded run 12.
+An isolated real-CSV acceptance run explicitly disabled providers and passed
+source import, cached repeat, independent missing-Read failure with last-good
+report retention, and recovery. That is source-only evidence, not fresh provider
+coverage or complete account acquisition. Historical all-StoryGraph runs and
+their counts remain labeled in PLAN.md.
 
-Offline replay is not fresh provider coverage. The earlier failure's HTTP
-status and retry deadline remain unknown. Calculator
-`analytics-v5-scoped-language-validation` now separates work translation
-availability from matched-edition language in features and coverage.
-The 24 newly rating-linked works passed 48 provider-proof checks with the same
-Open Library work ID on both source records; no existing ratings changed or were
-lost. This is evidence consistency, not independently measured match precision.
+The approved cleanup backed up all four databases at
+`data\backups\before-clean-rebuild-20261102T183257Z` and removed only
+raw/library/analytics databases. It retained `metadata.sqlite3`, provider
+cache/retry gates, Google authorization and every original CSV byte. All four
+databases passed integrity checks with zero foreign-key violations; all three
+full CSV SHA hashes are unchanged. The rebuilt library contains 2,153 source
+records, 1,570 works, 1,828 editions and 242 unresolved candidate links—not 242
+bad books—and no reading events. Root config intentionally drops obsolete
+`metadata.max_age_days`. New useful runtime databases stay local and ignored;
+weekly operation remains disabled.
 
 See [TODO.md](TODO.md) for next steps, [PLAN.md](PLAN.md) for detailed feature
 requirements and historical evidence, and [CONTRIBUTING.md](CONTRIBUTING.md)

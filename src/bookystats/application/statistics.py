@@ -19,6 +19,7 @@ from bookystats.domain.analytics import (
     Capability,
     Finding,
 )
+from bookystats.domain.categories import analytical_categories
 from bookystats.domain.models import ReadingStatus
 
 
@@ -85,6 +86,8 @@ def _labels(book: AnalysisBook, feature: str) -> tuple[str, ...]:
             return (S.AN_CALC_MEDIUM,)
         return (S.AN_CALC_LONG,)
     labels = tuple(label for label in book.features.get(feature, ()) if label.strip())
+    if feature == S.GENRES:
+        return analytical_categories(labels)
     return tuple(sorted(set(labels)))
 
 

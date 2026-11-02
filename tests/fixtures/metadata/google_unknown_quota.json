@@ -1,0 +1,15 @@
+{
+  "error": {
+    "code": 429,
+    "message": "Synthetic rate limit; daily quota exhaustion is not established.",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "RATE_LIMIT_EXCEEDED",
+        "metadata": {
+          "quota_unit": "1/m/{project}"
+        }
+      }
+    ]
+  }
+}

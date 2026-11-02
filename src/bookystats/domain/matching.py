@@ -28,25 +28,50 @@ def title_author_key(book: Matchable) -> str:
     )
 
 
-def _title_parts(title: str) -> tuple[str, str]:
-    annotation = C.MATCH_UPGRADE_SERIES_PATTERN.search(title)
-    series = S.EMPTY
+def _title_key(title: str) -> str:
+    normalized = normalized_text(title.replace(S.MATCH_REPAIR_AMPERSAND, S.MATCH_REPAIR_AND))
+    return C.MATCH_REPAIR_VOLUME.sub(
+        lambda match: S.MATCH_REPAIR_VOLUME_PREFIX + C.MATCH_REPAIR_VOLUME_NUMBERS[match[C.ONE]],
+        normalized,
+    )
+
+
+def _title_parts(title: str, *, collections: bool = C.FALSE) -> tuple[str, dict[str, str]]:
+    annotation = C.MATCH_REPAIR_SERIES_SUFFIX.search(title)
+    series: dict[str, str] = {}
     if annotation:
-        series = (
-            normalized_text(annotation[S.MATCH_UPGRADE_SERIES_GROUP])
-            + S.MATCHING_TITLE_AUTHOR_KEY_TEXT
-            + annotation[S.MATCH_UPGRADE_NUMBER_GROUP]
-        )
-        title = title[: annotation.start()]
+        for item in annotation[S.MATCH_UPGRADE_SERIES_GROUP].split(S.RAW_SEMICOLON):
+            pattern = C.MATCH_REPAIR_COLLECTION_ITEM if collections else C.MATCH_REPAIR_SERIES_ITEM
+            match = pattern.fullmatch(item.strip())
+            if not match:
+                break
+            name = _title_key(match[S.MATCH_UPGRADE_SERIES_GROUP].rstrip(S.COMMA))
+            number = S.EMPTY.join(match[S.MATCH_UPGRADE_NUMBER_GROUP].split())
+            if name in series and series[name] != number:
+                break
+            series[name] = number
+        else:
+            title = title[: annotation.start()]
+            return _article_title(title), series
+        series.clear()
+    return _article_title(title), series
+
+
+def _article_title(title: str) -> str:
     if article := C.MATCH_UPGRADE_ARTICLE_PATTERN.fullmatch(title.strip()):
         title = (
             article[S.MATCH_UPGRADE_ARTICLE_GROUP] + S.SPACE + article[S.MATCH_UPGRADE_TITLE_GROUP]
         )
-    return title.strip(), series
+    return title.strip()
 
 
-def _author_key(author: str) -> str:
-    decomposed = unicodedata.normalize(S.MATCH_UPGRADE_UNICODE_FORM, author)
+def _series_conflict(left: dict[str, str], right: dict[str, str]) -> bool:
+    shared = left.keys() & right.keys()
+    return bool(left and right and (not shared or any(left[key] != right[key] for key in shared)))
+
+
+def _latin_fold(value: str) -> str:
+    decomposed = unicodedata.normalize(S.MATCH_UPGRADE_UNICODE_FORM, value)
     folded: list[str] = []
     latin_base = C.FALSE
     for char in decomposed:
@@ -56,7 +81,11 @@ def _author_key(author: str) -> str:
         folded.append(char)
         if not combining:
             latin_base = unicodedata.name(char, S.EMPTY).startswith(S.MATCH_UPGRADE_LATIN_PREFIX)
-    tokens = normalized_text(unicodedata.normalize(S.NFKC, S.EMPTY.join(folded))).split()
+    return unicodedata.normalize(S.NFKC, S.EMPTY.join(folded))
+
+
+def _author_key(author: str) -> str:
+    tokens = normalized_text(_latin_fold(author)).split()
     result: list[str] = []
     initials: list[str] = []
     for token in tokens:
@@ -78,7 +107,7 @@ def _authors(book: Matchable) -> set[str]:
 
 def candidate_title_author_key(book: Matchable) -> str:
     title, _ = _title_parts(book.title)
-    title = normalized_text(title.split(S.COLON, C.ONE)[C.ZERO])
+    title = _title_key(title.split(S.COLON, C.ONE)[C.ZERO])
     authors = sorted(_authors(book))
     if not title or not authors or any(not author for author in authors):
         return S.EMPTY
@@ -90,23 +119,115 @@ def candidate_title_author_key(book: Matchable) -> str:
 def work_bibliography_compatible(left: Matchable, right: Matchable) -> bool:
     left_title, left_series = _title_parts(left.title)
     right_title, right_series = _title_parts(right.title)
-    title = normalized_text(left_title)
+    title = _title_key(left_title)
     authors = _authors(left)
     return (
         bool(title)
-        and title == normalized_text(right_title)
+        and title == _title_key(right_title)
         and bool(authors)
         and S.EMPTY not in authors
         and authors == _authors(right)
-        and not (left_series and right_series and left_series != right_series)
+        and not _series_conflict(left_series, right_series)
+    )
+
+
+def work_bibliography_key(book: Matchable) -> str:
+    title, _ = _title_parts(book.title)
+    authors = sorted(_authors(book))
+    title = _title_key(title)
+    if not title or not authors or any(not author for author in authors):
+        return S.EMPTY
+    return (
+        title + S.MATCHING_TITLE_AUTHOR_KEY_TEXT + S.MATCHING_TITLE_AUTHOR_KEY_TEXT_2.join(authors)
+    )
+
+
+def _work_title_key(title: str) -> str:
+    return _title_key(
+        _latin_fold(title).replace(S.MATCH_REPAIR_MULTIPLICATION, S.MATCH_REPAIR_LETTER_X)
+    )
+
+
+def _numbered_title(title: str) -> tuple[str, str, bool] | None:
+    match = C.MATCH_REPAIR_NUMBERED_TITLE.fullmatch(_work_title_key(title))
+    if not match:
+        return C.NONE
+    number = match[S.MATCH_UPGRADE_NUMBER_GROUP]
+    explicit = bool(match[S.MATCH_REPAIR_VOLUME_MARKER])
+    if not explicit and not number.isdecimal():
+        return C.NONE
+    number = C.MATCH_REPAIR_ROMAN_NUMBERS.get(number, number)
+    return match[S.MATCH_UPGRADE_TITLE_GROUP], number, explicit
+
+
+def work_candidate_keys(book: Matchable) -> tuple[str, ...]:
+    title, _ = _title_parts(book.title, collections=C.TRUE)
+    authors = sorted(_authors(book))
+    author_key = S.MATCHING_TITLE_AUTHOR_KEY_TEXT_2.join(authors)
+    keys = [S.MATCH_REPAIR_ISBN_KEY_PREFIX + isbn for isbn in normalized_isbns(book.isbns)]
+    if authors and S.EMPTY not in authors and _work_title_key(title):
+        keys.append(
+            S.MATCH_REPAIR_ALTERNATE_PREFIX
+            + _work_title_key(title)
+            + S.MATCHING_TITLE_AUTHOR_KEY_TEXT
+            + author_key
+        )
+        if numbered := _numbered_title(title):
+            keys.append(
+                S.MATCH_REPAIR_VOLUME_KEY_PREFIX
+                + S.MATCHING_TITLE_AUTHOR_KEY_TEXT.join(
+                    (numbered[C.ZERO], numbered[C.ONE], author_key)
+                )
+            )
+    if key := work_bibliography_key(book):
+        keys.append(key)
+    return tuple(keys)
+
+
+def compare_work_identity(left: Matchable, right: Matchable) -> MatchResult:
+    if work_bibliography_compatible(left, right):
+        return MatchResult(MatchKind.CONFIRMED, S.MATCH_REPAIR_WORK_REASON)
+    left_title, left_series = _title_parts(left.title, collections=C.TRUE)
+    right_title, right_series = _title_parts(right.title, collections=C.TRUE)
+    left_authors, right_authors = _authors(left), _authors(right)
+    authors_compatible = (
+        bool(left_authors)
+        and bool(right_authors)
+        and S.EMPTY not in left_authors | right_authors
+        and (left_authors <= right_authors or right_authors <= left_authors)
+    )
+    shared = tuple(sorted(set(normalized_isbns(left.isbns)) & set(normalized_isbns(right.isbns))))
+    if not authors_compatible or _series_conflict(left_series, right_series):
+        return MatchResult(
+            MatchKind.UNRELATED, S.MATCHING_COMPARE_BOOKS_NO_CORROBORATED_IDENTITY_EVIDENCE
+        )
+    if (
+        shared
+        and _work_title_key(left_title)
+        and _work_title_key(left_title) == _work_title_key(right_title)
+    ):
+        return MatchResult(MatchKind.CONFIRMED, S.MATCH_REPAIR_CORROBORATED_REASON, shared)
+    left_numbered, right_numbered = _numbered_title(left_title), _numbered_title(right_title)
+    if (
+        left_authors == right_authors
+        and normalized_isbns(left.isbns)
+        and normalized_isbns(right.isbns)
+        and left_numbered is not C.NONE
+        and right_numbered is not C.NONE
+        and left_numbered[: C.TWO] == right_numbered[: C.TWO]
+        and (left_numbered[C.TWO] or right_numbered[C.TWO])
+    ):
+        return MatchResult(MatchKind.CONFIRMED, S.MATCH_REPAIR_VOLUME_REASON, shared)
+    return MatchResult(
+        MatchKind.UNRELATED, S.MATCHING_COMPARE_BOOKS_NO_CORROBORATED_IDENTITY_EVIDENCE
     )
 
 
 def _compatible_subtitle(left: str, right: str) -> bool:
     left_parts, right_parts = left.split(S.COLON, C.ONE), right.split(S.COLON, C.ONE)
-    return len(left_parts) != len(right_parts) and normalized_text(
-        left_parts[C.ZERO]
-    ) == normalized_text(right_parts[C.ZERO])
+    return len(left_parts) != len(right_parts) and _title_key(left_parts[C.ZERO]) == _title_key(
+        right_parts[C.ZERO]
+    )
 
 
 def edition_identity_facts(book: Matchable) -> dict[str, set[str]]:
@@ -142,12 +263,12 @@ def compare_books(left: Matchable, right: Matchable) -> MatchResult:
     shared = tuple(sorted(set(normalized_isbns(left.isbns)) & set(normalized_isbns(right.isbns))))
     left_full, left_series = _title_parts(left.title)
     right_full, right_series = _title_parts(right.title)
-    left_title, right_title = normalized_text(left_full), normalized_text(right_full)
+    left_title, right_title = _title_key(left_full), _title_key(right_full)
     left_authors, right_authors = _authors(left), _authors(right)
     authors_agree = (
         bool(left_authors) and left_authors == right_authors and S.EMPTY not in left_authors
     )
-    series_conflict = bool(left_series and right_series and left_series != right_series)
+    series_conflict = _series_conflict(left_series, right_series)
     subtitle_candidate = bool(
         left_title and right_title and _compatible_subtitle(left_full, right_full)
     )

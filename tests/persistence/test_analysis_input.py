@@ -87,6 +87,109 @@ def test_uses_confirmed_links_and_keeps_rating_authority_separate(library: Datab
     )
 
 
+@pytest.mark.parametrize(S.ANALYTIC_CATEGORY_TEST_PARAMETERS, C.ANALYTIC_CATEGORY_TEST_CASES)
+def test_provider_genre_families_retain_raw_subjects_and_mapping_provenance(
+    library: Database, labels: tuple[str, ...], expected: tuple[str, ...]
+) -> None:
+    catalog = seed(library)
+    candidate = metadata_candidate()
+    observation = Observation(
+        field=S.GENRES,
+        value=list(labels),
+        scope=S.WORK,
+        state=FieldState.PRESENT,
+        source_url=candidate.url,
+    )
+    candidate = candidate.model_copy(update={S.OBSERVATIONS: (observation,)})
+    library.save_enrichment(
+        Source.GOODREADS,
+        candidate.provider,
+        EnrichmentResult(
+            source_id=catalog.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(candidate,),
+        ),
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    assert result.features.get(S.GENRES, ()) == expected
+    assert result.field_states[S.GENRES] == (
+        FieldState.PRESENT if expected else FieldState.UNAVAILABLE
+    )
+    assert any(item.observation == observation for item in result.evidence)
+    derived = [
+        item for item in result.evidence if item.observation.field == S.ANALYTIC_CATEGORY_FIELD
+    ]
+    assert bool(derived) == bool(expected)
+    if expected:
+        assert derived[C.ZERO].observation.value == list(expected)
+        assert derived[C.ZERO].observation.source_url == observation.source_url
+        assert derived[C.ZERO].source == candidate.provider.value
+        assert derived[C.ZERO].detail == S.ANALYTIC_CATEGORY_VERSION
+
+
+def test_browser_and_personal_genre_labels_are_not_provider_genre_evidence(
+    library: Database,
+) -> None:
+    catalog = seed(library)
+    observation = Observation(
+        field=S.GENRES,
+        value=[S.ANALYTIC_CATEGORY_FANTASY],
+        scope=S.WORK,
+        state=FieldState.PRESENT,
+        source_url=S.TEST_BROWSER_EXPORT_URL,
+    )
+    unverified = observation.model_copy(update={S.FIELD: S.DQ_CAPTURE_UNVERIFIED_GENRES})
+    publish_scope(
+        library,
+        Source.GOODREADS,
+        catalog.model_copy(update={S.OBSERVATIONS: (observation, unverified)}),
+        collection=S.READ,
+    )
+    publish_scope(
+        library,
+        Source.STORYGRAPH,
+        book(**{S.OBSERVATIONS: (rating(C.FOUR), observation)}),
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    assert S.GENRES not in result.features
+    assert result.field_states[S.GENRES] == FieldState.UNAVAILABLE
+    assert result.rating == C.FOUR
+    assert any(item.observation == unverified for item in result.evidence)
+    assert not any(
+        item.source == Source.STORYGRAPH.value and item.observation.field == S.GENRES
+        for item in result.evidence
+    )
+
+
+def test_reader_scoped_provider_genres_do_not_become_work_categories(
+    library: Database,
+) -> None:
+    catalog = seed(library)
+    candidate = metadata_candidate()
+    observation = Observation(
+        field=S.GENRES,
+        value=[S.ANALYTIC_CATEGORY_FANTASY],
+        scope=S.READER,
+        state=FieldState.PRESENT,
+        source_url=candidate.url,
+    )
+    library.save_enrichment(
+        Source.GOODREADS,
+        candidate.provider,
+        EnrichmentResult(
+            source_id=catalog.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(candidate.model_copy(update={S.OBSERVATIONS: (observation,)}),),
+        ),
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    assert S.GENRES not in result.features
+    assert not any(
+        item.source == candidate.provider.value and item.observation.scope == S.READER
+        for item in result.evidence
+    )
+
+
 def test_ambiguous_title_author_match_does_not_transfer_a_rating(library: Database) -> None:
     publish_scope(
         library, Source.STORYGRAPH, book(**{S.ISBNS: (), S.OBSERVATIONS: (rating(C.FIVE),)})

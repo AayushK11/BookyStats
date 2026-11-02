@@ -8,7 +8,7 @@ import pytest
 
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.adapters.exports.csv_import import ExportConnector
+from bookystats.adapters.exports.csv_import import ExportConnector, count_export_rows
 from bookystats.domain.errors import ConnectorError
 from bookystats.domain.matching import MatchKind, compare_books
 from bookystats.domain.models import (
@@ -102,6 +102,50 @@ def test_storygraph_only_ratings_and_matching_identity_are_processed() -> None:
     assert snapshot.capabilities[S.REVIEW] == FieldState.UNSUPPORTED
     assert snapshot.capabilities[S.READING_EVENTS] == FieldState.UNSUPPORTED
     assert not snapshot.identity_verified
+
+
+def test_storygraph_non_read_rows_stay_archived_not_processed() -> None:
+    read = C.TEST_IMPORT_STORYGRAPH_ROW.copy()
+    to_read = {
+        **read,
+        S.IMPORT_UID: S.TEST_IMPORT_SECOND_ID,
+        S.IMPORT_READ_STATUS: S.TO_READ,
+        S.IMPORT_STAR_RATING: S.TEST_IMPORT_UNKNOWN_VALUE,
+    }
+    body = csv_body(Source.STORYGRAPH, [read, to_read])
+    raw = document(body, Source.STORYGRAPH)
+    snapshot = ExportConnector(raw).collect(account(Source.STORYGRAPH))
+    assert raw.body == body
+    assert snapshot.expected_count == C.ONE
+    assert len(snapshot.records) == C.ONE
+    assert snapshot.records[C.ZERO].raw_fields == read
+    assert snapshot.records[C.ZERO].status == C.ReadingStatus.UNKNOWN
+    assert snapshot.records[C.ZERO].raw_status is C.NONE
+    assert count_export_rows(body) == C.TWO
+    assert count_export_rows(body, source=Source.STORYGRAPH) == C.ONE
+    assert any(
+        issue.code == S.STORYGRAPH_READ_SCOPE_EXCLUDED_CODE
+        and issue.message == S.STORYGRAPH_READ_SCOPE_EXCLUDED_MESSAGE.format(count=C.ONE)
+        for issue in snapshot.issues
+    )
+
+
+@pytest.mark.parametrize(S.VALUE, C.STORYGRAPH_READ_SCOPE_INVALID_CASES)
+def test_storygraph_unknown_scope_is_not_published_as_read(value: str) -> None:
+    row = {**C.TEST_IMPORT_STORYGRAPH_ROW, S.IMPORT_READ_STATUS: value}
+    body = csv_body(Source.STORYGRAPH, [row])
+    with pytest.raises(ConnectorError) as error:
+        collect(Source.STORYGRAPH, [row])
+    assert error.value.code == S.STORYGRAPH_READ_SCOPE_INVALID_CODE
+    with pytest.raises(ConnectorError):
+        count_export_rows(body, source=Source.STORYGRAPH)
+
+
+def test_storygraph_missing_scope_header_fails_instead_of_importing_everything() -> None:
+    body = S.STORYGRAPH_READ_SCOPE_TEST_MISSING_CSV.encode(S.UTF_8)
+    with pytest.raises(ConnectorError) as error:
+        ExportConnector(document(body, Source.STORYGRAPH)).collect(account(Source.STORYGRAPH))
+    assert error.value.code == S.IMPORT_SCHEMA_ERROR
 
 
 @pytest.mark.parametrize(S.TEST_IMPORT_PARAM_SOURCE, C.TEST_IMPORT_SOURCE_CASES)

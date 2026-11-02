@@ -9,6 +9,7 @@ from bookystats.domain.matching import (
     MatchKind,
     candidate_title_author_key,
     compare_books,
+    compare_work_identity,
     select_metadata_candidate,
 )
 from bookystats.domain.models import BookRecord, FieldState, MetadataCandidate, Observation, Source
@@ -292,3 +293,118 @@ def test_contradictory_observed_edition_fact_blocks_an_otherwise_confirmed_isbn(
         }
     )
     assert compare_books(source, contradictory).kind == MatchKind.CONFLICTING
+
+
+@pytest.mark.parametrize(S.MATCH_REPAIR_TEST_PARAMETERS, C.MATCH_REPAIR_TEST_COMPATIBLE_TITLES)
+def test_catalog_series_and_volume_spelling_require_identifier_corroboration(
+    left_title: str, right_title: str
+) -> None:
+    left, right = book(title=left_title), book(title=right_title)
+    assert compare_books(left, right).kind == MatchKind.CONFIRMED
+    assert compare_books(left.model_copy(update={S.ISBNS: ()}), right).kind == MatchKind.LIKELY
+
+
+@pytest.mark.parametrize(S.TITLE, C.MATCH_REPAIR_TEST_TITLE_HAZARDS)
+def test_series_normalization_preserves_ranges_malformed_annotations_and_conflicts(
+    title: str,
+) -> None:
+    assert (
+        compare_books(book(title=S.MATCH_REPAIR_TEST_SERIES), book(title=title)).kind
+        == MatchKind.CONFLICTING
+    )
+
+
+def test_volume_spelling_does_not_discard_discriminating_numbers() -> None:
+    assert (
+        compare_books(
+            book(title=S.MATCH_REPAIR_TEST_VOLUME_WORD),
+            book(title=S.MATCH_REPAIR_TEST_VOLUME_OTHER),
+        ).kind
+        == MatchKind.CONFLICTING
+    )
+
+
+def test_structurally_normalized_metadata_remains_ambiguous_with_multiple_work_ids() -> None:
+    source = book(title=S.MATCH_REPAIR_TEST_SERIES)
+    first = candidate(title=S.MATCH_REPAIR_TEST_PLAIN, work_id=S.FIRST)
+    second = first.model_copy(update={S.WORK_ID: S.SECOND})
+    assert select_metadata_candidate(source, (first,)) == first
+    assert select_metadata_candidate(source, (first, second)) is C.NONE
+
+
+def test_shared_isbn_corroborates_work_with_omitted_coauthor_but_not_edition() -> None:
+    left = book(
+        authors=(
+            S.TEST_GOOGLE_BOOKS_BOOK_AUTHORS_ROALD_DAHL,
+            S.TEST_NORMALIZED_FULL_TITLES_AND_LEFT_AUTHORS_QUENTIN_BLAKE,
+        )
+    )
+    right = book()
+    assert compare_work_identity(left, right).kind == MatchKind.CONFIRMED
+    assert compare_books(left, right).kind == MatchKind.LIKELY
+    assert (
+        compare_work_identity(left, right.model_copy(update={S.ISBNS: ()})).kind
+        == MatchKind.UNRELATED
+    )
+    assert (
+        compare_work_identity(
+            left,
+            right.model_copy(
+                update={
+                    S.AUTHORS: (S.TEST_MATCHING_SHARED_ISBN_WITH_NOT_CONFIRM_A_DIFFERENT_AUTHOR,)
+                }
+            ),
+        ).kind
+        == MatchKind.UNRELATED
+    )
+
+
+def test_collection_annotations_require_shared_isbn_and_preserve_range_conflicts() -> None:
+    collection = book(title=S.MATCH_REPAIR_TEST_COLLECTION)
+    assert compare_work_identity(collection, book()).kind == MatchKind.CONFIRMED
+    assert compare_books(collection, book()).kind == MatchKind.CONFLICTING
+    assert compare_work_identity(collection, book(isbns=())).kind == MatchKind.UNRELATED
+    assert (
+        compare_work_identity(collection, book(title=S.MATCH_REPAIR_TEST_OTHER_COLLECTION)).kind
+        == MatchKind.UNRELATED
+    )
+    assert (
+        compare_work_identity(book(title=S.MATCH_REPAIR_TEST_MULTI_VOLUME), book()).kind
+        == MatchKind.CONFIRMED
+    )
+
+
+def test_explicit_unicode_numbered_volume_preserves_number_and_edition_uncertainty() -> None:
+    left = book(title=S.MATCH_REPAIR_TEST_UNICODE_VOLUME)
+    right = book(
+        title=S.MATCH_REPAIR_TEST_NUMBERED_VOLUME,
+        isbns=(S.MATCH_UPGRADE_TEST_ALTERNATE_ISBN,),
+    )
+    assert compare_work_identity(left, right).kind == MatchKind.CONFIRMED
+    assert compare_books(left, right).kind != MatchKind.CONFIRMED
+    assert (
+        compare_work_identity(
+            left, right.model_copy(update={S.TITLE: S.MATCH_REPAIR_TEST_OTHER_VOLUME})
+        ).kind
+        == MatchKind.UNRELATED
+    )
+    assert (
+        compare_work_identity(left, right.model_copy(update={S.ISBNS: ()})).kind
+        == MatchKind.UNRELATED
+    )
+    assert (
+        compare_work_identity(
+            book(title=S.MATCH_REPAIR_TEST_MULTIPLICATION_VOLUME),
+            book(title=S.MATCH_REPAIR_TEST_LETTER_VOLUME),
+        ).kind
+        == MatchKind.CONFIRMED
+    )
+
+
+def test_latin_title_accent_variant_requires_shared_validated_isbn() -> None:
+    left, right = book(title=S.MATCH_REPAIR_TEST_ACCENT_TITLE), book()
+    assert compare_work_identity(left, right).kind == MatchKind.CONFIRMED
+    assert (
+        compare_work_identity(left, right.model_copy(update={S.ISBNS: ()})).kind
+        == MatchKind.UNRELATED
+    )

@@ -205,6 +205,38 @@ def test_plain_sync_imports_configured_files_without_source_access_and_is_idempo
     assert all(path is C.NONE or path.name in status for path in paths.values())
 
 
+def test_storygraph_leaving_read_scope_removes_active_rating_but_preserves_archive(
+    tmp_path: Path, configured_files: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(_arguments(tmp_path)) == C.ZERO
+    capsys.readouterr()
+    path = tmp_path / S.CLI_TEST_STORYGRAPH_NAME
+    body = S.CLI_TEST_STORYGRAPH_CSV.replace(
+        S.COMMA + S.READ + S.COMMA, S.COMMA + S.TO_READ + S.COMMA
+    ).encode(S.UTF_8)
+    path.write_bytes(body)
+    assert main(_arguments(tmp_path)) == C.ZERO
+    receipt = SyncReceipt.model_validate_json(capsys.readouterr().out)
+    storygraph = next(item for item in receipt.sources if item.source == Source.STORYGRAPH)
+    assert storygraph.records == C.ZERO
+    assert storygraph.publication is not C.NONE
+    assert storygraph.publication.removed == C.ONE
+    assert receipt.verification is not C.NONE
+    assert receipt.verification.result == VerificationResult.SUCCESS
+    assert storygraph.raw_document_id is not C.NONE
+    with closing(RawStore(tmp_path / S.CLI_RAW_DATABASE)) as archive:
+        assert archive.get(storygraph.raw_document_id).body == body
+    with closing(Database(tmp_path / S.LIBRARY_SQLITE3)) as library:
+        data = library.analytics_input(configured_files.accounts, AnalyticsSettings())
+        assert data.personal_rating_records == C.ZERO
+        assert all(book.rating is C.NONE for book in data.books)
+        assert library.enrichment_targets(Source.GOOGLE_BOOKS)
+        assert all(
+            book.source == Source.GOODREADS
+            for book in library.enrichment_targets(Source.GOOGLE_BOOKS)
+        )
+
+
 @pytest.mark.parametrize(S.CSV_TEST_FAILURE_PARAMETER, C.CSV_TEST_FAILURES)
 def test_bad_input_retains_its_snapshot_without_blocking_healthy_configured_files(
     tmp_path: Path,

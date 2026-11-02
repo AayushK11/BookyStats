@@ -41,10 +41,16 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
 - Do not mix Goodreads whole-library and split Read/watchlist CSVs. Archive each
   file before parsing; publish healthy scopes separately and keep the last
   complete result for a failed scope.
+- Each input is a complete collection snapshot, not an append/delta patch.
+  Point its configured path at the next full export for the same reader.
 - The three supplied CSVs have fixed structures. Do not edit them or require new
   headers/exports to support analysis; improve parsing and selected metadata.
 - Goodreads owns history/watchlist data where supported; StoryGraph supplies
-  personal ratings and matching identity only. Keep other StoryGraph fields raw-only.
+  personal ratings and matching identity from explicit Read rows only. Its Read
+  Status selects that import scope, not authoritative history. Preserve all rows
+  in the raw archive; keep other StoryGraph fields raw-only.
+  Require Read Status: missing, empty or unknown values fail that scope rather
+  than guessing. Report raw rows separately from active processed records.
 - Preserve every supplied byte/field and full metadata responses. Do not invent
   dates, zeroes, reviews or identity links. A complete file is not proof of a
   complete account.
@@ -56,12 +62,31 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
   references through library/payload APIs, not SQL JSON functions.
 - Keep metadata outcomes separate from source success. Validate lookup identity
   before saving results, and save validated sequential results before the next lookup.
+- Do not schedule metadata by age. Unchanged successful or deterministic partial,
+  ambiguous and invalid attempts stay parked; new records, changed identity or
+  provider implementation can become eligible. Load legacy `metadata.max_age_days`
+  only for compatibility; omit it on save. Retryable record failures wait at least
+  six hours, and a longer durable host/provider gate still wins. Keep parked
+  coverage outcomes visible instead of reporting falsely complete enrichment.
+  Rating/status-only changes do not invalidate provider identity. Never-attempted
+  records and due transient retries may also queue; do not promise strictly
+  new-row-only work. Analytics retains separate semantic/as-of cache rules.
 - Keep provider/host retry gates durable across processes; preserve safe status,
   retry diagnostics and wire counts without credentials. Old captures remain
   unknown. Never reset a retry gate to make a run pass.
 - Narrow incomplete/contaminated batches rather than relaxing individual matching.
   Preserve completed prefixes and report unattempted targets with their actual
   deferral cause. Prioritize authoritative Read records within limited budgets.
+- Recognize Google daily exhaustion only from explicit structured provider
+  evidence, not generic 403/429 or quota wording. Persist at least a six-hour
+  cooldown and honor longer Retry-After deadlines; do not promise a reset time
+  or equate the local book budget with the provider's project quota.
+- Keep reciprocal unique full-title/full-author repairs reversible and work-only.
+  Use active records, discriminating series/volume/omnibus guards and selected
+  catalog conflict vetoes. Do not merge editions without shared validated ISBN
+  evidence or treat synthetic IDs as identifiers. Shared-ISBN repairs also need
+  compatible title/author evidence and conflict checks; a candidate count is not
+  a count of bad books.
 - Analytics inputs pin confirmed work IDs, compatible source snapshots and
   selected identity-checked metadata. StoryGraph contributes ratings only.
 - Selected public provider work metadata may follow confirmed catalog-work links,
@@ -90,6 +115,9 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
   Separate work first-publication years from edition years, and show how the
   rating-linked sample differs from all Read books. Watchlist output is
   descriptive composition/missingness, not recommendations.
+- Normalize genres using the versioned exact-alias family policy. Preserve raw
+  provider subjects and unmapped unknowns; do not turn marketing/classification
+  labels or browser observations into trusted genres or personality evidence.
 - `content_analysis` uses versioned, transparent rules and description quotes.
   Six-hunger mentions describe content, not personality/colors/official scores;
   never substitute genre proxies for that evidence.
@@ -175,6 +203,11 @@ Keep fixture, local-browser and live evidence separate. Live checks need explici
 opt-in; a pytest marker alone does not exclude them. CSV/source-only E2E must
 explicitly disable enrichment and cannot establish full provider coverage.
 Historical test counts do not prove the latest changes passed.
+Separate source/analytics acceptance from the overall run outcome: a provider-
+enabled rebuild can finish both while honestly returning partial for incomplete
+metadata. On a repeat, compare saved wire counters as well as requested targets;
+zero new requests does not establish full coverage. Keep provider-disabled
+failure/recovery evidence distinct from provider-enabled rebuild/repeat evidence.
 Linked-rating coverage is not matching accuracy. Compare held-out errors with a
 baseline on the same cohort; never compare different cohort sizes as an accuracy
 improvement or call the result future recommendation accuracy.

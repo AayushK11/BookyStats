@@ -1,0 +1,18 @@
+{
+  "error": {
+    "code": 429,
+    "status": "RESOURCE_EXHAUSTED",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "RATE_LIMIT_EXCEEDED",
+        "domain": "googleapis.com",
+        "metadata": {
+          "service": "books.googleapis.com",
+          "quota_unit": "1/d/{project}",
+          "quota_limit": "QueriesPerDayPerProject"
+        }
+      }
+    ]
+  }
+}

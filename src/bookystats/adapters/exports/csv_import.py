@@ -129,10 +129,38 @@ def _csv_rows(body: bytes) -> Iterator[list[str]]:
         raise ConnectorError(S.IMPORT_CSV_MESSAGE, code=S.IMPORT_CSV_ERROR) from exc
 
 
-def count_export_rows(body: bytes) -> int:
+def _storygraph_read_scope(status: str | None, number: int) -> bool:
+    key = S.SPACE.join((status or S.EMPTY).casefold().replace(S.HYPHEN, S.SPACE).split())
+    parsed = C.IMPORT_STATUS_NAMES.get(key)
+    if parsed is C.NONE:
+        raise ConnectorError(
+            S.STORYGRAPH_READ_SCOPE_INVALID_MESSAGE.format(row=number),
+            code=S.STORYGRAPH_READ_SCOPE_INVALID_CODE,
+        )
+    return parsed == ReadingStatus.READ
+
+
+def count_export_rows(body: bytes, *, source: Source | None = C.NONE) -> int:
     rows = _csv_rows(body)
-    next(rows, C.NONE)
-    return sum(C.ONE for _ in rows)
+    headers = next(rows, C.NONE)
+    if source != Source.STORYGRAPH:
+        return sum(C.ONE for _ in rows)
+    normalized = [header.strip().casefold() for header in headers] if headers else []
+    if S.IMPORT_READ_STATUS.casefold() not in normalized:
+        raise ConnectorError(S.IMPORT_SCHEMA_MESSAGE, code=S.IMPORT_SCHEMA_ERROR)
+    status_index = normalized.index(S.IMPORT_READ_STATUS.casefold())
+    count = C.ZERO
+    for number, values in enumerate(rows, start=C.TWO):
+        if len(values) != len(normalized):
+            raise ConnectorError(
+                S.IMPORT_WIDTH_MESSAGE.format(
+                    row=number, actual=len(values), expected=len(normalized)
+                ),
+                code=S.IMPORT_CSV_ERROR,
+            )
+        if _storygraph_read_scope(values[status_index], number):
+            count += C.ONE
+    return count
 
 
 class _ExportRow:
@@ -892,6 +920,10 @@ class ExportConnector:
             or not all(normalized)
             or len(set(normalized)) != len(normalized)
             or S.IMPORT_TITLE.casefold() not in normalized
+            or (
+                account.source == Source.STORYGRAPH
+                and S.IMPORT_READ_STATUS.casefold() not in normalized
+            )
             or not any(
                 identifier.casefold() in normalized
                 for identifier in C.IMPORT_SCHEMA_IDENTIFIERS[account.source]
@@ -923,6 +955,7 @@ class ExportConnector:
             )
         records: list[BookRecord] = []
         identities: dict[str, int] = {}
+        excluded = C.ZERO
         for number, values in enumerate(rows, start=C.TWO):
             if len(values) != len(headers):
                 raise ConnectorError(
@@ -934,6 +967,11 @@ class ExportConnector:
             row = _ExportRow(
                 dict(zip(headers, values, strict=C.TRUE)), number, account, self.document
             )
+            if account.source == Source.STORYGRAPH and not _storygraph_read_scope(
+                row.get(S.IMPORT_READ_STATUS), number
+            ):
+                excluded += C.ONE
+                continue
             record = row.browser_export() if browser_export else row.parse()
             if record.source_id in identities:
                 raise ConnectorError(
@@ -946,6 +984,13 @@ class ExportConnector:
             records.append(record)
             issues.extend(
                 issue.model_copy(update={S.SOURCE_ID: record.source_id}) for issue in row.issues
+            )
+        if excluded:
+            issues.append(
+                Issue(
+                    code=S.STORYGRAPH_READ_SCOPE_EXCLUDED_CODE,
+                    message=S.STORYGRAPH_READ_SCOPE_EXCLUDED_MESSAGE.format(count=excluded),
+                )
             )
         capabilities = {
             field: FieldState.PRESENT

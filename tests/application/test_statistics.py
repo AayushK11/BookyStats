@@ -105,6 +105,28 @@ def _group(component: AnalysisComponent, feature: str, label: str) -> Finding:
     return _finding(component, S.AN_CALC_GROUP.format(feature=feature, label=label))
 
 
+@pytest.mark.parametrize(S.ANALYTIC_CATEGORY_TEST_PARAMETERS, C.ANALYTIC_CATEGORY_TEST_CASES)
+def test_genre_families_require_exact_curated_aliases(
+    labels: tuple[str, ...], expected: tuple[str, ...]
+) -> None:
+    book = _book(C.ONE).model_copy(update={S.AN_CALC_TEST_FEATURES_FIELD: {S.GENRES: labels}})
+    assert _labels(book, S.GENRES) == expected
+
+
+def test_unmapped_catalog_subjects_are_not_genre_complement_examples() -> None:
+    known = _book(C.ONE, C.FIVE, genre=S.ANALYTIC_CATEGORY_FANTASY)
+    other = _book(C.TWO, C.ONE, genre=S.ANALYTIC_CATEGORY_HISTORY)
+    unmapped = _book(C.THREE, C.FIVE, genre=S.ANALYTIC_CATEGORY_TEST_BESTSELLER)
+    component = _taste(_data(known, other, unmapped))
+    finding = _group(component, S.GENRES, S.ANALYTIC_CATEGORY_FANTASY)
+    assert isinstance(finding.value, dict)
+    complement = finding.value[S.AN_CALC_COMPLEMENT]
+    assert isinstance(complement, dict)
+    assert complement[S.AN_CALC_COMPLEMENT_BOOKS] == [other.book_id]
+    breadth = _finding(component, S.AN_CALC_BREADTH.format(feature=S.GENRES))
+    assert breadth.missing_count == C.ONE
+
+
 def test_missing_ratings_and_genres_remain_unknown_with_true_denominators() -> None:
     known = _book(C.ONE, C.FOUR)
     missing = _book(C.TWO)

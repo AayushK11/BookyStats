@@ -36,6 +36,9 @@
   whole-library `goodreads_file`; never mix whole-library and split inputs.
   Resolve paths relative to the selected data directory, not config location/cwd.
   Local status shows the actual config path and each CSV filename/ready-missing state.
+- Configured CSVs are complete collection snapshots, not delta-only patch files.
+  New full exports replace their scope's membership; do not describe them as
+  append-only updates.
 - The three supplied CSVs and their structures are fixed. Do not change their
   bytes/headers or require replacement exports; improve processing and metadata.
 - Config JSON is flat: `schema_version`, `accounts`, `files`,
@@ -94,9 +97,14 @@
 
 - Goodreads owns the current to-read/watchlist and reading history, status, and
   other personal data. StoryGraph supplies only personal ratings and identity
-  needed to match them. Its reviews, status, dates, rereads, and other attributes
+  needed to match them, from explicit Read rows only. Its Read Status selects
+  import scope but is not published as authoritative reading history. Archive
+  every supplied row, including excluded non-Read rows. Its reviews, status,
+  dates, rereads, and other attributes
   stay raw-only; do not publish them as processed facts. Keep personal ratings
   separate from Goodreads/provider community ratings.
+- Require StoryGraph Read Status; missing, empty or unknown values fail its
+  scope. Report archived file rows separately from active processed records.
 - Preserve unknown/unavailable, empty, unsupported, and failed states; do not
   turn missing data into zero or invent dates. Retain date precision, observation
   scope, account identity, and source provenance.
@@ -104,6 +112,12 @@
   matches. Keep repeats idempotent and source snapshot publication independently
   atomic by source/collection; Goodreads read and to-read snapshots must not replace
   one another. Partial/failed collection retains its last complete snapshot.
+- Reciprocal unique full-canonical-title/full-author repairs must be reversible,
+  active-scope and work-only, with discriminating series/volume/omnibus guards
+  and selected-catalog conflict vetoes. Editions need shared validated ISBN
+  evidence to merge; synthetic record IDs are never bibliographic identifiers.
+  Shared-ISBN repairs also require compatible title/author evidence and conflict
+  checks. Unresolved candidate counts are not counts of bad books.
 - Keep the authoritative library separate from the metadata cache. Isolate
   account browser profiles and reject accidental account replacement.
 - Browser automation code and dependencies were removed. Do not reintroduce
@@ -118,6 +132,17 @@
   Preserve unknown legacy diagnostics; never reset gates to force completion.
   Refine incomplete/contaminated batches without relaxing individual identity
   checks, retain successful prefixes, and prioritize authoritative Read records.
+- Never refresh metadata merely by age. Legacy `metadata.max_age_days` loads
+  compatibly but is ignored and excluded from saved configuration. New/changed
+  identities or provider implementations can become eligible; unchanged
+  deterministic partial/ambiguous/invalid attempts stay parked and visible.
+  Transient failures have a six-hour record floor and honor longer host gates.
+  Explicit structured Google daily-quota evidence requires a durable six-hour
+  minimum cooldown, not a promised reset; generic quota failures do not establish
+  daily exhaustion. Local book budgets cannot override provider quotas.
+  Rating/status-only changes do not invalidate provider identity. Previously
+  never-attempted records and due transient failures may also queue; the queue
+  is not strictly new rows only. Analytics has separate semantic/as-of caches.
 - Accept explicitly supplied official exports and scoped Goodreads browser CSVs;
   keep whole-library, watchlist, and read input modes explicit. Store original bytes in the
   raw database before parsing. Preserve unknown source fields and full provider
@@ -140,6 +165,9 @@
   Browser genre/series labels stay unverified raw observations, not trusted
   analytics features; a helper version does not prove those fields were captured
   correctly. Preserve empty/unsupported states rather than inventing values.
+- Normalize provider subjects with versioned exact genre-family aliases, retaining
+  original observations and unmapped unknowns. Marketing/classification labels
+  and unverified browser labels are not trusted genres or personality evidence.
 - A complete file import is not a verified complete account collection and must
   never qualify as unattended/weekly collection evidence.
 - Keep manual files and normal-browser/RSS capture explicit; never silently fall
@@ -168,6 +196,11 @@
 - Explicitly disable enrichment in CSV/source-only E2E; its success is not proof
   of full provider enrichment or account completeness. Report passed full
   validation separately from running or pending real E2E.
+- Separate successful source/analytics acceptance from an honest partial overall
+  provider outcome. Verify zero new wire requests on unchanged repeat using saved
+  counters; zero due targets does not prove complete coverage. Keep isolated
+  provider-disabled failure/recovery evidence separate from actual provider-
+  enabled rebuild/repeat evidence.
 - Read Your Color is inspiration, not a reproduced assessment. Use explicit
   supported appetite labels, not guessed colors, genre-derived personality or
   invented official weights. Unknown features are not negative examples.

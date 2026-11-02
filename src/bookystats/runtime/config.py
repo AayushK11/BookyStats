@@ -30,6 +30,8 @@ class MetadataSettings(Model):
         default=C.METADATASETTINGS_MAX_AGE_DAYS_DEFAULT,
         ge=C.ONE,
         le=C.METADATASETTINGS_MAX_AGE_DAYS_LE,
+        description=S.QUEUE_LEGACY_MAX_AGE_DESCRIPTION,
+        exclude=C.TRUE,
     )
     contact: str | None = C.NONE
 

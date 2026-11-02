@@ -1399,15 +1399,6 @@ STORAGE_DATABASE_SAVE_ENRICHMENT_INSERT_ACTIVE_RECORD_ID_PROVIDER: Final = (
 STORAGE_DATABASE_ENRICHMENT_TARGETS_LIMIT_CANNOT_BE_NEGATIVE: Final = (
     "Enrichment age and limit cannot be negative"
 )
-DATABASE_ENRICHMENT_TARGETS_ROWS_SELECT_JSON_FROM_SOURCE_RECORDS: Final = (
-    "SELECT r.latest_json FROM source_records r LEFT JOIN enrichment_attempts a O"
-    "N a.id = (SELECT MAX(a2.id) FROM enrichment_attempts a2 WHERE a2.record_id ="
-    " r.id AND a2.provider = ?) WHERE EXISTS (SELECT 1 FROM memberships m WHERE m"
-    ".record_id = r.id) AND (a.id IS NULL OR a.state != ? OR a.checked_at < ? OR "
-    "a.identity_hash != r.identity_hash OR a.implementation_version != ?)"
-    " ORDER BY (a.id IS NOT NULL), a.checked_at, a.id,"
-    " r.source, r.account_id, r.source_id LIMIT ?"
-)
 PUBLISHED: Final = "published"
 REJECTION_REASON: Final = "rejection_reason"
 RECORD: Final = "record"
@@ -2028,7 +2019,7 @@ ObservationScope = Literal["reader", "work", "edition"]
 DatePrecision = Literal["year", "month", "day"]
 
 IMPORT_TITLE: Final = "Title"
-IMPORT_PROCESSING_VERSION: Final = "csv-v4-capture-quality"
+IMPORT_PROCESSING_VERSION: Final = "csv-v5-storygraph-read-scope"
 IMPORT_AUTHOR: Final = "Author"
 IMPORT_AUTHORS: Final = "Authors"
 IMPORT_BOOK_ID: Final = "Book Id"
@@ -2218,7 +2209,7 @@ TEST_IMPORT_CASE_DUPLICATE_HEADER: Final = "Title,Author, title \n"
 TEST_IMPORT_NO_SCHEMA: Final = "Name,Writer\n"
 TEST_IMPORT_NO_GOODREADS_AUTHOR: Final = "Title,Book Id\nA Synthetic Book,101\n"
 TEST_IMPORT_NO_STORYGRAPH_AUTHOR: Final = (
-    "Title,ISBN/UID\nA Synthetic Book,aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n"
+    "Title,ISBN/UID,Read Status\nA Synthetic Book,aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee,read\n"
 )
 TEST_IMPORT_PARAM_SOURCE_BODY: Final = "source,body"
 TEST_IMPORT_EXTRA_FIELD: Final = "Title,Author\nA,Writer,extra\n"
@@ -2507,7 +2498,7 @@ CLI_METADATA_PROGRESS: Final = (
     "(network timeout {timeout:g}s)."
 )
 STATUS_SOURCE_HEADER: Final = "  Source       Shelf      Last attempt    Saved books"
-STATUS_METADATA_HEADER: Final = "  Provider        Matched  Not found   Last success"
+STATUS_METADATA_HEADER: Final = "  Provider        Matched  Unresolved  Last success"
 STATUS_RETAINED_SNAPSHOTS: Final = (
     "  Action needed: one or more fetches did not complete.\n"
     "  Saved books are retained complete snapshots, not proof this attempt fetched fresh data."
@@ -2604,9 +2595,29 @@ IMPORT_BROWSER_SCOPE_MESSAGE: Final = (
 )
 IMPORT_STORYGRAPH_SCOPE_NOTICE: Final = "storygraph_ratings_only"
 IMPORT_STORYGRAPH_SCOPE_MESSAGE: Final = (
-    "StoryGraph supplies personal ratings only. Identity fields support matching; all other "
-    "source fields, including reviews, statuses and reading dates, remain raw-only."
+    "Only explicitly Read StoryGraph rows supply personal ratings and matching identity. "
+    "Read status selects the import scope but is not published as reading history; all other "
+    "source fields, including reviews and reading dates, remain raw-only."
 )
+STORYGRAPH_READ_SCOPE_INVALID_CODE: Final = "storygraph_read_scope_unknown"
+STORYGRAPH_READ_SCOPE_INVALID_MESSAGE: Final = (
+    "StoryGraph row {row} has an empty or unknown Read Status; the prior Read-only "
+    "snapshot is retained rather than guessing which records belong in scope."
+)
+STORYGRAPH_READ_SCOPE_EXCLUDED_CODE: Final = "storygraph_non_read_excluded"
+STORYGRAPH_READ_SCOPE_EXCLUDED_MESSAGE: Final = (
+    "{count} non-Read StoryGraph rows remain in the raw archive and are excluded "
+    "from processed ratings, matching and enrichment."
+)
+STORYGRAPH_READ_SCOPE_VERIFY_MATCH: Final = (
+    "{total} archived CSV rows: {rows} explicit Read rows = {records} books processed "
+    "= {library} books in the library; {excluded} non-Read rows excluded."
+)
+STORYGRAPH_READ_SCOPE_VERIFY_DIFFER: Final = (
+    "{total} archived CSV rows contain {rows} explicit Read rows, but {records} books "
+    "were processed and {library} are in the library; {excluded} non-Read rows excluded."
+)
+STORYGRAPH_READ_SCOPE_TEST_MISSING_CSV: Final = "Title,Authors\nA Synthetic Book,Ada Example\n"
 IMPORT_BROWSER_ISBN_PATTERN: Final = r" isbn (?P<value>\S+) isbn13 "
 IMPORT_BROWSER_ISBN13_PATTERN: Final = r" isbn13 (?P<value>\S+) asin "
 IMPORT_BROWSER_PAGES_PATTERN: Final = r" num pages (?P<value>[0-9]+) pp avg rating "
@@ -3026,7 +3037,7 @@ AN_INPUT_METADATA: Final = (
 AN_UNKNOWN_DIMENSION: Final = "Unknown reading-appetite dimension."
 AN_INVALID_PREFERENCES: Final = "Declared preferences need known dimensions and values from 0 to 1."
 AN_WORK_ID: Final = "work:{work_id}"
-AN_CALCULATION_VERSION: Final = "analytics-v5-scoped-language-validation"
+AN_CALCULATION_VERSION: Final = "analytics-v6-conservative-genres"
 AN_SUPPORTED: Final = "supported"
 AN_SUBSET: Final = "subset"
 AN_NEEDS_ENRICHMENT: Final = "needs_enrichment"
@@ -3724,6 +3735,127 @@ DQ_CAPTURE_TEST_STATE_PARAMETERS: Final = "value,state"
 MATCH_UPGRADE_SERIES_PATTERN: Final = (
     r"\s+\((?P<series>[^()#]+?),\s*#(?P<number>\d+(?:\.\d+)?)\)\s*$"
 )
+MATCH_REPAIR_SERIES_SUFFIX: Final = r"\s+\((?P<series>[^()]+)\)\s*$"
+MATCH_REPAIR_SERIES_ITEM: Final = r"(?P<series>[^()#;]+?),?\s*#(?P<number>\d+(?:\.\d+)?)"
+MATCH_REPAIR_AMPERSAND: Final = " & "
+MATCH_REPAIR_AND: Final = " and "
+MATCH_REPAIR_VOLUME: Final = r"\bvolume\s+(one|two|three|four|five|six|seven|eight|nine|ten)\b"
+MATCH_REPAIR_ONE: Final = "one"
+MATCH_REPAIR_TWO: Final = "two"
+MATCH_REPAIR_THREE: Final = "three"
+MATCH_REPAIR_FOUR: Final = "four"
+MATCH_REPAIR_FIVE: Final = "five"
+MATCH_REPAIR_SIX: Final = "six"
+MATCH_REPAIR_SEVEN: Final = "seven"
+MATCH_REPAIR_EIGHT: Final = "eight"
+MATCH_REPAIR_NINE: Final = "nine"
+MATCH_REPAIR_TEN: Final = "ten"
+MATCH_REPAIR_VOLUME_PREFIX: Final = "volume "
+MATCH_REPAIR_PRUNE_MEMBERS: Final = (
+    "DELETE FROM memberships WHERE collection_id = ? AND record_id NOT IN "
+    "(SELECT r.id FROM source_records r JOIN snapshot_records s ON s.source_id = r.source_id "
+    "WHERE s.snapshot_id = ? AND r.source = ? AND r.account_id = ?)"
+)
+MATCH_REPAIR_ACTIVE_RECORD: Final = (
+    "SELECT r.* FROM source_records r WHERE r.id = ? "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = r.id)"
+)
+MATCH_REPAIR_PENDING_ACTIVE: Final = (
+    "SELECT c.kind FROM match_candidates c WHERE c.resolution = 'pending' "
+    "AND (c.record_id = ? OR c.target_record_id = ?) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = c.record_id) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = c.target_record_id)"
+)
+MATCH_REPAIR_TEST_PLAIN: Final = "Paws and Prejudice"
+MATCH_REPAIR_TEST_SERIES: Final = "Paws & Prejudice (Hearts of Alaska #2)"
+MATCH_REPAIR_TEST_MULTISERIES: Final = (
+    "Paws and Prejudice (Hearts of Alaska, #2; Northern Stories, #23)"
+)
+MATCH_REPAIR_TEST_CONFLICT: Final = "Paws and Prejudice (Hearts of Alaska #3; Northern Stories #23)"
+MATCH_REPAIR_TEST_OMNIBUS: Final = "Paws and Prejudice (Hearts of Alaska #1-2)"
+MATCH_REPAIR_TEST_VOLUME_WORD: Final = "Heartstopper: Volume Four (Heartstopper, #4)"
+MATCH_REPAIR_TEST_VOLUME_DIGIT: Final = "Heartstopper Volume 4"
+MATCH_REPAIR_TEST_VOLUME_OTHER: Final = "Heartstopper Volume 2"
+MATCH_REPAIR_TEST_PARAMETERS: Final = "left_title,right_title"
+MATCH_REPAIR_TEST_MALFORMED: Final = "Paws and Prejudice (Hearts of Alaska #2, 3)"
+MATCH_REPAIR_TEST_ANNOTATION: Final = "Paws and Prejudice (Study Guide)"
+MATCH_REPAIR_ACTIVE_WORK_PEER: Final = (
+    "SELECT 1 FROM source_records r WHERE r.id != ? "
+    "AND r.work_id = (SELECT work_id FROM source_records WHERE id = ?) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = r.id) LIMIT 1"
+)
+MATCH_REPAIR_WORK_AUTOMATIC: Final = "bibliography_work_automatic"
+MATCH_REPAIR_WORK_REASON: Final = (
+    "Reciprocally unique active cross-source full title and complete authors agree; "
+    "edition identity remains separate and unconfirmed"
+)
+MATCH_REPAIR_WORK_LOST: Final = (
+    "Bibliographic work linkage lost current, unique, compatible identity evidence"
+)
+MATCH_REPAIR_IDENTITY_PROOFS: Final = "identity_proofs"
+MATCH_REPAIR_POLICY: Final = "identity-work-v1"
+MATCH_REPAIR_POLICY_KEY: Final = "identity_policy"
+MATCH_REPAIR_CONFIRM_CANDIDATE: Final = (
+    "UPDATE match_candidates SET resolution = ? WHERE id = ? "
+    "AND resolution NOT IN ('accepted', 'rejected')"
+)
+MATCH_REPAIR_CANDIDATE_ORDER: Final = " ORDER BY c.id"
+MATCH_REPAIR_CANDIDATE_ACTIVE_ORDER: Final = (
+    " AND (? OR (EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = c.record_id) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = c.target_record_id))) "
+    "ORDER BY c.id"
+)
+MATCH_REPAIR_CURRENT_PROVIDER_CANDIDATES: Final = (
+    "SELECT a.record_id, c.candidate_json FROM enrichment_attempts a "
+    "JOIN source_records r ON r.id = a.record_id "
+    "JOIN enrichment_candidates c ON c.attempt_id = a.id "
+    "WHERE a.provider = ? AND a.identity_hash = r.identity_hash "
+    "AND a.id = (SELECT MAX(n.id) FROM enrichment_attempts n "
+    "WHERE n.record_id = a.record_id AND n.provider = a.provider "
+    "AND n.identity_hash = r.identity_hash)"
+)
+MATCH_REPAIR_COLLECTION_ITEM: Final = (
+    r"(?P<series>[^()#;]+?),?\s*#"
+    r"(?P<number>\d+(?:\.\d+)?(?:\s*(?:-|,)\s*\d+(?:\.\d+)?)*)"
+)
+MATCH_REPAIR_NUMBERED_TITLE: Final = (
+    r"^(?P<title>.+?)\s+(?:(?P<marker>vol|volume)\s+)?"
+    r"(?P<number>\d+|i|ii|iii|iv|v|vi|vii|viii|ix|x)$"
+)
+MATCH_REPAIR_VOLUME_MARKER: Final = "marker"
+MATCH_REPAIR_ROMAN_ONE: Final = "i"
+MATCH_REPAIR_ROMAN_TWO: Final = "ii"
+MATCH_REPAIR_ROMAN_THREE: Final = "iii"
+MATCH_REPAIR_ROMAN_FOUR: Final = "iv"
+MATCH_REPAIR_ROMAN_FIVE: Final = "v"
+MATCH_REPAIR_ROMAN_SIX: Final = "vi"
+MATCH_REPAIR_ROMAN_SEVEN: Final = "vii"
+MATCH_REPAIR_ROMAN_EIGHT: Final = "viii"
+MATCH_REPAIR_ROMAN_NINE: Final = "ix"
+MATCH_REPAIR_ROMAN_TEN: Final = "x"
+MATCH_REPAIR_MULTIPLICATION: Final = "\u00d7"
+MATCH_REPAIR_LETTER_X: Final = " x "
+MATCH_REPAIR_ALTERNATE_PREFIX: Final = "work-title:"
+MATCH_REPAIR_VOLUME_KEY_PREFIX: Final = "numbered-work:"
+MATCH_REPAIR_ISBN_KEY_PREFIX: Final = "edition-isbn:"
+MATCH_REPAIR_CORROBORATED_REASON: Final = (
+    "Shared validated ISBN corroborates compatible full title and nonconflicting author sets; "
+    "work only, edition identity remains separate"
+)
+MATCH_REPAIR_VOLUME_REASON: Final = (
+    "Exact numbered-volume title and complete authors agree across uniquely paired sources; "
+    "edition identifiers remain distinct"
+)
+MATCH_REPAIR_POLICY_CORROBORATED: Final = "identity-work-v2-corroboration"
+MATCH_REPAIR_TEST_COLLECTION: Final = "Matilda (Library, #1-3)"
+MATCH_REPAIR_TEST_OTHER_COLLECTION: Final = "Matilda (Library, #1-2)"
+MATCH_REPAIR_TEST_MULTI_VOLUME: Final = "Matilda (Library, #0.5, 2.5, 2.6)"
+MATCH_REPAIR_TEST_UNICODE_VOLUME: Final = "Example Family, Vol. \u2161"
+MATCH_REPAIR_TEST_NUMBERED_VOLUME: Final = "Example Family 2"
+MATCH_REPAIR_TEST_OTHER_VOLUME: Final = "Example Family 3"
+MATCH_REPAIR_TEST_MULTIPLICATION_VOLUME: Final = "Example\u00d7Family 2"
+MATCH_REPAIR_TEST_LETTER_VOLUME: Final = "Example x Family, Vol. 2"
+MATCH_REPAIR_TEST_ACCENT_TITLE: Final = "Matild\u00e1"
 MATCH_UPGRADE_ARTICLE_PATTERN: Final = r"^(?P<title>.+),\s*(?P<article>The|An|A)$"
 MATCH_UPGRADE_ISBN_LABEL_PATTERN: Final = r"^ISBN(?:-(?P<width>1[03]))?\s*:?\s*(?=\d)"
 MATCH_UPGRADE_ISBN_WIDTH_GROUP: Final = "width"
@@ -4135,3 +4267,167 @@ DR_TEST_TAMPER_RETRY: Final = (
 
 # MQ: matching identity freshness.
 MQ_IDENTITY_PARAMETERS: Final = "field,original_value,changed_value"
+
+# Exact analytical genre-family vocabulary; provider observations remain unchanged.
+ANALYTIC_CATEGORY_VERSION: Final = "genre-families-v1"
+ANALYTIC_CATEGORY_FIELD: Final = "analytical_genres"
+ANALYTIC_CATEGORY_FICTION: Final = "fiction"
+ANALYTIC_CATEGORY_NONFICTION: Final = "nonfiction"
+ANALYTIC_CATEGORY_NON_FICTION: Final = "non-fiction"
+ANALYTIC_CATEGORY_NON_FICTION_SPACED: Final = "non fiction"
+ANALYTIC_CATEGORY_FANTASY: Final = "fantasy"
+ANALYTIC_CATEGORY_FANTASY_FICTION: Final = "fantasy fiction"
+ANALYTIC_CATEGORY_EPIC_FANTASY: Final = "epic fantasy"
+ANALYTIC_CATEGORY_HIGH_FANTASY: Final = "high fantasy"
+ANALYTIC_CATEGORY_URBAN_FANTASY: Final = "urban fantasy"
+ANALYTIC_CATEGORY_DARK_FANTASY: Final = "dark fantasy"
+ANALYTIC_CATEGORY_FICTION_FANTASY: Final = "fiction / fantasy / general"
+ANALYTIC_CATEGORY_FICTION_EPIC_FANTASY: Final = "fiction / fantasy / epic"
+ANALYTIC_CATEGORY_SCIENCE_FICTION: Final = "science fiction"
+ANALYTIC_CATEGORY_SCI_FI: Final = "sci-fi"
+ANALYTIC_CATEGORY_SCI_FI_SPACED: Final = "sci fi"
+ANALYTIC_CATEGORY_SPACE_OPERA: Final = "space opera"
+ANALYTIC_CATEGORY_CYBERPUNK: Final = "cyberpunk"
+ANALYTIC_CATEGORY_FICTION_SCIENCE_FICTION: Final = "fiction / science fiction / general"
+ANALYTIC_CATEGORY_MYSTERY: Final = "mystery"
+ANALYTIC_CATEGORY_MYSTERY_FICTION: Final = "mystery fiction"
+ANALYTIC_CATEGORY_DETECTIVE_MYSTERY: Final = "detective and mystery stories"
+ANALYTIC_CATEGORY_MYSTERIES: Final = "mysteries"
+ANALYTIC_CATEGORY_DETECTIVE_FICTION: Final = "detective fiction"
+ANALYTIC_CATEGORY_MYSTERY_DETECTIVE: Final = "mystery and detective stories"
+ANALYTIC_CATEGORY_FICTION_MYSTERY: Final = "fiction / mystery & detective / general"
+ANALYTIC_CATEGORY_CRIME: Final = "crime fiction"
+ANALYTIC_CATEGORY_THRILLER: Final = "thriller"
+ANALYTIC_CATEGORY_THRILLERS: Final = "thrillers"
+ANALYTIC_CATEGORY_SUSPENSE_FICTION: Final = "suspense fiction"
+ANALYTIC_CATEGORY_PSYCHOLOGICAL_THRILLER: Final = "psychological thriller"
+ANALYTIC_CATEGORY_FICTION_THRILLER: Final = "fiction / thrillers / general"
+ANALYTIC_CATEGORY_HORROR: Final = "horror"
+ANALYTIC_CATEGORY_HORROR_FICTION: Final = "horror fiction"
+ANALYTIC_CATEGORY_HORROR_TALES: Final = "horror tales"
+ANALYTIC_CATEGORY_FICTION_HORROR: Final = "fiction / horror"
+ANALYTIC_CATEGORY_ROMANCE: Final = "romance"
+ANALYTIC_CATEGORY_ROMANCE_FICTION: Final = "romance fiction"
+ANALYTIC_CATEGORY_ROMANTIC_FICTION: Final = "romantic fiction"
+ANALYTIC_CATEGORY_CONTEMPORARY_ROMANCE: Final = "contemporary romance"
+ANALYTIC_CATEGORY_HISTORICAL_ROMANCE: Final = "historical romance"
+ANALYTIC_CATEGORY_PARANORMAL_ROMANCE: Final = "paranormal romance"
+ANALYTIC_CATEGORY_FICTION_ROMANCE: Final = "fiction / romance / general"
+ANALYTIC_CATEGORY_HISTORICAL_FICTION: Final = "historical fiction"
+ANALYTIC_CATEGORY_FICTION_HISTORICAL: Final = "fiction / historical / general"
+ANALYTIC_CATEGORY_LITERARY_FICTION: Final = "literary fiction"
+ANALYTIC_CATEGORY_FICTION_LITERARY: Final = "fiction / literary"
+ANALYTIC_CATEGORY_SHORT_STORIES: Final = "short stories"
+ANALYTIC_CATEGORY_SHORT_FICTION: Final = "short fiction"
+ANALYTIC_CATEGORY_FICTION_SHORT_STORIES: Final = "fiction / short stories (single author)"
+ANALYTIC_CATEGORY_POETRY: Final = "poetry"
+ANALYTIC_CATEGORY_DRAMA: Final = "drama"
+ANALYTIC_CATEGORY_PLAYS: Final = "plays"
+ANALYTIC_CATEGORY_COMICS: Final = "comics and graphic novels"
+ANALYTIC_CATEGORY_GRAPHIC_NOVELS: Final = "graphic novels"
+ANALYTIC_CATEGORY_COMIC_BOOKS: Final = "comic books"
+ANALYTIC_CATEGORY_MANGA: Final = "manga"
+ANALYTIC_CATEGORY_BIOGRAPHY: Final = "biography"
+ANALYTIC_CATEGORY_BIOGRAPHIES: Final = "biographies"
+ANALYTIC_CATEGORY_BIOGRAPHY_AUTOBIOGRAPHY: Final = "biography & autobiography / general"
+ANALYTIC_CATEGORY_MEMOIR: Final = "memoir"
+ANALYTIC_CATEGORY_MEMOIRS: Final = "memoirs"
+ANALYTIC_CATEGORY_AUTOBIOGRAPHY: Final = "autobiography"
+ANALYTIC_CATEGORY_AUTOBIOGRAPHIES: Final = "autobiographies"
+ANALYTIC_CATEGORY_HISTORY: Final = "history"
+ANALYTIC_CATEGORY_HISTORY_GENERAL: Final = "history / general"
+ANALYTIC_CATEGORY_SCIENCE: Final = "science"
+ANALYTIC_CATEGORY_SCIENCE_GENERAL: Final = "science / general"
+ANALYTIC_CATEGORY_PHILOSOPHY: Final = "philosophy"
+ANALYTIC_CATEGORY_PHILOSOPHY_GENERAL: Final = "philosophy / general"
+ANALYTIC_CATEGORY_PSYCHOLOGY: Final = "psychology"
+ANALYTIC_CATEGORY_PSYCHOLOGY_GENERAL: Final = "psychology / general"
+ANALYTIC_CATEGORY_ESSAYS: Final = "essays"
+ANALYTIC_CATEGORY_TRUE_CRIME: Final = "true crime"
+ANALYTIC_CATEGORY_SELF_HELP: Final = "self-help"
+ANALYTIC_CATEGORY_SELF_HELP_SPACED: Final = "self help"
+ANALYTIC_CATEGORY_SELF_HELP_GENERAL: Final = "self-help / general"
+ANALYTIC_CATEGORY_TRAVEL: Final = "travel writing"
+ANALYTIC_CATEGORY_TEST_PARAMETERS: Final = "labels,expected"
+ANALYTIC_CATEGORY_TEST_BESTSELLER: Final = "New York Times bestseller"
+ANALYTIC_CATEGORY_TEST_LARGE_PRINT: Final = "Large type books"
+ANALYTIC_CATEGORY_TEST_CLASSIFICATION: Final = "FIC009020"
+ANALYTIC_CATEGORY_TEST_DDC: Final = "823.914"
+ANALYTIC_CATEGORY_TEST_LCC: Final = "PR6068.O93"
+ANALYTIC_CATEGORY_TEST_CATALOG_TAG: Final = "accessible book"
+ANALYTIC_CATEGORY_TEST_SUBSTRING: Final = "fantasy football"
+ANALYTIC_CATEGORY_TEST_SPACING: Final = "  SCIENCE   FICTION  "
+
+QUEUE_ELIGIBLE_ATTEMPTS_SQL: Final = (
+    "SELECT r.latest_json, a.raw_json, "
+    "(a.id IS NULL OR a.identity_hash != r.identity_hash "
+    "OR a.implementation_version != ?) AS queue_invalidated "
+    "FROM source_records r LEFT JOIN enrichment_attempts a ON a.id = "
+    "(SELECT MAX(a2.id) FROM enrichment_attempts a2 "
+    "WHERE a2.record_id = r.id AND a2.provider = ?) "
+    "WHERE EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = r.id) "
+    "AND (a.id IS NULL OR a.identity_hash != r.identity_hash "
+    "OR a.implementation_version != ? OR "
+    "(a.state != ? AND julianday(a.checked_at) <= julianday(?))) "
+    "ORDER BY (a.id IS NOT NULL), a.checked_at, a.id, "
+    "r.source, r.account_id, r.source_id"
+)
+QUEUE_INVALIDATED: Final = "queue_invalidated"
+QUEUE_TEST_ATTEMPT_OLD_TIMESTAMP: Final = (
+    "UPDATE enrichment_attempts SET checked_at = '2020-01-01T00:00:00+00:00'"
+)
+QUEUE_TEST_FIXED_TIME: Final = "2026-01-01T00:00:00+00:00"
+QUEUE_TEST_BEFORE_RETRY: Final = "2026-01-01T05:59:59+00:00"
+QUEUE_TEST_RETRY_DUE: Final = "2026-01-01T06:00:00+00:00"
+QUEUE_LEGACY_MAX_AGE_DESCRIPTION: Final = (
+    "Accepted for legacy configuration compatibility; elapsed age does not enqueue metadata."
+)
+QUEUE_LEGACY_MAX_AGE_KEY: Final = "max_age_days"
+QUEUE_GOOGLE_ERROR_DETAILS: Final = "details"
+QUEUE_GOOGLE_QUOTA_UNIT: Final = "quota_unit"
+QUEUE_GOOGLE_DETAIL_TYPE: Final = "@type"
+QUEUE_GOOGLE_ERROR_INFO: Final = "type.googleapis.com/google.rpc.ErrorInfo"
+QUEUE_GOOGLE_DAILY_UNIT_PREFIX: Final = "1/d/"
+QUEUE_GOOGLE_DAILY_FIXTURE: Final = "google_daily_quota.json"
+QUEUE_GOOGLE_LEGACY_DAILY_FIXTURE: Final = "google_legacy_daily_quota.json"
+QUEUE_GOOGLE_UNKNOWN_QUOTA_FIXTURE: Final = "google_unknown_quota.json"
+QUEUE_DAILY_TEST_PARAMETERS: Final = "fixture_name,status,retry_header,expected_delay"
+QUEUE_DAILY_SCOPE_TEST_PARAMETERS: Final = "fixture_name,status,provider,host,url"
+QUEUE_DAILY_LONG_RETRY_HEADER: Final = "86400"
+QUEUE_INCOMPLETE: Final = "incomplete"
+QUEUE_ATTEMPT_STATES: Final = "attempt_states"
+QUEUE_NO_LOOKUPS_DUE_CODE: Final = "metadata_coverage_incomplete"
+QUEUE_NO_LOOKUPS_DUE_MESSAGE: Final = (
+    "No new lookups are due; {count} active latest metadata attempts remain incomplete "
+    "or have unresolved candidates. Saved partial fields and failure evidence are retained."
+)
+QUEUE_STATUS_ATTEMPTS_SQL: Final = (
+    "SELECT COUNT(*) AS total, MAX(a.checked_at) AS last_attempt_at "
+    "FROM enrichment_attempts a WHERE a.provider = ? AND EXISTS "
+    "(SELECT 1 FROM memberships m WHERE m.record_id = a.record_id)"
+)
+QUEUE_STATUS_CANDIDATES_SQL: Final = (
+    "SELECT COUNT(*) FROM enrichment_candidates c "
+    "JOIN enrichment_attempts a ON a.id = c.attempt_id "
+    "WHERE a.provider = ? AND EXISTS "
+    "(SELECT 1 FROM memberships m WHERE m.record_id = a.record_id)"
+)
+QUEUE_STATUS_LATEST_STATES_SQL: Final = (
+    "SELECT a.state, COUNT(*) AS total, SUM(a.state != ? OR "
+    "(EXISTS (SELECT 1 FROM enrichment_candidates c WHERE c.attempt_id = a.id) "
+    "AND NOT EXISTS (SELECT 1 FROM enrichment_candidates c "
+    "WHERE c.attempt_id = a.id AND c.selected = 1))) AS incomplete "
+    "FROM enrichment_attempts a WHERE a.provider = ? "
+    "AND a.id = (SELECT MAX(n.id) FROM enrichment_attempts n "
+    "WHERE n.record_id = a.record_id AND n.provider = a.provider) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = a.record_id) "
+    "GROUP BY a.state"
+)
+QUEUE_STATUS_UNRESOLVED_SQL: Final = (
+    "SELECT COUNT(*) FROM enrichment_attempts a WHERE a.provider = ? "
+    "AND a.id = (SELECT MAX(n.id) FROM enrichment_attempts n "
+    "WHERE n.record_id = a.record_id AND n.provider = a.provider) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = a.record_id) "
+    "AND (a.state != ? OR NOT EXISTS "
+    "(SELECT 1 FROM enrichment_candidates c WHERE c.attempt_id = a.id AND c.selected = 1))"
+)

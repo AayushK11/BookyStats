@@ -5,6 +5,7 @@ import shutil
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ import pytest
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.adapters.metadata.open_library import OpenLibraryProvider
+from bookystats.application.sync import SyncService
 from bookystats.domain.matching import MatchKind, MatchResult, title_author_key
 from bookystats.domain.models import (
     BookRecord,
@@ -33,6 +35,7 @@ from bookystats.domain.models import (
 from bookystats.persistence import library as storage_module
 from bookystats.persistence.library import AccountMismatchError, Database, SnapshotRejectedError
 from bookystats.persistence.payloads import PayloadIntegrityError, PayloadStore
+from bookystats.runtime.config import Settings
 from tests.adapters.metadata.test_open_library import FakeHttp, response, work_response
 from tests.support.paths import fixture_path
 
@@ -699,6 +702,33 @@ def _work_metadata(
     return candidate
 
 
+def test_withdrawn_source_records_cannot_supply_identity_or_conflict(db: Database) -> None:
+    withdrawn = book()
+    publish(db, snapshot(withdrawn))
+    publish(db, snapshot())
+    current = book(source=Source.GOODREADS)
+    publish(db, snapshot(current, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert not db.match_candidates()
+    assert not rows(db, S.MATCH_UPGRADE_TEST_DECISIONS)
+    identities = rows(db, S.MATCH_UPGRADE_TEST_IDENTITIES)
+    assert identities[C.ZERO][S.WORK_ID] != identities[C.ONE][S.WORK_ID]
+
+
+def test_replacement_snapshot_excludes_withdrawn_conflicts_before_matching(db: Database) -> None:
+    withdrawn = book(authors=(S.TEST_MATCHING_SHARED_ISBN_WITH_NOT_CONFIRM_A_DIFFERENT_AUTHOR,))
+    publish(db, snapshot(withdrawn))
+    goodreads = book(source=Source.GOODREADS)
+    publish(db, snapshot(goodreads, source=Source.GOODREADS))
+    replacement = book(source_id=S.SECOND)
+    result = publish(db, snapshot(replacement))
+    assert result.removed == C.ONE
+    active = [row for row in rows(db, S.MATCH_UPGRADE_TEST_IDENTITIES) if row[S.ID] != C.ONE]
+    assert active[C.ZERO][S.WORK_ID] == active[C.ONE][S.WORK_ID]
+    assert active[C.ZERO][S.EDITION_ID] == active[C.ONE][S.EDITION_ID]
+    assert library(db)[S.UNRESOLVED] == C.ZERO
+
+
 def test_current_verified_open_library_work_links_never_collapse_editions(db: Database) -> None:
     left, right = _different_editions(db)
     _work_metadata(db, left)
@@ -740,11 +770,11 @@ def test_selected_partial_optional_metadata_still_supplies_confirmed_work_identi
     assert library(db)[S.EDITIONS] == C.TWO
 
 
-def test_matching_provider_work_text_without_a_confirmed_source_isbn_is_insufficient(
+def test_provider_work_text_without_source_authors_or_isbn_is_insufficient(
     db: Database,
 ) -> None:
     left, right = _different_editions(db)
-    left = left.model_copy(update={S.ISBNS: ()})
+    left = left.model_copy(update={S.ISBNS: (), S.AUTHORS: ()})
     publish(db, snapshot(left))
     _work_metadata(db, left)
     _work_metadata(db, right)
@@ -752,9 +782,14 @@ def test_matching_provider_work_text_without_a_confirmed_source_isbn_is_insuffic
     assert library(db)[S.WORKS] == C.TWO
 
 
-def test_unverified_title_only_and_google_volume_ids_do_not_establish_a_work(db: Database) -> None:
+def test_google_volume_ids_do_not_replace_reciprocal_full_bibliography_evidence(
+    db: Database,
+) -> None:
     left, right = _different_editions(db)
-    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert db.reconcile_provider_work_matches() == C.ONE
+    assert (
+        db.match_candidates(include_resolved=C.TRUE)[C.ZERO][S.REASON] == S.MATCH_REPAIR_WORK_REASON
+    )
     for item in (left, right):
         candidate = metadata_candidate(
             provider_id=S.MATCH_UPGRADE_TEST_PROVIDER_WORK,
@@ -769,7 +804,199 @@ def test_unverified_title_only_and_google_volume_ids_do_not_establish_a_work(db:
             ),
         )
     assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.ONE
+    assert library(db)[S.EDITIONS] == C.TWO
+
+
+def test_reciprocal_bibliography_work_match_retains_edition_facts_and_is_reversible(
+    db: Database,
+) -> None:
+    left, right = _different_editions(db)
+    left = left.model_copy(update={S.LANGUAGE: S.EN, S.EDITION_FORMAT: S.PAPERBACK})
+    right = right.model_copy(update={S.LANGUAGE: S.FR, S.EDITION_FORMAT: S.AUDIOBOOK})
+    publish(db, snapshot(left))
+    publish(db, snapshot(right, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ONE
+    identities = [tuple(row) for row in rows(db, S.MATCH_UPGRADE_TEST_IDENTITIES)]
+    assert library(db)[S.WORKS] == C.ONE
+    assert library(db)[S.EDITIONS] == C.TWO
+    publish(db, snapshot(left))
+    publish(db, snapshot(right, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert [tuple(row) for row in rows(db, S.MATCH_UPGRADE_TEST_IDENTITIES)] == identities
+    candidate = db.match_candidates(include_resolved=C.TRUE)[C.ZERO]
+    decision_id = int(str(candidate[S.DECISION_ID]))
+    db.undo_match(decision_id)
+    assert db.reconcile_provider_work_matches() == C.ZERO
     assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.TWO
+
+
+@pytest.mark.parametrize(
+    S.CHANGES,
+    (
+        {S.AUTHORS: (S.TEST_MATCHING_SHARED_ISBN_WITH_NOT_CONFIRM_A_DIFFERENT_AUTHOR,)},
+        {S.TITLE: S.MATCH_UPGRADE_TEST_SUBTITLE},
+        {S.TITLE: S.MATCH_UPGRADE_TEST_OMNIBUS},
+    ),
+)
+def test_bibliography_work_matching_requires_full_title_and_authors(
+    db: Database, changes: dict[str, object]
+) -> None:
+    _left, right = _different_editions(db)
+    right = right.model_copy(update=changes)
+    publish(db, snapshot(right, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.TWO
+
+
+def test_unique_full_bibliography_can_link_works_without_inventing_edition_identifiers(
+    db: Database,
+) -> None:
+    left = book(isbns=(), source_id=S.STORYGRAPH_UUID)
+    right = book(source=Source.GOODREADS, isbns=(), source_id=S.STORYGRAPH_UUID)
+    publish(db, snapshot(left))
+    publish(db, snapshot(right, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ONE
+    candidate = db.match_candidates(include_resolved=C.TRUE)[C.ZERO]
+    assert candidate[S.IDENTIFIERS] == []
+    assert candidate[S.REASON] == S.MATCH_REPAIR_WORK_REASON
+    assert library(db)[S.WORKS] == C.ONE
+    assert library(db)[S.EDITIONS] == C.TWO
+
+
+def test_unselected_same_title_peer_blocks_reciprocal_bibliography_work_match(
+    db: Database,
+) -> None:
+    _left, right = _different_editions(db)
+    unselected = right.model_copy(update={S.SOURCE_ID: S.THIRD, S.ISBNS: ()})
+    publish(db, snapshot(right, unselected, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.THREE
+
+
+def test_unique_full_bibliography_within_one_source_is_not_cross_source_corroboration(
+    db: Database,
+) -> None:
+    left = book(isbns=())
+    right = left.model_copy(update={S.SOURCE_ID: S.SECOND})
+    publish(db, snapshot(left, right))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.TWO
+
+
+def test_new_reciprocal_ambiguity_reverses_bibliography_work_link(db: Database) -> None:
+    left, right = _different_editions(db)
+    assert db.reconcile_provider_work_matches() == C.ONE
+    third = right.model_copy(update={S.SOURCE_ID: S.THIRD, S.ISBNS: left.isbns})
+    publish(db, snapshot(right, third, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    identities = rows(db, S.MATCH_UPGRADE_TEST_IDENTITIES)
+    assert identities[C.ZERO][S.WORK_ID] != identities[C.ONE][S.WORK_ID]
+    assert db.reconcile_provider_work_matches() == C.ZERO
+
+
+def test_changed_identity_hash_reverses_even_a_normalization_equivalent_work_link(
+    db: Database,
+) -> None:
+    _left, right = _different_editions(db)
+    assert db.reconcile_provider_work_matches() == C.ONE
+    changed = right.model_copy(update={S.TITLE: S.MATILDA_2})
+    publish(db, snapshot(changed, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.TWO
+    assert db.reconcile_provider_work_matches() == C.ZERO
+
+
+def test_rejected_bibliography_candidate_is_not_automatically_reconsidered(db: Database) -> None:
+    _different_editions(db)
+    candidate = db.match_candidates()[C.ZERO]
+    db.resolve_match(int(str(candidate[S.ID])), accept=C.FALSE)
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert db.match_candidates(include_resolved=C.TRUE)[C.ZERO][S.RESOLUTION] == S.REJECTED
+
+
+def test_ambiguous_current_provider_identity_blocks_bibliography_fallback(db: Database) -> None:
+    left, _right = _different_editions(db)
+    first = _work_metadata(db, left)
+    second = first.model_copy(
+        update={
+            S.PROVIDER_ID: S.MATCH_UPGRADE_TEST_OTHER_WORK,
+            S.WORK_ID: S.MATCH_UPGRADE_TEST_OTHER_WORK,
+            S.URL: S.OPEN_LIBRARY_WORK_URL_TEMPLATE.format(v0=S.MATCH_UPGRADE_TEST_OTHER_WORK),
+        }
+    )
+    db.save_enrichment(
+        left.source,
+        Source.OPEN_LIBRARY,
+        EnrichmentResult(
+            source_id=left.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(first, second),
+        ),
+    )
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.TWO
+
+
+def test_isbn_corroborated_coauthor_omission_links_only_work_and_repeats_idempotently(
+    db: Database,
+) -> None:
+    left = book(
+        authors=(
+            S.TEST_GOOGLE_BOOKS_BOOK_AUTHORS_ROALD_DAHL,
+            S.TEST_NORMALIZED_FULL_TITLES_AND_LEFT_AUTHORS_QUENTIN_BLAKE,
+        )
+    )
+    right = book(source=Source.GOODREADS)
+    publish(db, snapshot(left))
+    publish(db, snapshot(right, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ONE
+    assert library(db)[S.WORKS] == C.ONE
+    assert library(db)[S.EDITIONS] == C.TWO
+    candidate = db.match_candidates(include_resolved=C.TRUE)[C.ZERO]
+    assert candidate[S.REASON] == S.MATCH_REPAIR_CORROBORATED_REASON
+    assert candidate[S.IDENTIFIERS] == list(left.isbns)
+    assert db.reconcile_provider_work_matches() == C.ZERO
+
+
+def test_conflicting_unselected_isbn_peer_blocks_coauthor_subset_work_matching(
+    db: Database,
+) -> None:
+    left = book(
+        authors=(
+            S.TEST_GOOGLE_BOOKS_BOOK_AUTHORS_ROALD_DAHL,
+            S.TEST_NORMALIZED_FULL_TITLES_AND_LEFT_AUTHORS_QUENTIN_BLAKE,
+        )
+    )
+    right = book(source=Source.GOODREADS)
+    conflicting = right.model_copy(
+        update={
+            S.SOURCE_ID: S.THIRD,
+            S.AUTHORS: (S.TEST_MATCHING_SHARED_ISBN_WITH_NOT_CONFIRM_A_DIFFERENT_AUTHOR,),
+        }
+    )
+    publish(db, snapshot(left))
+    publish(db, snapshot(right, conflicting, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.THREE
+
+
+def test_corroborated_coauthor_subset_cannot_override_verified_catalog_conflict(
+    db: Database,
+) -> None:
+    left = book(
+        authors=(
+            S.TEST_GOOGLE_BOOKS_BOOK_AUTHORS_ROALD_DAHL,
+            S.TEST_NORMALIZED_FULL_TITLES_AND_LEFT_AUTHORS_QUENTIN_BLAKE,
+        )
+    )
+    right = book(source=Source.GOODREADS)
+    publish(db, snapshot(left))
+    publish(db, snapshot(right, source=Source.GOODREADS))
+    _work_metadata(db, left)
+    _work_metadata(db, right, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.TWO
 
 
 def test_different_verified_provider_work_ids_do_not_merge_same_title(db: Database) -> None:
@@ -1423,6 +1650,8 @@ def test_ambiguous_and_failed_metadata_do_not_replace_last_confident_selection(
         EnrichmentResult(source_id=S.ONE_2, state=SyncState.FAILED),
     )
     assert db.metadata_for(Source.STORYGRAPH, S.READER, S.ONE_2) == before
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+    db._connection().execute(S.QUEUE_TEST_ATTEMPT_OLD_TIMESTAMP)
     assert db.enrichment_targets(Source.GOOGLE_BOOKS) == (original,)
 
 
@@ -1462,7 +1691,7 @@ def test_optional_provider_failure_keeps_confirmed_fields_and_failure_evidence(
     selected = db.metadata_for(original.source, S.READER, original.source_id)
     assert selected[C.ZERO][S.CANDIDATE] == candidate.model_dump(mode=S.JSON)
     assert db.active_records() == (original,)
-    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == (original,)
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
     db.save_enrichment(original.source, Source.GOOGLE_BOOKS, result)
     repeated = db.metadata_for(original.source, S.READER, original.source_id)
     assert repeated[C.ZERO][S.CANDIDATE] == selected[C.ZERO][S.CANDIDATE]
@@ -1586,14 +1815,14 @@ def test_provider_reader_fields_are_quarantined_not_used_as_personal_data(db: Da
     )
     assert db.active_records() == (original,)
     assert db.metadata_for(Source.STORYGRAPH, S.READER, S.ONE_2) == ()
-    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == (original,)
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
     assert (
         len(rows(db, S.TEST_STORAGE_PROVIDER_READER_FIELDS_ARE_SELECT_ID_FROM_METADATA_OBS))
         == C.ONE
     )
 
 
-def test_metadata_refresh_tracks_identity_not_current_rating_and_is_bounded(db: Database) -> None:
+def test_metadata_refresh_tracks_identity_not_rating_or_status_and_is_bounded(db: Database) -> None:
     original = book(observations=(rating(C.FOUR),))
     publish(db, snapshot(original))
     assert db.enrichment_targets(Source.GOOGLE_BOOKS, limit=C.ZERO) == ()
@@ -1607,7 +1836,16 @@ def test_metadata_refresh_tracks_identity_not_current_rating_and_is_bounded(db: 
     )
     publish(db, snapshot(book(observations=(rating(C.FIVE),))))
     assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
-    assert len(db.enrichment_targets(Source.GOOGLE_BOOKS, max_age_days=C.ZERO)) == C.ONE
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS, max_age_days=C.ZERO) == ()
+    db._connection().execute(S.QUEUE_TEST_ATTEMPT_OLD_TIMESTAMP)
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+    updated = book(status=ReadingStatus.TO_READ, observations=(rating(C.FIVE),))
+    newly_added = book(source_id=S.TWO_2)
+    publish(db, snapshot(updated, newly_added))
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == (newly_added,)
+    assert (
+        db.metadata_for(Source.STORYGRAPH, S.READER, S.ONE_2)[C.ZERO][S.STALE_IDENTITY] is C.FALSE
+    )
     renamed = book(title=S.TEST_METADATA_REFRESH_TRACKS_IDENTITY_TITLE_MATILDA_A_DIFFERENT_EDIT)
     publish(db, snapshot(renamed))
     assert db.enrichment_targets(Source.GOOGLE_BOOKS) == (renamed,)
@@ -1658,16 +1896,20 @@ def test_bounded_metadata_runs_progress_past_a_persistent_failure(
         ),
     )
     assert db.metadata_for(later.source, S.READER, later.source_id)
-    assert db.enrichment_targets(Source.GOOGLE_BOOKS, limit=C.ONE) == (first,)
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS, limit=C.ONE) == ()
+    db._connection().execute(S.QUEUE_TEST_ATTEMPT_OLD_TIMESTAMP)
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS, limit=C.ONE) == (
+        (first,) if retry_state == SyncState.FAILED else ()
+    )
 
 
-def test_metadata_retries_rotate_by_attempt_order_even_when_timestamps_tie(
+def test_due_metadata_retries_rotate_by_attempt_order(
     db: Database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first, later = book(), book(source_id=S.TWO_2)
     publish(db, snapshot(first, later))
-    now = storage_module.utc_now()
-    monkeypatch.setattr(storage_module, S.TEST_STORAGE_FIXED_CLOCK, lambda: now)
+    now = storage_module._date(S.QUEUE_TEST_FIXED_TIME)
+    monkeypatch.setattr(storage_module, S.TEST_STORAGE_FIXED_CLOCK, lambda: now.isoformat())
     for target in (first, later, first):
         assert db.enrichment_targets(Source.GOOGLE_BOOKS, limit=C.ONE) == (target,)
         db.save_enrichment(
@@ -1675,7 +1917,150 @@ def test_metadata_retries_rotate_by_attempt_order_even_when_timestamps_tie(
             Source.GOOGLE_BOOKS,
             EnrichmentResult(source_id=target.source_id, state=SyncState.FAILED),
         )
+        now += timedelta(seconds=C.QUEUE_TRANSIENT_RETRY_SECONDS)
     assert db.enrichment_targets(Source.GOOGLE_BOOKS, limit=C.ONE) == (later,)
+
+
+@pytest.mark.parametrize(
+    S.META_COVERAGE_TEST_ISSUE_CODE,
+    (S.INVALID_METADATA_FIELD, S.INSUFFICIENT_IDENTITY, S.UNVERIFIED_CANDIDATES),
+)
+def test_deterministic_partial_does_not_retry_until_identity_changes(
+    db: Database, issue_code: str
+) -> None:
+    original = book()
+    publish(db, snapshot(original))
+    db.save_enrichment(
+        original.source,
+        Source.GOOGLE_BOOKS,
+        EnrichmentResult(
+            source_id=original.source_id,
+            state=SyncState.PARTIAL,
+            issues=(Issue(code=issue_code, message=issue_code),),
+        ),
+    )
+    db._connection().execute(S.QUEUE_TEST_ATTEMPT_OLD_TIMESTAMP)
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+    renamed = book(title=S.TEST_METADATA_REFRESH_TRACKS_IDENTITY_TITLE_MATILDA_A_DIFFERENT_EDIT)
+    publish(db, snapshot(renamed))
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == (renamed,)
+
+
+@pytest.mark.parametrize(S.TEST_STORAGE_RETRY_STATE, (SyncState.FAILED, SyncState.PARTIAL))
+def test_retryable_metadata_uses_persisted_due_time_across_restart(
+    db: Database, database_path: Path, monkeypatch: pytest.MonkeyPatch, retry_state: SyncState
+) -> None:
+    original = book()
+    publish(db, snapshot(original))
+    monkeypatch.setattr(storage_module, S.TEST_STORAGE_FIXED_CLOCK, lambda: S.QUEUE_TEST_FIXED_TIME)
+    db.save_enrichment(
+        original.source,
+        Source.GOOGLE_BOOKS,
+        EnrichmentResult(
+            source_id=original.source_id,
+            state=retry_state,
+            issues=(Issue(code=S.METADATA_REQUEST_FAILED, message=S.FAILED, retryable=C.TRUE),),
+        ),
+    )
+    db.close()
+    reopened = Database(database_path)
+    try:
+        monkeypatch.setattr(
+            storage_module, S.TEST_STORAGE_FIXED_CLOCK, lambda: S.QUEUE_TEST_BEFORE_RETRY
+        )
+        assert reopened.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+        monkeypatch.setattr(
+            storage_module, S.TEST_STORAGE_FIXED_CLOCK, lambda: S.QUEUE_TEST_RETRY_DUE
+        )
+        assert reopened.enrichment_targets(Source.GOOGLE_BOOKS) == (original,)
+    finally:
+        reopened.close()
+
+
+def test_healthy_no_candidate_result_settles_without_selected_metadata(db: Database) -> None:
+    original = book()
+    publish(db, snapshot(original))
+    db.save_enrichment(
+        original.source,
+        Source.GOOGLE_BOOKS,
+        EnrichmentResult(source_id=original.source_id, state=SyncState.COMPLETE),
+    )
+    db._connection().execute(S.QUEUE_TEST_ATTEMPT_OLD_TIMESTAMP)
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+    assert db.metadata_for(original.source, S.READER, original.source_id) == ()
+
+
+def test_metadata_queue_excludes_records_without_current_membership(db: Database) -> None:
+    original = book()
+    publish(db, snapshot(original))
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == (original,)
+    publish(db, snapshot())
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+    assert db.record_history(original.source, S.READER, original.source_id)
+
+
+@pytest.mark.parametrize(S.TEST_STORAGE_RETRY_STATE, (SyncState.COMPLETE, SyncState.PARTIAL))
+def test_parked_unresolved_metadata_is_visible_without_requeueing_and_excludes_inactive(
+    db: Database, retry_state: SyncState
+) -> None:
+    original = book()
+    publish(db, snapshot(original))
+    first = metadata_candidate()
+    candidates = (
+        (first, metadata_candidate(provider_id=S.SECOND, edition_id=S.SECOND))
+        if retry_state == SyncState.COMPLETE
+        else (first,)
+    )
+    db.save_enrichment(
+        original.source,
+        Source.GOOGLE_BOOKS,
+        EnrichmentResult(
+            source_id=original.source_id,
+            state=retry_state,
+            candidates=candidates,
+            issues=(Issue(code=S.INVALID_METADATA_FIELD, message=S.COMMUNITY_RATING),),
+        ),
+    )
+
+    class Provider:
+        def lookup(self, book: BookRecord) -> EnrichmentResult:
+            raise AssertionError
+
+    service = SyncService(db, Settings(), {}, {Source.GOOGLE_BOOKS: Provider()})
+    assert db.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+    coverage = db.status()[S.METADATA]
+    assert isinstance(coverage, dict)
+    google = coverage[S.GOOGLE_BOOKS]
+    assert isinstance(google, dict)
+    assert google[S.QUEUE_INCOMPLETE] == C.ONE
+    assert google[S.SELECTED] == (C.ONE if retry_state == SyncState.PARTIAL else C.ZERO)
+    assert google[S.QUEUE_ATTEMPT_STATES] == {retry_state.value: C.ONE}
+    receipt = service._metadata(Source.GOOGLE_BOOKS)
+    assert receipt.state == SyncState.PARTIAL
+    assert receipt.requested == receipt.processed == C.ZERO
+    assert receipt.issues[C.ZERO].code == S.QUEUE_NO_LOOKUPS_DUE_CODE
+    later = book(source_id=S.TWO_2)
+    publish(db, snapshot(original, later))
+
+    class HealthyProvider:
+        def lookup(self, book: BookRecord) -> EnrichmentResult:
+            assert book.source_id == later.source_id
+            return EnrichmentResult(source_id=book.source_id, state=SyncState.COMPLETE)
+
+    service = SyncService(db, Settings(), {}, {Source.GOOGLE_BOOKS: HealthyProvider()})
+    receipt = service._metadata(Source.GOOGLE_BOOKS)
+    assert receipt.state == SyncState.PARTIAL
+    assert receipt.requested == receipt.processed == C.ONE
+    assert receipt.issues[C.ZERO].code == S.QUEUE_NO_LOOKUPS_DUE_CODE
+    publish(db, snapshot())
+    coverage = db.status()[S.METADATA]
+    assert isinstance(coverage, dict)
+    google = coverage[S.GOOGLE_BOOKS]
+    assert isinstance(google, dict)
+    assert google[S.ATTEMPTS] == google[S.CANDIDATES] == google[S.SELECTED] == C.ZERO
+    assert google[S.UNRESOLVED] == google[S.QUEUE_INCOMPLETE] == C.ZERO
+    assert google[S.QUEUE_ATTEMPT_STATES] == {}
+    assert service._metadata(Source.GOOGLE_BOOKS).state == SyncState.COMPLETE
 
 
 def test_identical_replays_share_payloads_without_losing_snapshot_history(db: Database) -> None:
@@ -1767,12 +2152,15 @@ def test_damaged_legacy_migration_rolls_back_without_partial_schema_or_payloads(
         assert connection.execute(S.TEST_STORAGE_PAYLOAD_TABLE_COUNT).fetchone()[C.ZERO] == C.ZERO
 
 
-def test_provider_implementation_change_refreshes_an_otherwise_fresh_attempt(db: Database) -> None:
+@pytest.mark.parametrize(S.TEST_STORAGE_RETRY_STATE, (SyncState.COMPLETE, SyncState.PARTIAL))
+def test_provider_implementation_change_refreshes_an_otherwise_fresh_attempt(
+    db: Database, retry_state: SyncState
+) -> None:
     original = book()
     publish(db, snapshot(original))
     result = EnrichmentResult(
         source_id=original.source_id,
-        state=SyncState.COMPLETE,
+        state=retry_state,
         candidates=(metadata_candidate(),),
     )
     db.save_enrichment(original.source, Source.GOOGLE_BOOKS, result)

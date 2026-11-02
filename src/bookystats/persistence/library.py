@@ -22,10 +22,12 @@ from bookystats.domain.matching import (
     MatchResult,
     candidate_title_author_key,
     compare_books,
+    compare_work_identity,
     edition_identity_facts,
     select_metadata_candidate,
     title_author_key,
     work_bibliography_compatible,
+    work_candidate_keys,
 )
 from bookystats.domain.models import (
     Account,
@@ -462,7 +464,13 @@ class Database:
                 S.DATABASE_PUBLISH_PRIOR_MEMBERS_FROM_MEMBERSHIPS_WHERE_COLLECTION, (collection_id,)
             )
         }
+        # Remove withdrawn identities before comparing this replacement snapshot.
+        removed = connection.execute(
+            S.MATCH_REPAIR_PRUNE_MEMBERS,
+            (collection_id, snapshot_id, snapshot.source.value, snapshot.account_id),
+        ).rowcount
         added = updated = unchanged = C.ZERO
+        affected_ids = set(prior_members)
         now = _date(snapshot.finished_at).isoformat()
         isbn_records: dict[str, list[BookRecord]] = {}
         contested_isbns: set[str] = set()
@@ -476,6 +484,14 @@ class Database:
             record_id, changed = self._save_record(
                 connection, snapshot_id, snapshot, book, contested_isbns
             )
+            affected_ids.add(record_id)
+            for candidate in connection.execute(
+                S.STORAGE_DATABASE_COMPARISON_ROWS_SELECT_ID_TARGET_RECORD_ID_FROM,
+                (record_id, record_id),
+            ):
+                affected_ids.update(
+                    (int(candidate[S.RECORD_ID]), int(candidate[S.TARGET_RECORD_ID]))
+                )
             if record_id not in prior_members:
                 added += C.ONE
             elif changed:
@@ -491,10 +507,12 @@ class Database:
                 (collection_id, record_id, snapshot.source.value, snapshot.account_id, now, now),
             )
             self._save_readings(connection, record_id, snapshot_id, book, now)
-        removed = connection.execute(
+        removed += connection.execute(
             S.DATABASE_PUBLISH_REMOVED_DELETE_FROM_WHERE_COLLECTION_ID_AND,
             (collection_id, snapshot_id),
         ).rowcount
+        for record_id in affected_ids:
+            self._refresh_match_state(connection, record_id)
         connection.execute(
             S.STORAGE_DATABASE_PUBLISH_UPDATE_SNAPSHOTS_SET_PUBLISHED_WHERE_ID, (snapshot_id,)
         )
@@ -572,10 +590,10 @@ class Database:
             ids.add(int(row[S.TARGET_RECORD_ID]))
         ids.discard(record_id)
         return [
-            connection.execute(
-                S.STORAGE_DATABASE_COMPARISON_ROWS_SELECT_FROM_SOURCE_RECORDS_WHERE_ID, (other_id,)
-            ).fetchone()
+            row
             for other_id in sorted(ids)
+            if (row := connection.execute(S.MATCH_REPAIR_ACTIVE_RECORD, (other_id,)).fetchone())
+            is not C.NONE
         ]
 
     def _save_record(
@@ -829,7 +847,7 @@ class Database:
         pending = [
             row[S.KIND]
             for row in connection.execute(
-                S.DATABASE_REFRESH_MATCH_STATE_MATCH_CANDIDATES_WHERE_RESOLUTION,
+                S.MATCH_REPAIR_PENDING_ACTIVE,
                 (record_id, record_id),
             )
         ]
@@ -838,7 +856,7 @@ class Database:
         elif pending:
             state = S.UNRESOLVED
         elif connection.execute(
-            S.STORAGE_DATABASE_REFRESH_MATCH_STATE_SOURCE_RECORDS_WHERE_ID_AND,
+            S.MATCH_REPAIR_ACTIVE_WORK_PEER,
             (record_id, record_id),
         ).fetchone():
             state = S.CONFIRMED
@@ -1055,7 +1073,7 @@ class Database:
             metadata: dict[str, JsonValue] = {}
             for provider in C.STORAGE_METADATA_PROVIDERS:
                 attempts = connection.execute(
-                    S.DATABASE_STATUS_ATTEMPTS_SELECT_COUNT_AS_TOTAL_MAX_CHECKED_AT,
+                    S.QUEUE_STATUS_ATTEMPTS_SQL,
                     (provider.value,),
                 ).fetchone()
                 selected = connection.execute(
@@ -1063,21 +1081,29 @@ class Database:
                 ).fetchone()
                 candidates = int(
                     connection.execute(
-                        S.DATABASE_STATUS_CANDIDATES_SELECT_COUNT_ENRICHMENT_CANDIDATES_C_JOIN,
+                        S.QUEUE_STATUS_CANDIDATES_SQL,
                         (provider.value,),
                     ).fetchone()[C.ZERO]
                 )
                 unresolved = int(
                     connection.execute(
-                        S.DATABASE_STATUS_UNRESOLVED_SELECT_COUNT_ENRICHMENT_ATTEMPTS_A_WHERE,
+                        S.QUEUE_STATUS_UNRESOLVED_SQL,
                         (provider.value, SyncState.COMPLETE.value),
                     ).fetchone()[C.ZERO]
                 )
+                latest_states = connection.execute(
+                    S.QUEUE_STATUS_LATEST_STATES_SQL,
+                    (SyncState.COMPLETE.value, provider.value),
+                ).fetchall()
                 metadata[provider.value] = {
                     S.ATTEMPTS: int(attempts[S.TOTAL]),
                     S.CANDIDATES: candidates,
                     S.SELECTED: int(selected[S.TOTAL]),
                     S.UNRESOLVED: unresolved,
+                    S.QUEUE_INCOMPLETE: sum(int(row[S.QUEUE_INCOMPLETE]) for row in latest_states),
+                    S.QUEUE_ATTEMPT_STATES: {
+                        row[S.STATE]: int(row[S.TOTAL]) for row in latest_states
+                    },
                     S.LAST_ATTEMPT_AT: attempts[S.LAST_ATTEMPT_AT],
                     S.LAST_SUCCESS_AT: selected[S.LAST_SUCCESS_AT],
                 }
@@ -1221,23 +1247,43 @@ class Database:
         provider = self._provider(provider)
         if max_age_days < C.ZERO or (limit is not C.NONE and limit < C.ZERO):
             raise ValueError(S.STORAGE_DATABASE_ENRICHMENT_TARGETS_LIMIT_CANNOT_BE_NEGATIVE)
-        cutoff = (datetime.now(UTC) - timedelta(days=max_age_days)).isoformat()
+        if limit == C.ZERO:
+            return ()
+        cutoff = (_date(utc_now()) - timedelta(seconds=C.QUEUE_TRANSIENT_RETRY_SECONDS)).isoformat()
+        implementation = (
+            C.META_COVERAGE_IMPLEMENTATION_VERSION if provider == Source.OPEN_LIBRARY else C.ONE
+        )
         rows = self._connection().execute(
-            S.DATABASE_ENRICHMENT_TARGETS_ROWS_SELECT_JSON_FROM_SOURCE_RECORDS,
+            S.QUEUE_ELIGIBLE_ATTEMPTS_SQL,
             (
+                implementation,
                 provider.value,
+                implementation,
                 SyncState.COMPLETE.value,
                 cutoff,
-                C.META_COVERAGE_IMPLEMENTATION_VERSION
-                if provider == Source.OPEN_LIBRARY
-                else C.ONE,
-                -C.ONE if limit is C.NONE else limit,
             ),
         )
-        return tuple(
-            BookRecord.model_validate_json(self._payloads().load_text(row[S.LATEST_JSON]))
-            for row in rows
-        )
+        targets: list[BookRecord] = []
+        for row in rows:
+            if not row[S.QUEUE_INVALIDATED]:
+                attempt = EnrichmentResult.model_validate_json(
+                    self._payloads().load_text(row[S.RAW_JSON])
+                )
+                if not (
+                    any(issue.retryable for issue in attempt.issues)
+                    or attempt.state == SyncState.NEEDS_AUTH
+                    or (
+                        not attempt.issues
+                        and attempt.state in (SyncState.FAILED, SyncState.BLOCKED)
+                    )
+                ):
+                    continue
+            targets.append(
+                BookRecord.model_validate_json(self._payloads().load_text(row[S.LATEST_JSON]))
+            )
+            if limit is not C.NONE and len(targets) >= limit:
+                break
+        return tuple(targets)
 
     def record_history(
         self, source: Source, account_id: str, source_id: str
@@ -1291,8 +1337,10 @@ class Database:
         self, *, include_resolved: bool = C.FALSE
     ) -> tuple[dict[str, JsonValue], ...]:
         rows = self._connection().execute(
-            S.DATABASE_MATCH_CANDIDATES_ROWS_SELECT_C_ID_R_SOURCE_R_ACCOUNT,
-            (int(include_resolved),),
+            S.DATABASE_MATCH_CANDIDATES_ROWS_SELECT_C_ID_R_SOURCE_R_ACCOUNT.replace(
+                S.MATCH_REPAIR_CANDIDATE_ORDER, S.MATCH_REPAIR_CANDIDATE_ACTIVE_ORDER
+            ),
+            (int(include_resolved), int(include_resolved)),
         )
         results: list[dict[str, JsonValue]] = []
         for row in rows:
@@ -1406,7 +1454,7 @@ class Database:
         )
         assert candidate_id is not C.NONE
         connection.execute(
-            S.STORAGE_DATABASE_RESOLVE_MATCH_UPDATE_SET_RESOLUTION_WHERE_ID,
+            S.MATCH_REPAIR_CONFIRM_CANDIDATE,
             (S.MATCH_UPGRADE_WORK_CONFIRMED, candidate_id),
         )
         return candidate_id
@@ -1568,7 +1616,193 @@ class Database:
                 linked += C.ONE
             for record_id in active_ids:
                 self._refresh_match_state(connection, record_id)
-            return linked
+            return linked + self._reconcile_bibliography_work_matches(connection, active_ids)
+
+    def _reconcile_bibliography_work_matches(
+        self, connection: sqlite3.Connection, active_ids: set[int]
+    ) -> int:
+        records = {int(row[S.ID]): row for row in connection.execute(S.MATCH_UPGRADE_ALL_RECORDS)}
+        books = {
+            record_id: BookRecord.model_validate_json(
+                self._payloads().load_text(records[record_id][S.LATEST_JSON])
+            )
+            for record_id in active_ids
+        }
+        buckets: dict[str, set[int]] = {}
+        for record_id, book in books.items():
+            for key in work_candidate_keys(book):
+                buckets.setdefault(key, set()).add(record_id)
+        peers: dict[int, set[int]] = {}
+        for record_ids in buckets.values():
+            for record_id in record_ids:
+                peers.setdefault(record_id, set()).update(record_ids)
+        provider_ids: dict[int, set[str]] = {}
+        for row in connection.execute(
+            S.MATCH_REPAIR_CURRENT_PROVIDER_CANDIDATES, (Source.OPEN_LIBRARY.value,)
+        ):
+            record_id = int(row[S.RECORD_ID])
+            if record_id not in books:
+                continue
+            metadata = MetadataCandidate.model_validate_json(
+                self._payloads().load_text(row[S.CANDIDATE_JSON])
+            )
+            if (
+                metadata.provider == Source.OPEN_LIBRARY
+                and metadata.work_id
+                and metadata.provider_id == metadata.work_id
+                and metadata.edition_id is C.NONE
+                and C.MATCH_UPGRADE_PROVIDER_WORK_PATTERN.fullmatch(metadata.work_id)
+                and metadata.url == S.OPEN_LIBRARY_WORK_URL_TEMPLATE.format(v0=metadata.work_id)
+                and compare_books(books[record_id], metadata).kind == MatchKind.CONFIRMED
+            ):
+                provider_ids.setdefault(record_id, set()).add(metadata.work_id)
+
+        def compatible(record_id: int, target_id: int) -> bool:
+            if record_id not in books or target_id not in books:
+                return C.FALSE
+            left, right = books[record_id], books[target_id]
+            catalog_ids = provider_ids.get(record_id, set()) | provider_ids.get(target_id, set())
+            return (
+                left.source != right.source
+                and compare_work_identity(left, right).kind == MatchKind.CONFIRMED
+                and peers.get(record_id) == {record_id, target_id}
+                and peers.get(target_id) == {record_id, target_id}
+                and len(catalog_ids) <= C.ONE
+            )
+
+        invalidated = C.FALSE
+        for decision in connection.execute(
+            S.MATCH_UPGRADE_DECISIONS, (S.MATCH_REPAIR_WORK_AUTOMATIC,)
+        ).fetchall():
+            record_id = int(decision[S.RECORD_ID])
+            record = records[record_id]
+            if (record[S.WORK_ID], record[S.EDITION_ID]) != (
+                decision[S.WORK_ID],
+                decision[S.EDITION_ID],
+            ) or connection.execute(
+                S.STORAGE_LATER_ACCEPTED_MATCH, (record_id, decision[S.ID])
+            ).fetchone():
+                continue
+            candidate = connection.execute(
+                S.DATABASE_RESOLVE_MATCH_CANDIDATE_SELECT_MATCH_CANDIDATES_WHERE_ID,
+                (decision[S.CANDIDATE_ID],),
+            ).fetchone()
+            target_id = (
+                int(candidate[S.TARGET_RECORD_ID])
+                if int(candidate[S.RECORD_ID]) == record_id
+                else int(candidate[S.RECORD_ID])
+            )
+            evidence = _parsed_json(decision[S.MATCH_UPGRADE_EVIDENCE_JSON])
+            assert isinstance(evidence, dict)
+            stored = evidence[S.MATCH_REPAIR_IDENTITY_PROOFS]
+            current: JsonValue = [
+                {S.RECORD_ID: item, S.IDENTITY_HASH: str(records[item][S.IDENTITY_HASH])}
+                for item in sorted((record_id, target_id))
+            ]
+            valid = (
+                candidate[S.RESOLUTION] != S.REJECTED
+                and compatible(record_id, target_id)
+                and stored == current
+                and record[S.WORK_ID] == records[target_id][S.WORK_ID]
+            )
+            if valid:
+                self._save_bibliography_work_candidate(connection, record, records[target_id])
+                continue
+            self._invalidate_automatic_match(
+                connection,
+                decision,
+                candidate,
+                MatchResult(MatchKind.LIKELY, S.MATCH_REPAIR_WORK_LOST),
+                int(record[S.MATCH_UPGRADE_LAST_SNAPSHOT_ID]),
+            )
+            invalidated = C.TRUE
+        if invalidated:
+            self._audit_automatic_isbn_matches(connection)
+            records = {
+                int(row[S.ID]): row for row in connection.execute(S.MATCH_UPGRADE_ALL_RECORDS)
+            }
+        groups: dict[int, list[int]] = {}
+        for record_id, record in records.items():
+            groups.setdefault(int(record[S.WORK_ID]), []).append(record_id)
+        linked = C.ZERO
+        unique_pairs = {
+            tuple(sorted(record_ids)) for record_ids in peers.values() if len(record_ids) == C.TWO
+        }
+        for pair in sorted(unique_pairs):
+            target_id, record_id = pair
+            target, record = records[target_id], records[record_id]
+            if (
+                not compatible(record_id, target_id)
+                or record[S.WORK_ID] == target[S.WORK_ID]
+                or any(
+                    len(groups[int(item[S.WORK_ID])]) != C.ONE
+                    or not self._can_reconsider_identity(
+                        connection, int(item[S.ID]), int(item[S.WORK_ID])
+                    )
+                    for item in (target, record)
+                )
+            ):
+                continue
+            prior = (int(record[S.WORK_ID]), int(record[S.EDITION_ID]))
+            edition_id = _insert_id(
+                connection.execute(
+                    S.DATABASE_NEW_IDENTITY_EDITION_ID_INSERT_EDITIONS_WORK_ID_CREATED_AT,
+                    (target[S.WORK_ID], utc_now()),
+                )
+            )
+            current_identity = (int(target[S.WORK_ID]), edition_id)
+            connection.execute(
+                S.STORAGE_DATABASE_SAVE_RECORD_UPDATE_RECORDS_SET_WORK_ID_EDITION,
+                (*current_identity, record_id),
+            )
+            candidate_id = self._save_bibliography_work_candidate(connection, record, target)
+            self._decision(
+                connection,
+                record_id=record_id,
+                candidate_id=candidate_id,
+                kind=S.MATCH_REPAIR_WORK_AUTOMATIC,
+                prior=prior,
+                current=current_identity,
+                prior_resolution=S.PENDING,
+                evidence={
+                    S.MATCH_REPAIR_POLICY_KEY: S.MATCH_REPAIR_POLICY_CORROBORATED,
+                    S.REASON: compare_work_identity(books[target_id], books[record_id]).reason,
+                    S.IDENTIFIERS: list(
+                        compare_work_identity(books[target_id], books[record_id]).identifiers
+                    ),
+                    S.MATCH_REPAIR_IDENTITY_PROOFS: [
+                        {S.RECORD_ID: item, S.IDENTITY_HASH: str(records[item][S.IDENTITY_HASH])}
+                        for item in (target_id, record_id)
+                    ],
+                    S.ISBNS: [
+                        list(normalized_isbns(books[item].isbns)) for item in (target_id, record_id)
+                    ],
+                },
+            )
+            linked += C.ONE
+        for record_id in active_ids:
+            self._refresh_match_state(connection, record_id)
+        return linked
+
+    def _save_bibliography_work_candidate(
+        self, connection: sqlite3.Connection, record: sqlite3.Row, target: sqlite3.Row
+    ) -> int:
+        candidate_id = self._save_candidate(
+            connection,
+            int(record[S.ID]),
+            target,
+            compare_work_identity(
+                BookRecord.model_validate_json(self._payloads().load_text(record[S.LATEST_JSON])),
+                BookRecord.model_validate_json(self._payloads().load_text(target[S.LATEST_JSON])),
+            ),
+            int(record[S.MATCH_UPGRADE_LAST_SNAPSHOT_ID]),
+        )
+        assert candidate_id is not C.NONE
+        connection.execute(
+            S.MATCH_REPAIR_CONFIRM_CANDIDATE,
+            (S.MATCH_UPGRADE_WORK_CONFIRMED, candidate_id),
+        )
+        return candidate_id
 
     @staticmethod
     def _refresh_after_mapping_change(connection: sqlite3.Connection, record_id: int) -> None:

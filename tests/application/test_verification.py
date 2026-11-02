@@ -24,6 +24,8 @@ from bookystats.domain.models import (
     VerificationResult,
 )
 from bookystats.persistence.raw import RawDocument, RawStore
+from tests.support.exports import account as export_account
+from tests.support.exports import csv_body
 from tests.support.reporting import run_receipt
 
 
@@ -130,6 +132,33 @@ def test_new_file_and_replay_verify_original_bytes(
             size=len(document.body),
         )
         == replay.checks[C.ZERO].detail
+    )
+
+
+def test_storygraph_verification_compares_only_read_scope_and_reports_archived_total(
+    archive: RawStore, library: Mock
+) -> None:
+    read = C.TEST_IMPORT_STORYGRAPH_ROW.copy()
+    to_read = {
+        **read,
+        S.IMPORT_UID: S.TEST_IMPORT_SECOND_ID,
+        S.IMPORT_READ_STATUS: S.TO_READ,
+    }
+    configured = export_account(Source.STORYGRAPH)
+    document = archive.capture(
+        configured.source,
+        configured.account_id,
+        csv_body(Source.STORYGRAPH, [read, to_read]),
+        media_type=S.RAW_CSV_MEDIA_TYPE,
+        origin=S.TEST_REPORTING_FILE,
+    )
+    library.status.return_value = {
+        S.SOURCES: [_entry(source=Source.STORYGRAPH, account=configured.account_id)]
+    }
+    result = _verify(archive, library, document)
+    assert result.result == VerificationResult.SUCCESS
+    assert result.checks[-C.ONE].detail == S.STORYGRAPH_READ_SCOPE_VERIFY_MATCH.format(
+        total=C.TWO, rows=C.ONE, records=C.ONE, library=C.ONE, excluded=C.ONE
     )
 
 

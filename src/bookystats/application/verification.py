@@ -111,7 +111,8 @@ def _library_count(
 
 def _row_count_check(receipt: SourceReceipt, document: RawDocument, library: Storage) -> Check:
     try:
-        rows = count_export_rows(document.body)
+        rows = count_export_rows(document.body, source=receipt.source)
+        total_rows = count_export_rows(document.body)
     except ConnectorError as exc:
         return _check(
             CheckName.ROW_COUNTS,
@@ -121,12 +122,19 @@ def _row_count_check(receipt: SourceReceipt, document: RawDocument, library: Sto
         )
     stored = _library_count(library, receipt.source, document.account_id, receipt.collection)
     agree = rows == receipt.records == stored
+    detail = (
+        (S.STORYGRAPH_READ_SCOPE_VERIFY_MATCH if agree else S.STORYGRAPH_READ_SCOPE_VERIFY_DIFFER)
+        if receipt.source == Source.STORYGRAPH
+        else (S.VERIFY_ROWS_MATCH if agree else S.VERIFY_ROWS_DIFFER)
+    )
     return _check(
         CheckName.ROW_COUNTS,
         VerificationResult.SUCCESS if agree else VerificationResult.FAILED,
         receipt.source,
-        (S.VERIFY_ROWS_MATCH if agree else S.VERIFY_ROWS_DIFFER).format(
+        detail.format(
             rows=rows,
+            total=total_rows,
+            excluded=total_rows - rows,
             records=receipt.records,
             library=stored if stored is not C.NONE else S.STATUS_UNKNOWN,
         ),

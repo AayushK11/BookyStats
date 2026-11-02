@@ -22,7 +22,6 @@
     "google_books": true,
     "open_library": true,
     "max_books_per_run": 10000,
-    "max_age_days": 30,
     "contact": null
   },
   "weekly": {

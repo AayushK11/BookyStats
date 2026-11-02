@@ -287,9 +287,19 @@ class SyncService:
                     ),
                 ),
             )
-        targets = self.store.enrichment_targets(
-            source, max_age_days=self.settings.metadata.max_age_days
-        )
+
+        def coverage_issue() -> Issue | None:
+            metadata = self.store.status().get(S.METADATA)
+            coverage = metadata.get(source.value) if isinstance(metadata, dict) else C.NONE
+            incomplete = coverage.get(S.QUEUE_INCOMPLETE) if isinstance(coverage, dict) else C.NONE
+            if isinstance(incomplete, int) and incomplete > C.ZERO:
+                return Issue(
+                    code=S.QUEUE_NO_LOOKUPS_DUE_CODE,
+                    message=S.QUEUE_NO_LOOKUPS_DUE_MESSAGE.format(count=incomplete),
+                )
+            return C.NONE
+
+        targets = self.store.enrichment_targets(source)
         targets = tuple(
             sorted(
                 targets,
@@ -302,7 +312,12 @@ class SyncService:
         if source == Source.OPEN_LIBRARY and not isinstance(provider, BatchMetadataProvider):
             selected = selected[: C.ONE]
         if not selected:
-            return MetadataReceipt(provider=source, state=SyncState.COMPLETE)
+            issue = coverage_issue()
+            return MetadataReceipt(
+                provider=source,
+                state=SyncState.COMPLETE if issue is C.NONE else SyncState.PARTIAL,
+                issues=() if issue is C.NONE else (issue,),
+            )
         results: tuple[EnrichmentResult, ...]
         requested = len(selected)
         if self.on_metadata_progress is not C.NONE:
@@ -413,6 +428,9 @@ class SyncService:
             issues.extend(result.issues)
         deferred = len(targets) - len(selected)
         complete = all(result.state == SyncState.COMPLETE for result in results) and (not deferred)
+        if complete and (issue := coverage_issue()) is not C.NONE:
+            complete = C.FALSE
+            issues.append(issue)
         if deferred:
             issues.append(
                 Issue(
