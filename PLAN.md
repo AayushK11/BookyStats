@@ -27,6 +27,23 @@ what actually exists in the current checkout.
 
 ## Production hardening — 2026-11-03
 
+### Current implementation handoff — 2026-11-03
+
+Matching/enrichment, analytics, storage, logging and the versioned reader-report
+implementation are integrated on the local main branch. The integrated
+code-level gate passed 1,199 Python tests, Ruff lint/format and strict mypy. The
+owner stopped the clean-slate E2E and independent review before execution.
+Consequently this integration has no fresh real-data coverage, accuracy,
+repeat-run, migration or generated-report evidence. Earlier acceptance sections
+below are dated historical records for prior code; they do not validate this
+integration or describe its current output.
+
+Current data boundary: StoryGraph provides personal ratings and matching
+identity from explicit Read rows; its dates, reviews, statuses and other
+personal fields remain raw-only. Goodreads remains authoritative for reading
+history and watchlist. Do not treat stored report-8 counts as current results
+from the integrated code.
+
 The owner requested coordinated improvements to matching, metadata scalability,
 backend analytics, reading-appetite analysis, available dates and documentation.
 This section records the current scope; acceptance is recorded only after the
@@ -370,9 +387,9 @@ their original input list and freshness labels when new results are blocked.
 Save checks and a run report for success, partial success or failure.
 
 `domain.analytics` and pure `content_analysis` own calculations. The reusable `AnalyticsService` is injected
-into `SyncService` after metadata. StoryGraph contributes ratings and explicitly
-authorized, separately labeled supplemental completion dates; selected
-metadata must pass identity checks and work links must be confirmed. Reused
+into `SyncService` after metadata. StoryGraph contributes ratings only; its
+dates and other personal fields remain raw-only. Selected metadata must pass
+identity checks and work links must be confirmed. Reused
 components receive the current input references without changing cached values.
 Selected public provider work metadata follows confirmed catalog-work links,
 including StoryGraph-origin records. It never imports their raw personal/reader
@@ -1052,7 +1069,7 @@ Produce a standalone Calendar Year in Books
 | Database | **SQLite**, persisted across runs |
 | StoryGraph access | Configured supplied CSV for personal ratings/identity; live acquisition deferred |
 | Goodreads access | Explicit console helper via `fetch`; configured split Read/to-read CSVs or alternative official whole-library CSV; never mix the modes |
-| Source authority | Goodreads watchlist and history/personal data; StoryGraph ratings and explicitly labeled supplemental completion dates, never overriding Goodreads |
+| Source authority | Goodreads watchlist/history; StoryGraph ratings and matching identity only; other StoryGraph fields remain raw-only |
 | Metadata | Google Books and Open Library enabled by default; API-key priority, automatic interactive OAuth setup when needed |
 | Exports | Default configured input; preserve original bytes before parsing, never silently replay missing paths |
 | Refresh cadence | On-demand CSV processing now; weekly automatic acquisition requires later approval and evidence |
@@ -1968,12 +1985,11 @@ community comparisons. The current combined implementation passed the full
   language or establish the language actually read.
 - Cache keys include the full as-of date/year.
 
-The Goodreads files have no authoritative dated reading events. A subsequent
-owner-approved policy permits explicit StoryGraph completion dates as separately
-labeled supplemental evidence, without overriding Goodreads. Library-addition
-and publication dates remain different facts. Review analyses remain gated.
-Implementation tests do not fill data gaps; full provider enrichment remains
-incomplete.
+The Goodreads files have no authoritative dated reading events. StoryGraph
+completion dates remain raw-only and cannot supplement missing reading history.
+Library-addition and publication dates remain different facts. Review analyses
+remain gated. Implementation tests do not fill data gaps; full provider
+enrichment remains incomplete.
 
 ## 19. Let the collected data determine the analyses
 

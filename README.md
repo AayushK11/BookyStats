@@ -119,10 +119,7 @@ or source protections.
 
 Goodreads owns reading history, current watchlist and other personal fields.
 StoryGraph supplies personal ratings and identity from explicit Read rows.
-The owner also approved explicit completion dates as **supplemental** evidence:
-they retain StoryGraph provenance and precision, require confirmed work links,
-and never override Goodreads dates or become Goodreads reading events.
-Other StoryGraph fields, including reviews, remain raw-only.
+StoryGraph dates, reviews, statuses and other personal fields remain raw-only.
 Provider community ratings never replace personal ratings.
 Separately labeled **you versus Goodreads** comparisons are optional analytical
 context; Goodreads scores do not train your preferences or watchlist ranking.
@@ -173,14 +170,12 @@ aliases, retaining unmapped subjects as unknowns.
 | Evidence in the supplied files | Coverage | Meaning |
 | --- | --- | --- |
 | Goodreads library-addition date | 730 Read and 813 watchlist records | Addition to the Goodreads library, not proof of reading or entry to the current shelf |
-| Explicit StoryGraph completion date | 423 of 610 StoryGraph Read rows | Supplemental completion evidence; analytics additionally requires a confirmed Goodreads Read work link |
-| Goodreads authoritative reading events | None in these supplied captures | Reading dates are not inferred from flattened row text |
+| Goodreads labeled completion dates | No trusted completion dates in the current supplied captures | Reading dates are not inferred from flattened row text or StoryGraph |
 | Work/edition publication dates | Available for subsets | Catalog chronology, never personal reading history |
 | Filename and observation timestamps | Capture provenance | When data was archived/observed, not when a book was read |
 
-Unknown dates remain unknown. Supplemental evidence does not establish complete
-reading history or rereads. Current ratings grouped by a completion-date cohort
-are **not historical ratings at that time**.
+Unknown dates remain unknown. Current ratings grouped by a completion-date
+cohort are **not historical ratings at that time**.
 
 More linked ratings are not proof of more accurate matching or predictions.
 Held-out errors must be compared with a training-only baseline on the same
@@ -199,13 +194,13 @@ pointer changes. A failed stage retains the previous bundle; status explicitly
 identifies a retained bundle when newer analytics exist. No report history,
 input, database, credential or backup is automatically deleted.
 
-The PDF is a reader-first portrait rather than a technical findings dump:
-shelf shape, genres, highly rated books, Goodreads comparisons, returning
-authors, cautiously supported preferences, six reading appetites with quotes,
-actual completion-date cohorts, watchlist composition and a ten-book shortlist.
-It closes with a compact coverage table and interpretation notes. The complete
-technical evidence, diagnostics and full ranking remain in JSON. The supplied
-library targets roughly 12–20 pages, not an inventory of every book or finding.
+The PDF is a reader-first portrait rather than a technical findings dump, with
+a data-art cover, compact chapters, charts, rating tiers, Goodreads comparisons,
+description-backed content evidence and watchlist context. It closes with
+coverage and interpretation notes. Chapters are data-dependent; sparse evidence
+is omitted rather than invented. The complete technical evidence, diagnostics
+and full ranking remain in JSON. The layout targets 16–20 pages for a rich
+library, not an inventory of every book or finding.
 
 Embedded fonts provide portable glyph coverage, not universal script layout:
 complex-script shaping and right-to-left layout are not enabled. The PDF

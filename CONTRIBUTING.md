@@ -47,10 +47,8 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
 - The three supplied CSVs have fixed structures. Do not edit them or require new
   headers/exports to support analysis; improve parsing and selected metadata.
 - Goodreads owns history/watchlist data where supported; StoryGraph supplies
-  personal ratings and matching identity from explicit Read rows only. Explicit
-  completion dates may supplement missing Goodreads dates under the owner's
-  approved exception: retain StoryGraph provenance/precision, require confirmed
-  work links, never override Goodreads or synthesize Goodreads reading events.
+  personal ratings and matching identity from explicit Read rows only. StoryGraph
+  dates, reviews, statuses and other personal fields remain raw-only.
   Its Read
   Status selects that import scope, not authoritative history. Preserve all rows
   in the raw archive; keep other StoryGraph fields raw-only.
@@ -104,8 +102,8 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
   compatible title/author evidence and conflict checks; a candidate count is not
   a count of bad books.
 - Analytics inputs pin confirmed work IDs, compatible source snapshots and
-  selected identity-checked metadata. StoryGraph contributes ratings and the
-  separately labeled supplemental completion dates described above.
+  selected identity-checked metadata. StoryGraph contributes ratings only;
+  its dates and other personal fields remain raw-only.
 - Selected public provider work metadata may follow confirmed catalog-work links,
   including StoryGraph-origin records. Never reuse their raw reader fields or
   another record's edition facts. Choose alternative descriptions deterministically

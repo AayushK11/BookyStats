@@ -1,10 +1,28 @@
 # Delivery status
 
-The local-first import, processing and backend analytics foundation is
-implemented. Production-hardening changes passed integrated validation;
-full provider coverage and recommendation-quality gains remain unproven.
-Use `booky status` for this checkout's actual saved state; databases are not
-versioned. Detailed requirements and historical evidence stay in [PLAN.md](PLAN.md).
+The implementation lanes are integrated on the local `main` branch and the
+code-level gate passes. The owner explicitly stopped the clean-slate E2E and
+independent review, so this integration has no fresh real-data coverage,
+accuracy or generated-report claims. Use `booky status` for actual saved state.
+Databases and credentials remain local. See [PLAN.md](PLAN.md) for requirements
+and dated historical evidence.
+
+## Latest integration
+
+- [x] Integrate conservative matching/enrichment, evidence-aware analytics,
+  read-only storage inspection/verified backups, operational logging and a
+  versioned reader-first report bundle.
+- [x] Full code-level gate: **1,199 Python tests**, Ruff lint, Ruff format and
+  strict mypy passed on 2026-11-03.
+- [ ] Clean-slate E2E: stopped by owner; databases, credentials and saved
+  bundles were not deleted or rebuilt.
+- [ ] Independent implementation review: stopped by owner; not run.
+- [ ] Fresh report: not generated because it requires running the data pipeline.
+- [ ] Push: local commits are not yet pushed.
+
+StoryGraph remains raw-only except explicit Read-row ratings and matching
+identity. Goodreads is the only permitted reading-history authority. There is
+no independently labeled matching or recommendation accuracy benchmark.
 
 ## Delivered foundation
 
@@ -49,8 +67,8 @@ versioned. Detailed requirements and historical evidence stay in [PLAN.md](PLAN.
 - [x] Evidence-backed reading-appetite enjoyment associations and rating
   representativeness, separate from explicit labels and official assessments.
 - [x] Fix analytical Read-membership cache invalidation.
-- [x] Add owner-approved supplemental StoryGraph completion dates, preserving
-  provenance/precision and never overriding Goodreads.
+- [x] Keep StoryGraph dates and other personal fields raw-only; do not promote
+  them into analytics.
 - [x] Analyze Goodreads library-addition age separately from reading dates.
 - [x] Make offline terminal status useful and simplify the root user guide.
 - [x] Pass targeted tests, full Python/JavaScript tests, Ruff lint/format, strict
@@ -92,26 +110,8 @@ versioned. Detailed requirements and historical evidence stay in [PLAN.md](PLAN.
 - [x] Retain last-good products on failure and recover interrupted publication.
 - [x] Append redacted incremental progress and complete grouped issue counts to
   one persistent log without deleting earlier sessions.
-- [x] Preserve implementation/configuration/credentials/CSV bytes during the
-  approved one-off cleanup of generated artifacts and old isolated runs.
-- [x] Pass 912 Python tests, 51 JavaScript tests, Ruff lint/format (115 files),
-  strict mypy (58 source files), build and package-boundary checks.
-- [x] Complete the real provider-enabled rebuild and unchanged relocated repeat.
-  Source imports, analytics and products completed; provider outcomes remained
-  partial. All four production databases passed full integrity/foreign-key
-  checks. Catalog wire attempts stayed Open Library 1,666 and Google 1 on the
-  second-pass unchanged repeat;
-  Google rate limiting and its durable gate were preserved, not reset.
-- [x] Complete separate provider-disabled real-CSV failure/recovery acceptance:
-  2,153 active source records; 730 Read/813 watchlist works; 110 ranked and 703
-  explicit abstentions with source-only metadata; ten shortlisted. Repeat and
-  recovery reused analytics/recommendation caches. The failed Read scope
-  retained its snapshot and latest complete bundle; all three fixture databases
-  passed full integrity/foreign-key checks. This is not provider acceptance.
-- [x] Organize the actual data directory into inputs/databases/reports/logs/
-  credentials/runtime, preserving all four databases and OAuth byte-for-byte,
-  original CSV hashes, provider counters and retry gates. Keep offline legacy
-  reads, safe lock/WAL handling and resumable conflict-rejecting migration tested.
+- [ ] Clean-slate runtime cleanup and fresh rebuild remain stopped; no user
+  databases, logs, bundles, credentials or retry gates were deleted.
 
 ## Current saved products
 
