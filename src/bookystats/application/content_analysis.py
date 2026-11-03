@@ -75,25 +75,54 @@ def _description(book: AnalysisBook) -> _Description | None:
     return C.NONE
 
 
+def _sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    first, last = C.ZERO, len(text)
+    for boundary in C.AN3_CONTENT_SENTENCE_END.finditer(text):
+        if boundary.end() <= start:
+            first = boundary.end()
+        elif boundary.start() >= end:
+            last = boundary.start()
+            break
+    return first, last
+
+
+# Quotes are whole sentences; only a very long sentence is shortened, on word boundaries.
+def _quote(text: str, first: int, last: int, start: int, end: int) -> tuple[str, bool]:
+    if last - first <= C.AN3_CONTENT_QUOTE_LIMIT:
+        return text[first:last], C.FALSE
+    low = max(first, start - C.CONTENT_ANALYSIS_EXCERPT_CONTEXT)
+    high = min(last, end + C.CONTENT_ANALYSIS_EXCERPT_CONTEXT)
+    words = [
+        word
+        for word in C.AN3_CONTENT_WORD.finditer(text, first, last)
+        if word.end() > low and word.start() < high
+    ]
+    return text[words[C.ZERO].start() : words[-C.ONE].end()], C.TRUE
+
+
 def _proof(description: _Description, pattern: Pattern[str]) -> dict[str, JsonValue] | None:
-    for match in pattern.finditer(description.text):
-        prefix = description.text[
+    text = description.text
+    for match in pattern.finditer(text):
+        prefix = text[
             max(C.ZERO, match.start() - C.CONTENT_ANALYSIS_NEGATION_CONTEXT) : match.start()
         ]
         clause = C.CONTENT_ANALYSIS_CLAUSE.split(prefix)[-C.ONE]
         if C.CONTENT_ANALYSIS_NEGATION.search(clause):
             continue
+        first, last = _sentence_bounds(text, match.start(), match.end())
+        if C.AN3_CONTENT_MARKETING.search(text[first:last]):
+            continue
+        quote, truncated = _quote(text, first, last, match.start(), match.end())
         return {
             S.CONTENT_ANALYSIS_WORK: description.book.book_id,
             S.CONTENT_ANALYSIS_SOURCE: description.evidence.source,
             S.CONTENT_ANALYSIS_FIELD: S.DESCRIPTION,
             S.CONTENT_ANALYSIS_SCOPE: description.evidence.observation.scope,
             S.CONTENT_ANALYSIS_URL: description.public_url,
+            S.AN3_RULE_ID: match.lastgroup,
             S.CONTENT_ANALYSIS_MATCH: match.group(),
-            S.CONTENT_ANALYSIS_QUOTE: description.text[
-                max(C.ZERO, match.start() - C.CONTENT_ANALYSIS_EXCERPT_CONTEXT) : match.end()
-                + C.CONTENT_ANALYSIS_EXCERPT_CONTEXT
-            ],
+            S.CONTENT_ANALYSIS_QUOTE: quote,
+            S.AN3_QUOTE_TRUNCATED: truncated,
         }
     return C.NONE
 

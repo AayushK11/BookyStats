@@ -4,9 +4,19 @@ import pytest
 
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.domain.analytics import AnalysisBook, AnalysisInput, AnalysisManifest
-from bookystats.domain.models import FieldState, ReadingStatus, Source
-from bookystats.domain.reader import build_reader_summary
+from bookystats.domain.analytics import (
+    AnalysisBook,
+    AnalysisEvidence,
+    AnalysisInput,
+    AnalysisManifest,
+)
+from bookystats.domain.models import FieldState, Observation, ReadingStatus, Source
+from bookystats.domain.reader import (
+    build_reader_summary,
+    community_sample_size,
+    tier_counts,
+    usual_rating,
+)
 
 
 def _book(work_id: int, rating: float | None = C.NONE) -> AnalysisBook:
@@ -30,6 +40,35 @@ def _data(*books: AnalysisBook) -> AnalysisInput:
             snapshots=(),
             settings_hash=S.AN_CALC_TEST_HASH,
         ),
+    )
+
+
+def _crowd_size(
+    book: AnalysisBook,
+    *sizes: int | None,
+    field: str = S.RATINGS_COUNT,
+    source: str = S.GOODREADS,
+    scope: S.ObservationScope = S.WORK,
+) -> AnalysisBook:
+    evidence = tuple(
+        AnalysisEvidence(
+            source=source,
+            source_id=str(book.work_id),
+            observation=Observation(
+                field=field,
+                value=size,
+                scope=scope,
+                state=FieldState.PRESENT if size is not C.NONE else FieldState.UNAVAILABLE,
+                source_url=S.CONTENT_ANALYSIS_TEST_URL,
+            ),
+        )
+        for size in sizes
+    )
+    return book.model_copy(
+        update={
+            S.AN_EVIDENCE: evidence,
+            S.REC_COMMUNITY_RATINGS: {Source.GOODREADS.value: C.THREE},
+        }
     )
 
 
@@ -93,3 +132,63 @@ def test_reader_examples_are_deterministic_and_duplicate_work_ids_are_rejected()
     assert build_reader_summary(_data(first, second)) == build_reader_summary(_data(second, first))
     with pytest.raises(ValueError, match=S.RD_DUPLICATE):
         build_reader_summary(_data(first, first))
+
+
+def test_goodreads_browser_ratings_count_is_the_comparison_sample_size() -> None:
+    # The Goodreads browser import writes `ratings_count`; the provider spelling also counts.
+    for field in (S.RATINGS_COUNT, S.COMMUNITY_RATINGS_COUNT):
+        book = _crowd_size(_book(C.ONE, C.FIVE), C.AN3_TEST_CROWD_SIZE, field=field)
+        comparison = build_reader_summary(_data(book)).community_comparisons[C.ZERO]
+        assert comparison.community_sample_size == C.AN3_TEST_CROWD_SIZE
+        assert comparison.community == C.THREE and comparison.personal == C.FIVE
+
+
+def test_crowd_sample_size_requires_one_positive_goodreads_work_count() -> None:
+    base = _book(C.ONE, C.FIVE)
+    size = C.AN3_TEST_CROWD_SIZE
+    assert community_sample_size(_crowd_size(base, size, size)) == size
+    unusable = (
+        _crowd_size(base, size, C.AN3_TEST_CROWD_OTHER_SIZE),
+        _crowd_size(base, C.NONE),
+        _crowd_size(base, C.ZERO),
+        _crowd_size(base, -C.ONE),
+        _crowd_size(base, C.TRUE),
+        _crowd_size(base, size, source=S.OPEN_LIBRARY),
+        _crowd_size(base, size, scope=S.EDITION),
+        base,
+    )
+    for book in unusable:
+        assert community_sample_size(book) is C.NONE
+    for book in unusable[: -C.ONE]:
+        comparison = build_reader_summary(_data(book)).community_comparisons[C.ZERO]
+        assert comparison.community_sample_size is C.NONE
+
+
+def test_rating_tiers_are_relative_to_the_usual_rating_not_the_configured_threshold() -> None:
+    ratings = (C.THREE, C.THREE, C.THREE, C.FOUR, C.FIVE, C.TWO)
+    summary = build_reader_summary(
+        _data(*(_book(index, value) for index, value in enumerate(ratings, C.ONE)))
+    )
+    assert summary.usual_rating == C.THREE and not summary.tied_usual_ratings
+    assert (summary.standout, summary.solid, summary.below_usual) == (C.TWO, C.THREE, C.ONE)
+    assert summary.standout + summary.solid + summary.below_usual == summary.rated
+    assert summary.standout_examples == (C.FIVE, C.FOUR)
+    group = summary.genres[C.ZERO]
+    assert (group.standouts, group.below_usual) == (C.TWO, C.ONE)
+    # The legacy threshold fields keep their meaning for older saved-report consumers.
+    assert summary.favorites == C.TWO and summary.favorite_threshold == C.FOUR
+
+
+def test_tied_usual_ratings_use_the_lowest_and_are_disclosed() -> None:
+    assert usual_rating((C.THREE, C.FIVE, C.THREE, C.FIVE, C.FOUR)) == (C.THREE, C.FIVE)
+    assert usual_rating(()) == ()
+    ratings = (C.FIVE, C.THREE, C.FIVE, C.THREE)
+    summary = build_reader_summary(
+        _data(*(_book(index, value) for index, value in enumerate(ratings, C.ONE)))
+    )
+    assert summary.usual_rating == C.THREE and summary.tied_usual_ratings == (C.THREE, C.FIVE)
+    assert (summary.standout, summary.solid, summary.below_usual) == (C.TWO, C.TWO, C.ZERO)
+    assert tier_counts((C.ONE, C.TWO), C.NONE) == (C.ZERO, C.ZERO, C.ZERO)
+    unrated = build_reader_summary(_data(_book(C.ONE)))
+    assert unrated.usual_rating is C.NONE
+    assert (unrated.standout, unrated.solid, unrated.below_usual) == (C.ZERO, C.ZERO, C.ZERO)

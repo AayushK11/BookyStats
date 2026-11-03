@@ -12,7 +12,6 @@ from bookystats.domain.models import (
     ReadingEvent,
     ReadingStatus,
     Source,
-    SupplementalCompletionDate,
     SyncState,
     utc_now,
 )
@@ -104,7 +103,6 @@ class AnalysisBook(C.Model):
     review: str | None = C.NONE
     community_ratings: dict[str, float] = Field(default_factory=dict)
     reading_events: tuple[ReadingEvent, ...] = ()
-    supplemental_completion_dates: tuple[SupplementalCompletionDate, ...] = ()
     added_at: PartialDate | None = C.NONE
     field_states: dict[str, FieldState] = Field(default_factory=dict)
     evidence: tuple[AnalysisEvidence, ...] = ()
@@ -157,7 +155,6 @@ class AnalysisInput(C.Model):
     books: tuple[AnalysisBook, ...]
     manifest: AnalysisManifest
     source_counts: dict[str, int] = Field(default_factory=dict)
-    supplemental_completion_counts: dict[str, int] = Field(default_factory=dict)
     personal_rating_records: int = Field(default=C.ZERO, ge=C.ZERO)
     issues: tuple[Issue, ...] = ()
     as_of: str = Field(default_factory=utc_now)

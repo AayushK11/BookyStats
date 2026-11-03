@@ -7,7 +7,12 @@ import pytest
 
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.domain.analytics import AnalyticsSettings, DeclaredLabel
+from bookystats.domain.analytics import (
+    AnalysisBook,
+    AnalysisInput,
+    AnalyticsSettings,
+    DeclaredLabel,
+)
 from bookystats.domain.models import (
     BookRecord,
     EnrichmentResult,
@@ -143,7 +148,19 @@ def supplemental(
     )
 
 
-def test_supplemental_completion_follows_only_confirmed_work_links(library: Database) -> None:
+def _assert_no_storygraph_date(data: AnalysisInput) -> AnalysisBook:
+    result = data.books[C.ZERO]
+    text = data.model_dump_json()
+    assert not result.goodreads_completion_dates
+    assert S.DTX_SUPPLEMENTAL_COMPLETION_DATE not in result.field_states
+    assert S.DTX_SUPPLEMENTAL_COMPLETION_DATE not in text
+    assert S.DTX_TEST_DAY not in text
+    return result
+
+
+def test_legacy_storygraph_supplemental_dates_never_enter_analysis_input(
+    library: Database,
+) -> None:
     date = supplemental()
     personal = book(
         **{
@@ -155,24 +172,18 @@ def test_supplemental_completion_follows_only_confirmed_work_links(library: Data
     publish_scope(library, Source.STORYGRAPH, personal)
     publish_scope(library, Source.GOODREADS, catalog, collection=S.READ)
     data = library.analytics_input(accounts(), AnalyticsSettings())
-    result = data.books[C.ZERO]
-    assert result.supplemental_completion_dates == (date,)
-    assert data.supplemental_completion_counts[S.DTX_SOURCE_COMPLETION_DATES_PRESENT] == C.ONE
-    assert data.supplemental_completion_counts[S.DTX_SOURCE_COMPLETION_DATES_EMPTY] == C.ZERO
+    result = _assert_no_storygraph_date(data)
+    assert result.rating == C.FOUR
     assert not result.reading_events
     assert result.added_at == catalog.added_at
-    assert result.field_states[S.DTX_SUPPLEMENTAL_COMPLETION_DATE] == FieldState.PRESENT
-    evidence = next(
-        item
+    assert data.personal_rating_records == C.ONE
+    assert any(
+        item.source == Source.STORYGRAPH.value and item.observation.field == S.RATING
         for item in result.evidence
-        if item.observation.field == S.DTX_SUPPLEMENTAL_COMPLETION_DATE
     )
-    assert evidence.source == Source.STORYGRAPH.value
-    assert evidence.source_id == personal.source_id
-    assert evidence.observation == date.observation
 
 
-def test_unconfirmed_supplemental_completion_does_not_transfer(library: Database) -> None:
+def test_unlinked_legacy_storygraph_dates_leave_no_analysis_trace(library: Database) -> None:
     date = supplemental()
     publish_scope(
         library,
@@ -192,15 +203,12 @@ def test_unconfirmed_supplemental_completion_does_not_transfer(library: Database
         collection=S.READ,
     )
     data = library.analytics_input(accounts(), AnalyticsSettings())
-    result = data.books[C.ZERO]
-    assert not result.supplemental_completion_dates
-    assert data.supplemental_completion_counts[S.DTX_SOURCE_COMPLETION_DATES_PRESENT] == C.ONE
-    assert not any(
-        item.observation.field == S.DTX_SUPPLEMENTAL_COMPLETION_DATE for item in result.evidence
-    )
+    result = _assert_no_storygraph_date(data)
+    assert result.rating is C.NONE
+    assert not result.reading_events
 
 
-def test_conflicting_supplemental_dates_remain_separate_from_goodreads_history(
+def test_goodreads_history_is_unchanged_by_conflicting_storygraph_dates(
     library: Database,
 ) -> None:
     dates = (supplemental(), supplemental(S.DTX_TEST_OTHER_DATE, S.TEST_IMPORT_SECOND_ID))
@@ -225,10 +233,10 @@ def test_conflicting_supplemental_dates_remain_separate_from_goodreads_history(
         book(**{S.SOURCE: Source.GOODREADS, S.READING_EVENTS: (event,)}),
         collection=S.READ,
     )
-    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    data = library.analytics_input(accounts(), AnalyticsSettings())
+    result = _assert_no_storygraph_date(data)
+    assert S.DTX_TEST_OTHER_DATE not in data.model_dump_json()
     assert result.reading_events == (event,)
-    assert set(result.supplemental_completion_dates) == set(dates)
-    assert result.field_states[S.DTX_SUPPLEMENTAL_COMPLETION_DATE] == FieldState.FAILED
 
 
 def test_supplemental_capture_time_does_not_change_record_semantics() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from statistics import mean, median
 
 from bookystats import constants as C
@@ -20,6 +21,8 @@ class ReaderGroup(C.Model):
     adjusted_average: float | None = C.NONE
     difference_from_baseline: float | None = C.NONE
     examples: tuple[int, ...] = ()
+    standouts: int = C.ZERO
+    below_usual: int = C.ZERO
 
 
 class ReaderComparison(C.Model):
@@ -55,12 +58,54 @@ class ReaderSummary(C.Model):
     watchlist_unknown_authors: int
     favorite_examples: tuple[int, ...]
     community_comparisons: tuple[ReaderComparison, ...]
+    usual_rating: float | None = C.NONE
+    tied_usual_ratings: tuple[float, ...] = ()
+    standout: int = C.ZERO
+    solid: int = C.ZERO
+    below_usual: int = C.ZERO
+    standout_examples: tuple[int, ...] = ()
 
 
 def _ratings(books: tuple[AnalysisBook, ...]) -> tuple[float, ...]:
     return tuple(
         book.rating for book in books if book.rating is not C.NONE and not book.rating_conflict
     )
+
+
+def usual_rating(values: Iterable[float]) -> tuple[float, ...]:
+    # Every most-used rating, lowest first; the first entry is the usual rating.
+    histogram = Counter(values)
+    if not histogram:
+        return ()
+    top = max(histogram.values())
+    return tuple(sorted(rating for rating, count in histogram.items() if count == top))
+
+
+def tier_counts(values: Iterable[float], usual: float | None) -> tuple[int, int, int]:
+    # Standout (above), solid (equal) and below-usual counts relative to the usual rating.
+    if usual is C.NONE:
+        return (C.ZERO, C.ZERO, C.ZERO)
+    items = tuple(values)
+    return (
+        sum(value > usual for value in items),
+        sum(value == usual for value in items),
+        sum(value < usual for value in items),
+    )
+
+
+def community_sample_size(book: AnalysisBook) -> int | None:
+    # The single positive Goodreads ratings count behind the public average, else unknown.
+    sizes = {
+        item.observation.value
+        for item in book.evidence
+        if item.source == Source.GOODREADS.value
+        and item.observation.field in C.AN3_SAMPLE_SIZE_FIELDS
+        and item.observation.scope == S.WORK
+        and item.observation.state == FieldState.PRESENT
+        and type(item.observation.value) is int
+        and item.observation.value > C.ZERO
+    }
+    return next(iter(sizes)) if len(sizes) == C.ONE else C.NONE
 
 
 def _labels(book: AnalysisBook, field: str) -> tuple[str, ...]:
@@ -91,7 +136,7 @@ def _examples(books: tuple[AnalysisBook, ...], limit: int) -> tuple[int, ...]:
 
 
 def _groups(
-    books: tuple[AnalysisBook, ...], field: str, data: AnalysisInput
+    books: tuple[AnalysisBook, ...], field: str, data: AnalysisInput, usual: float | None
 ) -> tuple[ReaderGroup, ...]:
     groups: dict[str, list[AnalysisBook]] = defaultdict(list)
     names: dict[str, str] = {}
@@ -109,6 +154,7 @@ def _groups(
     result: list[ReaderGroup] = []
     for key, group in groups.items():
         values = _ratings(tuple(group))
+        standouts, _, below = tier_counts(values, usual)
         adjusted = (
             (sum(values) + settings.prior_strength * baseline)
             / (len(values) + settings.prior_strength)
@@ -127,6 +173,8 @@ def _groups(
                 if adjusted is not C.NONE and baseline is not C.NONE
                 else C.NONE,
                 examples=_examples(tuple(group), C.REC_EXAMPLE_LIMIT),
+                standouts=standouts,
+                below_usual=below,
             )
         )
     return tuple(sorted(result, key=lambda group: (-group.works, group.label.casefold())))
@@ -161,9 +209,12 @@ def build_reader_summary(data: AnalysisInput) -> ReaderSummary:
     unknown = sum(not _labels(book, S.AUTHORS) for book in watch)
     threshold = data.manifest.settings.high_rating_threshold
     histogram = Counter(ratings)
+    ties = usual_rating(ratings)
+    usual = ties[C.ZERO] if ties else C.NONE
     most_used = (
         min(histogram, key=lambda rating: (-histogram[rating], rating)) if histogram else C.NONE
     )
+    standout, solid, below = tier_counts(ratings, usual)
     comparisons: list[ReaderComparison] = []
     for book in read:
         community = book.community_ratings.get(Source.GOODREADS.value)
@@ -174,22 +225,13 @@ def build_reader_summary(data: AnalysisInput) -> ReaderSummary:
             or not C.ZERO <= community <= C.FIVE
         ):
             continue
-        sizes = {
-            item.observation.value
-            for item in book.evidence
-            if item.source == Source.GOODREADS.value
-            and item.observation.field == S.COMMUNITY_RATINGS_COUNT
-            and item.observation.state == FieldState.PRESENT
-            and type(item.observation.value) is int
-            and item.observation.value > C.ZERO
-        }
         comparisons.append(
             ReaderComparison(
                 work_id=book.work_id,
                 personal=book.rating,
                 community=community,
                 difference=book.rating - community,
-                community_sample_size=next(iter(sizes)) if len(sizes) == C.ONE else C.NONE,
+                community_sample_size=community_sample_size(book),
             )
         )
     return ReaderSummary(
@@ -210,10 +252,10 @@ def build_reader_summary(data: AnalysisInput) -> ReaderSummary:
         genres_known=sum(bool(_labels(book, S.GENRES)) for book in read),
         authors_known=sum(bool(_labels(book, S.AUTHORS)) for book in read),
         distinct_authors=len(authors),
-        authors=_groups(read, S.AUTHORS, data),
-        genres=_groups(read, S.GENRES, data),
-        watchlist_genres=_groups(watch, S.GENRES, data),
-        lengths=_groups(read, S.PAGE_COUNT, data),
+        authors=_groups(read, S.AUTHORS, data, usual),
+        genres=_groups(read, S.GENRES, data, usual),
+        watchlist_genres=_groups(watch, S.GENRES, data, usual),
+        lengths=_groups(read, S.PAGE_COUNT, data, usual),
         watchlist_familiar_authors=familiar,
         watchlist_new_authors=len(watch) - familiar - unknown,
         watchlist_unknown_authors=unknown,
@@ -228,4 +270,20 @@ def build_reader_summary(data: AnalysisInput) -> ReaderSummary:
             C.RD_EXAMPLE_LIMIT,
         ),
         community_comparisons=tuple(sorted(comparisons, key=lambda item: item.work_id)),
+        usual_rating=usual,
+        tied_usual_ratings=ties if len(ties) > C.ONE else (),
+        standout=standout,
+        solid=solid,
+        below_usual=below,
+        standout_examples=_examples(
+            tuple(
+                book
+                for book in read
+                if usual is not C.NONE
+                and book.rating is not C.NONE
+                and not book.rating_conflict
+                and book.rating > usual
+            ),
+            C.RD_EXAMPLE_LIMIT,
+        ),
     )

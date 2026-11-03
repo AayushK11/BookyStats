@@ -8,7 +8,12 @@ from pydantic import JsonValue
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.application.content_analysis import build_content_analysis, description_provenance
-from bookystats.application.statistics import build_reading_profile, build_taste, build_watchlist
+from bookystats.application.statistics import (
+    build_reading_profile,
+    build_taste,
+    build_watchlist,
+    profile_evidence_facts,
+)
 from bookystats.domain.analytics import (
     AnalysisComponent,
     AnalysisInput,
@@ -56,22 +61,13 @@ def _component_key(
         )
         for book in data.books
     ]
-    for book, fact in zip(data.books, facts, strict=C.TRUE):
-        if isinstance(fact, dict):
-            fact[S.DTX_SUPPLEMENTAL_COMPLETION_DATES] = [
-                {
-                    S.SOURCE: item.source.value,
-                    S.SOURCE_ID: item.source_id,
-                    S.STATE: item.observation.state.value,
-                    S.ANX_SOURCE_URL: item.observation.source_url,
-                    S.VALUE: item.finished.value if item.finished is not C.NONE else C.NONE,
-                }
-                for item in book.supplemental_completion_dates
-            ]
     return _key(
         {
             S.BOOKS: facts,
             S.AN_CONTENT_EVIDENCE: [description_provenance(book) for book in data.books],
+            S.AN3_EVIDENCE_FACTS: [profile_evidence_facts(book) for book in data.books]
+            if taste_key is C.NONE
+            else C.NONE,
             S.ANX_READ_MEMBERSHIP: [
                 S.READ in book.collections or book.status == ReadingStatus.READ
                 for book in data.books
@@ -82,7 +78,6 @@ def _component_key(
                 for book in data.books
             ],
             S.AN_SOURCE_COUNTS: {scope: count for scope, count in data.source_counts.items()},
-            S.ANX_COMPLETION_COUNTS: dict(data.supplemental_completion_counts),
             S.AN_PERSONAL_RATING_RECORDS: data.personal_rating_records,
             S.AN_ACCOUNT_FINGERPRINT: data.manifest.account_fingerprint,
             S.AN_CALCULATION_VERSION_KEY: data.manifest.calculation_version,

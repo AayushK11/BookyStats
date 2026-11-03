@@ -242,9 +242,9 @@ def test_many_terms_and_duplicate_work_count_once_per_family() -> None:
         _book(work_id, S.CONTENT_ANALYSIS_TEST_REPEATED) for work_id in range(C.ONE, C.FOUR)
     )
     hunger = _hunger(_analyze(_data(*books, *books)))
-    wonder = _groups(hunger)[S.AN_WONDER]
-    assert isinstance(wonder, dict)
-    assert wonder[S.CONTENT_ANALYSIS_COUNT] == C.THREE
+    intensity = _groups(hunger)[S.AN_INTENSITY]
+    assert isinstance(intensity, dict)
+    assert intensity[S.CONTENT_ANALYSIS_COUNT] == C.THREE
     assert hunger.sample_size == C.THREE
 
 
@@ -276,6 +276,51 @@ def test_reviews_unverified_taxonomy_and_storygraph_text_are_not_description_evi
     assert _hunger(_analyze(storygraph)).sample_size == C.ZERO
     no_evidence = _data(*(_book(work_id, evidence=C.FALSE) for work_id in range(C.ONE, C.FOUR)))
     assert _hunger(_analyze(no_evidence)).sample_size == C.ZERO
+
+
+def test_rules_reject_genre_markers_idioms_and_marketing_cues() -> None:
+    books = tuple(_book(work_id, S.AN3_TEST_MARKETING) for work_id in range(C.ONE, C.SIX))
+    findings = _analyze(_data(*books))
+    themes = _metric(findings, S.CONTENT_ANALYSIS_THEMES.format(collection=S.READ))
+    assert _groups(_hunger(findings)) == {}
+    assert _groups(themes) == {}
+    assert _hunger(findings).sample_size == C.FIVE
+
+
+def test_quotes_are_whole_description_sentences_with_rule_ids() -> None:
+    books = tuple(_book(work_id, S.AN3_TEST_MIXED) for work_id in range(C.ONE, C.SIX))
+    hunger = _hunger(_analyze(_data(*books)))
+    assert S.AN3_CONTENT_RULES_NOTE in hunger.limitations
+    assert set(_groups(hunger)) == {S.AN_WONDER}
+    wonder = _groups(hunger)[S.AN_WONDER]
+    assert isinstance(wonder, dict)
+    proofs = wonder[S.CONTENT_ANALYSIS_PROOF]
+    assert isinstance(proofs, list)
+    assert proofs
+    for proof in proofs:
+        assert isinstance(proof, dict)
+        assert proof[S.CONTENT_ANALYSIS_QUOTE] == S.AN3_TEST_CUE_SENTENCE
+        assert proof[S.AN3_RULE_ID] == S.AN3_TEST_WONDER_RULE
+        assert proof[S.AN3_QUOTE_TRUNCATED] is C.FALSE
+
+
+def test_very_long_sentences_are_shortened_only_on_word_boundaries() -> None:
+    books = tuple(_book(work_id, S.AN3_TEST_LONG_SENTENCE) for work_id in range(C.ONE, C.SIX))
+    wonder = _groups(_hunger(_analyze(_data(*books))))[S.AN_WONDER]
+    assert isinstance(wonder, dict)
+    proofs = wonder[S.CONTENT_ANALYSIS_PROOF]
+    assert isinstance(proofs, list)
+    for proof in proofs:
+        assert isinstance(proof, dict)
+        quote = proof[S.CONTENT_ANALYSIS_QUOTE]
+        assert isinstance(quote, str)
+        assert proof[S.AN3_QUOTE_TRUNCATED] is C.TRUE
+        assert str(proof[S.CONTENT_ANALYSIS_MATCH]) in quote
+        start = S.AN3_TEST_LONG_SENTENCE.index(quote)
+        end = start + len(quote)
+        assert len(quote) < len(S.AN3_TEST_LONG_SENTENCE)
+        assert S.AN3_TEST_LONG_SENTENCE[start - C.ONE] == S.SPACE
+        assert S.AN3_TEST_LONG_SENTENCE[end] == S.SPACE
 
 
 def test_watchlist_only_changes_are_excluded_and_top_level_job_is_picklable() -> None:

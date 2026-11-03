@@ -14,6 +14,7 @@ from bookystats import strings as S
 from bookystats.domain.analytics import (
     AnalysisBook,
     AnalysisComponent,
+    AnalysisEvidence,
     AnalysisInput,
     AnalyticsSettings,
     Capability,
@@ -22,7 +23,12 @@ from bookystats.domain.analytics import (
 )
 from bookystats.domain.categories import analytical_categories
 from bookystats.domain.models import PartialDate, ReadingStatus
-from bookystats.domain.reader import build_reader_summary
+from bookystats.domain.reader import (
+    build_reader_summary,
+    community_sample_size,
+    tier_counts,
+    usual_rating,
+)
 
 
 def _unique(books: tuple[AnalysisBook, ...]) -> tuple[AnalysisBook, ...]:
@@ -58,6 +64,30 @@ def _rated(books: tuple[AnalysisBook, ...]) -> tuple[AnalysisBook, ...]:
 
 def _ratings(books: tuple[AnalysisBook, ...]) -> list[float]:
     return [book.rating for book in _rated(books) if book.rating is not C.NONE]
+
+
+def _link_state(book: AnalysisBook) -> str:
+    if book.rating is not C.NONE and not book.rating_conflict:
+        return S.AN3_LINK_AVAILABLE
+    state = book.field_states.get(S.RATING)
+    if book.rating_conflict or state == C.FieldState.FAILED:
+        return S.AN3_LINK_CONFLICT
+    if state == C.FieldState.EMPTY:
+        return S.AN3_LINK_EMPTY
+    if any(match.source == C.Source.STORYGRAPH for match in book.possible_read_matches):
+        return S.AN3_LINK_PENDING
+    return S.AN3_LINK_NONE
+
+
+def _evidence_proof(item: AnalysisEvidence) -> dict[str, JsonValue]:
+    # Capture time and file lineage live in the manifest, so cached proofs stay stable.
+    return {
+        S.SOURCE: item.source,
+        S.SOURCE_ID: item.source_id,
+        S.CONTENT_ANALYSIS_FIELD: item.observation.field,
+        S.CONTENT_ANALYSIS_SCOPE: item.observation.scope,
+        S.DETAIL: item.detail,
+    }
 
 
 def _ratio(numerator: float, denominator: float) -> float | None:
@@ -144,13 +174,55 @@ def _numeric_profile(values: list[int]) -> dict[str, JsonValue]:
     }
 
 
+def _gap(left: float | None, right: float | None) -> float | None:
+    return left - right if left is not C.NONE and right is not C.NONE else C.NONE
+
+
+def _shrunk_rate(count: int, total: int, base: float | None, prior: float) -> float | None:
+    if not total or base is C.NONE:
+        return C.NONE
+    return (count + prior * base) / (total + prior)
+
+
+def _tier_mapping(
+    values: list[float], usual: float | None, *, shares: bool = C.FALSE
+) -> dict[str, JsonValue]:
+    counts = tier_counts(values, usual)
+    return {
+        tier: _ratio(count, len(values)) if shares else count
+        for tier, count in zip(C.AN3_TIERS, counts, strict=C.TRUE)
+    }
+
+
+def _method_version(metric: str) -> str:
+    return next(
+        (
+            version
+            for tokens, version in C.AN3_METHOD_FAMILIES
+            if any(token in metric for token in tokens)
+        ),
+        S.AN3_METHOD_DEFAULT,
+    )
+
+
+def _evidence_tiers(books: tuple[AnalysisBook, ...], field: str) -> dict[str, JsonValue]:
+    counts = Counter(
+        book.field_evidence[field].value if field in book.field_evidence else S.AN3_NOT_ASSESSED
+        for book in books
+    )
+    return {tier: counts[tier] for tier in C.AN3_EVIDENCE_TIER_KEYS}
+
+
 def _rating_summary(
-    books: tuple[AnalysisBook, ...], settings: AnalyticsSettings, baseline: float | None
+    books: tuple[AnalysisBook, ...],
+    settings: AnalyticsSettings,
+    baseline: float | None,
+    usual: float | None = C.NONE,
 ) -> dict[str, JsonValue]:
     values = _ratings(books)
     histogram = Counter(values)
     high = sum(value >= settings.high_rating_threshold for value in values)
-    return {
+    summary: dict[str, JsonValue] = {
         S.AN_CALC_RATED: len(values),
         S.AN_CALC_RATING_MISSING: len(books) - len(values),
         S.AN_CALC_COVERAGE: _ratio(len(values), len(books)),
@@ -171,6 +243,11 @@ def _rating_summary(
             else C.NONE
         ),
     }
+    if usual is not C.NONE:
+        summary[S.AN3_USUAL] = usual
+        summary[S.AN3_TIER_COUNTS] = _tier_mapping(values, usual)
+        summary[S.AN3_TIER_SHARES] = _tier_mapping(values, usual, shares=C.TRUE)
+    return summary
 
 
 def _concentration(
@@ -368,6 +445,17 @@ def _paired_stability(
     return result
 
 
+def _goodreads_completions(book: AnalysisBook) -> dict[str, PartialDate]:
+    dates = {
+        event.finished.value: event.finished
+        for event in book.reading_events
+        if event.status == ReadingStatus.READ and event.finished is not C.NONE
+    }
+    for item in book.goodreads_completion_dates:
+        dates.setdefault(item.value, item)
+    return dates
+
+
 def _dated_cohorts(
     books: tuple[AnalysisBook, ...], as_of: str
 ) -> dict[str, tuple[AnalysisBook, ...]]:
@@ -378,11 +466,9 @@ def _dated_cohorts(
     cohorts: dict[str, list[AnalysisBook]] = defaultdict(list)
     for book in books:
         finishes = {
-            event.finished.value
-            for event in book.reading_events
-            if event.status == ReadingStatus.READ
-            and event.finished is not C.NONE
-            and event.finished.precision == S.DAY
+            value
+            for value, finished in _goodreads_completions(book).items()
+            if finished.precision == S.DAY
         }
         if not finishes:
             continue
@@ -392,48 +478,13 @@ def _dated_cohorts(
     return {year: tuple(cohorts[year]) for year in sorted(cohorts)}
 
 
-def _completion_date(book: AnalysisBook) -> tuple[PartialDate | None, str | None, bool]:
-    authoritative = tuple(
-        event.finished
-        for event in book.reading_events
-        if event.status == ReadingStatus.READ and event.finished is not C.NONE
-    )
-    if authoritative:
-        return (
-            min(authoritative, key=lambda item: item.value),
-            S.ANX_AUTHORITATIVE_DATE,
-            C.FALSE,
-        )
-    supplemental = {
-        item.finished.value: item.finished
-        for item in book.supplemental_completion_dates
-        if item.source == C.Source.STORYGRAPH
-        and item.observation.state == C.FieldState.PRESENT
-        and item.observation.scope == S.READER
-        and item.finished is not C.NONE
-    }
-    if len(supplemental) != C.ONE:
-        return C.NONE, C.NONE, len(supplemental) > C.ONE
-    return next(iter(supplemental.values())), S.ANX_SUPPLEMENTAL_DATE, C.FALSE
+def _completion_date(book: AnalysisBook) -> PartialDate | None:
+    dates = _goodreads_completions(book)
+    return dates[min(dates)] if dates else C.NONE
 
 
-def _completion_proof(book: AnalysisBook, finished: PartialDate, origin: str) -> list[JsonValue]:
-    if origin == S.ANX_SUPPLEMENTAL_DATE:
-        return [
-            {
-                S.SOURCE: item.source.value,
-                S.SOURCE_ID: item.source_id,
-                S.CONTENT_ANALYSIS_FIELD: item.observation.field,
-                S.CONTENT_ANALYSIS_SCOPE: item.observation.scope,
-                S.ANX_SOURCE_URL: item.observation.source_url,
-                S.VALUE: item.finished.value,
-            }
-            for item in book.supplemental_completion_dates
-            if item.finished is not C.NONE
-            and item.finished.value == finished.value
-            and item.observation.state == C.FieldState.PRESENT
-        ]
-    return [
+def _completion_proof(book: AnalysisBook, finished: PartialDate) -> list[JsonValue]:
+    proof: list[JsonValue] = [
         {
             S.SOURCE: S.GOODREADS,
             S.CONTENT_ANALYSIS_FIELD: S.READING_EVENTS,
@@ -444,6 +495,34 @@ def _completion_proof(book: AnalysisBook, finished: PartialDate, origin: str) ->
         and event.finished is not C.NONE
         and event.finished.value == finished.value
     ]
+    if not proof:
+        proof.append(
+            {
+                S.SOURCE: S.GOODREADS,
+                S.CONTENT_ANALYSIS_FIELD: S.AN3_COMPLETION_DATES_FIELD,
+                S.VALUE: finished.value,
+            }
+        )
+    return proof
+
+
+def profile_evidence_facts(book: AnalysisBook) -> list[JsonValue]:
+    facts = {
+        (
+            item.source,
+            item.source_id,
+            item.observation.field,
+            item.observation.scope,
+            item.observation.state.value,
+            bool(item.observation.value),
+            item.detail or S.EMPTY,
+        )
+        for item in book.evidence
+        if item.observation.field in C.AN3_CONSUMED_EVIDENCE_FIELDS
+        or item.observation.field.startswith(S.AN_PROFILE_UNVERIFIED_PREFIX)
+    }
+    result: list[JsonValue] = [[*fact] for fact in sorted(facts)]
+    return result
 
 
 def _rarefied_genres(books: tuple[AnalysisBook, ...], volume: int) -> float:
@@ -471,9 +550,33 @@ class _Calculation:
         self.read = tuple(book for book in books if _completed(book))
         values = _ratings(self.read)
         self.baseline = mean(values) if values else C.NONE
+        # Every most-used rating, lowest first; the lowest is the usual rating for tiers.
+        self.usual_ties = usual_rating(values)
+        self.usual: float | None = self.usual_ties[C.ZERO] if self.usual_ties else C.NONE
         self.findings: list[Finding] = []
         self.capabilities: list[Capability] = []
         self.preferences: dict[str, float] = {}
+        self.parked: dict[str, list[str]] = {}
+
+    def park(self, topic: str, reason: str) -> None:
+        # Permanently unavailable ideas are listed once instead of one placeholder row each.
+        self.parked.setdefault(reason, []).append(topic)
+
+    def emit_parked(self) -> None:
+        if not self.parked:
+            return
+        self.capabilities.append(
+            Capability(
+                metric_id=S.AN3_UNAVAILABLE_TOPICS,
+                state=C.AnalyticsCapability.UNSUPPORTED,
+                available=C.ZERO,
+                population=sum(len(topics) for topics in self.parked.values()),
+                reason=S.AN3_TOPIC_SEPARATOR.join(
+                    S.AN3_TOPIC_ENTRY.format(reason=reason, topics=S.AN3_TOPIC_JOIN.join(topics))
+                    for reason, topics in self.parked.items()
+                ),
+            )
+        )
 
     def add(
         self,
@@ -489,7 +592,13 @@ class _Calculation:
         limitations: tuple[str, ...] = (),
         baseline: float | None = C.NONE,
         period: str | None = C.NONE,
+        evidence_field: str | None = C.NONE,
     ) -> None:
+        details = dict(uncertainty or {})
+        details[S.AN3_METHOD_VERSION] = _method_version(metric)
+        if evidence_field is not C.NONE:
+            details[S.AN3_EVIDENCE_FIELD] = evidence_field
+            details[S.AN3_EVIDENCE_TIERS] = _evidence_tiers(books, evidence_field)
         self.findings.append(
             Finding(
                 metric_id=metric,
@@ -501,7 +610,7 @@ class _Calculation:
                 baseline=baseline,
                 period=period,
                 reliability=reliability,
-                uncertainty=uncertainty or {},
+                uncertainty=details,
                 supporting_books=tuple(book.book_id for book in books),
                 limitations=limitations,
                 calculation_version=self.data.manifest.calculation_version,
@@ -548,6 +657,7 @@ class _Calculation:
                 sample_size=count,
                 missing_count=C.ZERO,
                 reliability=S.AN_CALC_RELIABLE,
+                uncertainty={S.AN3_METHOD_VERSION: _method_version(metric)},
                 limitations=(S.AN_CALC_SCOPE_NOTE,),
                 calculation_version=self.data.manifest.calculation_version,
                 source_snapshot_ids=tuple(
@@ -564,7 +674,7 @@ class _Calculation:
         known: int,
         comparison_population: tuple[AnalysisBook, ...] | None = C.NONE,
     ) -> bool:
-        summary = _rating_summary(group, self.settings, self.baseline)
+        summary = _rating_summary(group, self.settings, self.baseline, self.usual)
         population = (
             comparison_population
             if comparison_population is not C.NONE
@@ -572,7 +682,7 @@ class _Calculation:
         )
         group_ids = {book.work_id for book in group}
         complement = tuple(book for book in population if book.work_id not in group_ids)
-        complement_summary = _rating_summary(complement, self.settings, self.baseline)
+        complement_summary = _rating_summary(complement, self.settings, self.baseline, self.usual)
         group_high = _ratio(
             sum(value >= self.settings.high_rating_threshold for value in _ratings(group)),
             len(_rated(group)),
@@ -610,9 +720,7 @@ class _Calculation:
                 S.AN_CALC_COMPARISON_SUPPORTED: comparison_supported,
             }
         )
-        all_favorites = sum(
-            value >= self.settings.high_rating_threshold for value in _ratings(self.read)
-        )
+        all_standouts = tier_counts(_ratings(self.read), self.usual)[C.ZERO]
         summary.update(
             {
                 S.AN_CALC_N: len(group),
@@ -621,10 +729,10 @@ class _Calculation:
                 S.AN_CALC_MISSING: len(self.read) - known,
                 S.AN_CALC_PREVALENCE: _ratio(len(group), len(self.read)),
                 S.AN_CALC_KNOWN_PREVALENCE: _ratio(len(group), known),
-                S.AN_CALC_FAVORITE_SHARE: _ratio(
-                    sum(value >= self.settings.high_rating_threshold for value in _ratings(group)),
-                    all_favorites,
+                S.AN3_STANDOUT_SHARE_ALL: _ratio(
+                    tier_counts(_ratings(group), self.usual)[C.ZERO], all_standouts
                 ),
+                **self.tier_differences(group, complement),
             }
         )
         uncertainty, weak = _concentration(group, feature, self.settings)
@@ -681,8 +789,33 @@ class _Calculation:
             reliability=S.AN_CALC_WEAK if weak else S.AN_CALC_EXPLORATORY,
             uncertainty=uncertainty,
             limitations=tuple(notes),
+            evidence_field=C.AN3_FEATURE_EVIDENCE_FIELD.get(feature, feature),
         )
         return not weak and comparison_supported
+
+    def tier_differences(
+        self, group: tuple[AnalysisBook, ...], complement: tuple[AnalysisBook, ...]
+    ) -> dict[str, JsonValue]:
+        # Tier-rate gaps versus the complement, raw and shrunk toward the all-Read rate.
+        everyone = _ratings(self.read)
+        group_values = _ratings(group)
+        complement_values = _ratings(complement)
+        group_counts = tier_counts(group_values, self.usual)
+        complement_counts = tier_counts(complement_values, self.usual)
+        all_counts = tier_counts(everyone, self.usual)
+        prior = self.settings.prior_strength
+        result: dict[str, JsonValue] = {}
+        for index, raw_key, shrunk_key in C.AN3_TIER_DIFFERENCES:
+            base = _ratio(all_counts[index], len(everyone))
+            result[raw_key] = _gap(
+                _ratio(group_counts[index], len(group_values)),
+                _ratio(complement_counts[index], len(complement_values)),
+            )
+            result[shrunk_key] = _gap(
+                _shrunk_rate(group_counts[index], len(group_values), base, prior),
+                _shrunk_rate(complement_counts[index], len(complement_values), base, prior),
+            )
+        return result
 
     def core(self) -> None:
         rated = _rated(self.read)
@@ -703,37 +836,65 @@ class _Calculation:
         self.add(
             S.AN_CALC_RATINGS,
             rated,
-            _rating_summary(self.read, self.settings, self.baseline),
-            missing=len(self.read) - len(rated),
-            limitations=(S.AN_CALC_NO_INFERENCE,),
-        )
-        favorites = tuple(
-            book
-            for book in rated
-            if book.rating is not C.NONE and book.rating >= self.settings.high_rating_threshold
-        )
-        self.add(
-            S.AN_CALC_FAVORITES,
-            favorites,
-            {
-                S.AN_CALC_N: len(favorites),
-                S.AN_CALC_TOTAL: len(self.read),
-                S.AN_CALC_RATED: len(rated),
-                S.AN_CALC_HIGH_SHARE: _ratio(len(favorites), len(rated)),
-                S.AN_CALC_THRESHOLD: self.settings.high_rating_threshold,
-            },
+            _rating_summary(self.read, self.settings, self.baseline, self.usual),
             missing=len(self.read) - len(rated),
             limitations=(S.AN_CALC_NO_INFERENCE,),
         )
         self.capability(S.AN_CALC_RATINGS, len(rated), len(self.read), S.AN_CALC_NO_RATINGS)
-        uncertainty, weak = _concentration(favorites, S.GENRES, self.settings)
+        usual = self.usual
+        if usual is C.NONE:
+            return
+        steps = sorted(set(_ratings(rated)))
+        histogram = Counter(_ratings(rated))
+        standouts = tuple(
+            book for book in rated if book.rating is not C.NONE and book.rating > usual
+        )
         self.add(
-            S.AN_CALC_FAVORITE_CONCENTRATION,
-            favorites,
+            S.AN3_RATING_SCALE,
+            rated,
             {
-                S.AN_CALC_N: len(favorites),
+                S.AN_CALC_HISTOGRAM: {str(rating): histogram[rating] for rating in steps},
+                S.AN3_USUAL: usual,
+                S.AN3_USUAL_COUNT: histogram[usual],
+                S.AN3_USUAL_SHARE: _ratio(histogram[usual], len(rated)),
+                S.AN3_TIED_MODES: list(self.usual_ties),
+                S.AN3_TIER_CUTS: {S.AN3_CUT_ABOVE: usual, S.AN3_CUT_BELOW: usual},
+                S.AN3_TIER_COUNTS: _tier_mapping(_ratings(rated), usual),
+                S.AN3_TIER_SHARES: _tier_mapping(_ratings(rated), usual, shares=C.TRUE),
+                S.AN3_SMALLEST_STEP: min(
+                    (right - left for left, right in zip(steps, steps[C.ONE :], strict=C.FALSE)),
+                    default=C.NONE,
+                ),
                 S.AN_CALC_RATED: len(rated),
-                S.AN_CALC_HIGH_SHARE: _ratio(len(favorites), len(rated)),
+                S.AN_CALC_TOTAL: len(self.read),
+                S.AN_CALC_THRESHOLD: self.settings.high_rating_threshold,
+            },
+            missing=len(self.read) - len(rated),
+            limitations=(S.AN3_TIER_NOTE, S.AN_CALC_NO_INFERENCE),
+        )
+        self.add(
+            S.AN3_STANDOUTS,
+            standouts,
+            {
+                S.AN_CALC_N: len(standouts),
+                S.AN_CALC_TOTAL: len(self.read),
+                S.AN_CALC_RATED: len(rated),
+                S.AN3_USUAL: usual,
+                S.AN_CALC_HIGH_SHARE: _ratio(len(standouts), len(rated)),
+            },
+            missing=len(self.read) - len(rated),
+            limitations=(S.AN3_TIER_NOTE, S.AN_CALC_NO_INFERENCE),
+        )
+        if not standouts:
+            return
+        uncertainty, weak = _concentration(standouts, S.GENRES, self.settings)
+        self.add(
+            S.AN3_STANDOUT_CONCENTRATION,
+            standouts,
+            {
+                S.AN_CALC_N: len(standouts),
+                S.AN_CALC_RATED: len(rated),
+                S.AN_CALC_HIGH_SHARE: _ratio(len(standouts), len(rated)),
             },
             missing=len(self.read) - len(rated),
             uncertainty=uncertainty,
@@ -826,6 +987,7 @@ class _Calculation:
                 },
                 missing=len(self.read) - known,
                 limitations=(S.AN_CALC_PROFILE_NOTE,),
+                evidence_field=C.AN3_FEATURE_EVIDENCE_FIELD.get(feature, feature),
             )
 
     def rating_availability(
@@ -879,6 +1041,26 @@ class _Calculation:
                 if min(left_known, right_known) >= self.settings.min_group_size
                 else left_known + right_known + C.ONE,
             )
+
+    def linked_rating_availability(self) -> None:
+        states = Counter(_link_state(book) for book in self.read)
+        self.add(
+            S.AN3_LINK_METRIC,
+            self.read,
+            {
+                S.AN_CALC_TOTAL: len(self.read),
+                S.AN3_LINK_STATES: {key: states[key] for key in C.AN3_LINK_KEYS},
+            },
+            missing=len(self.read) - states[S.AN3_LINK_AVAILABLE],
+            limitations=(S.AN3_LINK_NOTE,),
+        )
+        self.capability(
+            S.AN3_LINK_METRIC,
+            states[S.AN3_LINK_AVAILABLE],
+            len(self.read),
+            S.AN3_LINK_NOTE,
+            absent=C.AnalyticsCapability.NEEDS_ENRICHMENT,
+        )
 
     def library_additions(self, books: tuple[AnalysisBook, ...], *, collection: str) -> None:
         as_of: date | None
@@ -936,51 +1118,35 @@ class _Calculation:
             as_of = C.NONE
         selected: dict[str, JsonValue] = {}
         cohorts: dict[str, list[AnalysisBook]] = defaultdict(list)
-        origins: dict[str, Counter[str]] = defaultdict(Counter)
         precisions: dict[str, Counter[str]] = defaultdict(Counter)
-        states = Counter(
-            item.observation.state.value
-            for book in self.read
-            for item in book.supplemental_completion_dates
-        )
-        conflicts: list[JsonValue] = []
         known: list[AnalysisBook] = []
         future = C.ZERO
-        precedence = C.ZERO
         for book in self.read:
-            finished, origin, conflict = _completion_date(book)
-            if conflict:
-                conflicts.append(book.book_id)
-            if finished is C.NONE or origin is C.NONE:
+            finished = _completion_date(book)
+            if finished is C.NONE:
                 continue
-            if origin == S.ANX_AUTHORITATIVE_DATE and any(
-                item.observation.state == C.FieldState.PRESENT
-                for item in book.supplemental_completion_dates
-            ):
-                precedence += C.ONE
             if as_of is not C.NONE and finished.value > as_of.isoformat()[: len(finished.value)]:
                 future += C.ONE
                 continue
             year = finished.value[: C.FOUR]
             cohorts[year].append(book)
-            origins[year][origin] += C.ONE
             precisions[year][finished.precision] += C.ONE
             known.append(book)
             selected[book.book_id] = {
                 S.VALUE: finished.value,
                 S.AN_CALC_PRECISION: finished.precision,
-                S.ANX_DATE_ORIGIN: origin,
-                S.AN_CALC_EVIDENCE: _completion_proof(book, finished, origin),
+                S.ANX_DATE_ORIGIN: S.ANX_AUTHORITATIVE_DATE,
+                S.AN3_EVIDENCE_KEY: _completion_proof(book, finished),
             }
         groups: dict[str, JsonValue] = {}
         for year in sorted(cohorts):
             books = tuple(cohorts[year])
             groups[year] = {
                 S.AN_CALC_N: len(books),
-                S.ANX_DATE_ORIGIN: dict(sorted(origins[year].items())),
+                S.ANX_DATE_ORIGIN: {S.ANX_AUTHORITATIVE_DATE: len(books)},
                 S.ANX_DATE_PRECISIONS: dict(sorted(precisions[year].items())),
                 S.ANX_CURRENT_RATINGS: (
-                    _rating_summary(books, self.settings, C.NONE)
+                    _rating_summary(books, self.settings, C.NONE, self.usual)
                     if len(_rated(books)) >= self.settings.min_group_size
                     else C.NONE
                 ),
@@ -991,23 +1157,19 @@ class _Calculation:
             {
                 S.ANX_COHORTS: groups,
                 S.ANX_SELECTED_DATES: selected,
-                S.ANX_CONFLICTING_DATES: conflicts,
-                S.ANX_SUPPLEMENTAL_STATES: dict(sorted(states.items())),
-                S.ANX_COMPLETION_COUNTS: dict(self.data.supplemental_completion_counts),
-                S.ANX_MATCHED_DATES: states[C.FieldState.PRESENT.value],
-                S.ANX_PRECEDENCE: precedence,
+                S.AN3_DATE_SOURCES: [S.GOODREADS],
                 S.ANX_FUTURE_DATES: future,
                 S.ANX_INVALID_AS_OF: as_of is C.NONE,
             },
             missing=len(self.read) - len(known),
             period=self.data.as_of,
-            limitations=(S.ANX_COMPLETION_NOTE,),
+            limitations=(S.AN3_COMPLETION_NOTE,),
         )
         self.capability(
             S.ANX_COMPLETION_COHORTS,
             len(known),
             len(self.read),
-            S.ANX_COMPLETION_NOTE,
+            S.AN3_COMPLETION_NOTE,
         )
 
     def structure_profile(self) -> None:
@@ -1031,6 +1193,7 @@ class _Calculation:
             page_summary,
             missing=len(self.read) - len(pages),
             limitations=(S.AN_CALC_PAGES_NOTE, S.AN_CALC_PROFILE_NOTE),
+            evidence_field=S.PAGE_COUNT,
         )
         year_summary = _numeric_profile(year_values)
         year_summary[S.AN_CALC_TOTAL] = len(self.read)
@@ -1043,6 +1206,7 @@ class _Calculation:
             year_summary,
             missing=len(self.read) - len(years),
             limitations=(S.AN_CALC_PUBLICATION_NOTE, S.AN_CALC_PROFILE_NOTE),
+            evidence_field=S.PUBLICATION_DATE,
         )
         self.capability(
             S.AN_CALC_STRUCTURE_PAGES,
@@ -1081,6 +1245,7 @@ class _Calculation:
             first_summary,
             missing=len(self.read) - len(first),
             limitations=(S.AN_PROFILE_FIRST_PUBLICATION_NOTE,),
+            evidence_field=S.FIRST_PUBLICATION_YEAR,
         )
         self.capability(
             S.AN_PROFILE_FIRST_PUBLICATION,
@@ -1677,6 +1842,11 @@ class _Calculation:
 
     def reviews(self) -> None:
         reviews = tuple(book for book in self.books if book.review and book.review.strip())
+        if not reviews:
+            self.park(S.AN_CALC_REVIEWS, S.AN_CALC_NEED_REVIEWS)
+            for theme, _ in C.AN_CALC_REVIEW_THEMES:
+                self.park(S.AN_CALC_REVIEW.format(theme=theme), S.AN_CALC_REVIEW_NOTE)
+            return
         self.capability(
             S.AN_CALC_REVIEWS,
             len(reviews),
@@ -1697,16 +1867,14 @@ class _Calculation:
                 S.AN_CALC_REVIEW_NOTE,
                 absent=C.AnalyticsCapability.UNSUPPORTED,
             )
-            if not reviews:
-                continue
             excerpts: list[JsonValue] = []
             for book in matches:
                 excerpts.append(
                     {
                         S.AN_CALC_BOOK: book.book_id,
                         S.AN_CALC_EXCERPT: book.review,
-                        S.AN_CALC_EVIDENCE: [
-                            evidence.model_dump(mode=S.JSON)
+                        S.AN3_EVIDENCE_KEY: [
+                            _evidence_proof(evidence)
                             for evidence in book.evidence
                             if evidence.source == S.GOODREADS
                             and evidence.observation.field == S.REVIEW
@@ -1738,15 +1906,16 @@ class _Calculation:
             exact_pairs: set[tuple[str, str]] = set()
             identified: set[str] = set()
             identified_finish_dates: set[str] = set()
-            for event in book.reading_events:
-                if event.status != ReadingStatus.READ or event.finished is C.NONE:
-                    continue
-                finished = event.finished
+            for finished in _goodreads_completions(book).values():
                 dated.add(book.work_id)
                 periods[(S.YEAR, finished.value[: C.FOUR])][book.work_id] = book
                 if finished.precision != S.YEAR:
                     periods[(S.MONTH, finished.value[: C.SEVEN])][book.work_id] = book
                     month_dated.add(book.work_id)
+            for event in book.reading_events:
+                if event.status != ReadingStatus.READ or event.finished is C.NONE:
+                    continue
+                finished = event.finished
                 if event.source_event_id is not C.NONE and finished.precision == S.DAY:
                     identified.add(event.source_event_id)
                     identified_finish_dates.add(finished.value)
@@ -1774,7 +1943,9 @@ class _Calculation:
                 {
                     S.AN_CALC_N: len(group),
                     S.AN_CALC_TOTAL: len(self.read),
-                    S.AN_CALC_RATINGS: _rating_summary(group, self.settings, self.baseline),
+                    S.AN_CALC_RATINGS: _rating_summary(
+                        group, self.settings, self.baseline, self.usual
+                    ),
                 },
                 missing=len(self.read) - len(month_dated if precision == S.MONTH else dated),
                 period=period,
@@ -1782,22 +1953,23 @@ class _Calculation:
             )
         duration_books = tuple(book for book in self.read if book.work_id in durations)
         book_means = [mean(values) for values in durations.values()]
-        self.add(
-            S.AN_CALC_DURATION,
-            duration_books,
-            {
-                S.AN_CALC_MEAN: mean(book_means) if book_means else C.NONE,
-                S.AN_CALC_MEDIAN: median(book_means) if book_means else C.NONE,
-                S.AN_CALC_DURATIONS: {
-                    book.book_id: [value for value in durations[book.work_id]]
-                    for book in duration_books
+        if duration_books:
+            self.add(
+                S.AN_CALC_DURATION,
+                duration_books,
+                {
+                    S.AN_CALC_MEAN: mean(book_means),
+                    S.AN_CALC_MEDIAN: median(book_means),
+                    S.AN_CALC_DURATIONS: {
+                        book.book_id: [value for value in durations[book.work_id]]
+                        for book in duration_books
+                    },
+                    S.AN_CALC_EVENT_COUNT: sum(len(values) for values in durations.values()),
                 },
-                S.AN_CALC_EVENT_COUNT: sum(len(values) for values in durations.values()),
-            },
-            missing=len(self.read) - len(duration_books),
-            unit=S.AN_CALC_UNIT_DAYS,
-            limitations=(S.AN_CALC_DURATION_NOTE, S.AN_CALC_DURATION_MEAN_NOTE),
-        )
+                missing=len(self.read) - len(duration_books),
+                unit=S.AN_CALC_UNIT_DAYS,
+                limitations=(S.AN_CALC_DURATION_NOTE, S.AN_CALC_DURATION_MEAN_NOTE),
+            )
         self.capability(S.AN_CALC_TIME, len(dated), len(self.read), S.AN_CALC_NEED_DATES)
         self.capability(
             S.AN_CALC_DURATION, len(duration_books), len(self.read), S.AN_CALC_NEED_DATES
@@ -1839,23 +2011,32 @@ class _Calculation:
             matched.update(book.work_id for book in paired)
             personal = _ratings(paired)
             community = [book.community_ratings[provider] for book in paired]
+            summary: dict[str, JsonValue] = {
+                S.AN_CALC_PROVIDER_NAME: provider,
+                S.AN_CALC_PROVIDER_SCALE: S.AN_CALC_PROVIDER_SCALE_VALUE,
+                S.AN_CALC_MEAN: mean(personal),
+                S.AN_CALC_PROVIDER_MEAN: mean(community),
+                S.AN_CALC_DELTA: mean(
+                    personal_rating - provider_rating
+                    for personal_rating, provider_rating in zip(personal, community, strict=C.TRUE)
+                ),
+            }
+            notes: tuple[str, ...] = (S.AN_CALC_NO_INFERENCE, S.AN_CALC_PROVIDER_NOTE)
+            if provider == S.GOODREADS:
+                # Only the captured Goodreads page count stands behind the Goodreads average.
+                sizes = [
+                    size for book in paired if (size := community_sample_size(book)) is not C.NONE
+                ]
+                summary[S.AN3_CROWD_COUNTED] = len(sizes)
+                summary[S.AN3_CROWD_COUNTS] = _numeric_profile(sizes) if sizes else C.NONE
+                notes = (*notes, S.AN3_CROWD_NOTE)
             self.add(
                 metric,
                 paired,
-                {
-                    S.AN_CALC_PROVIDER_NAME: provider,
-                    S.AN_CALC_PROVIDER_SCALE: S.AN_CALC_PROVIDER_SCALE_VALUE,
-                    S.AN_CALC_MEAN: mean(personal),
-                    S.AN_CALC_PROVIDER_MEAN: mean(community),
-                    S.AN_CALC_DELTA: mean(
-                        personal_rating - provider_rating
-                        for personal_rating, provider_rating in zip(
-                            personal, community, strict=C.TRUE
-                        )
-                    ),
-                },
+                summary,
                 missing=len(self.read) - len(paired),
-                limitations=(S.AN_CALC_NO_INFERENCE, S.AN_CALC_PROVIDER_NOTE),
+                limitations=notes,
+                evidence_field=S.COMMUNITY_RATING,
             )
         self.capability(
             S.AN_CALC_COMMUNITY,
@@ -1872,39 +2053,46 @@ class _Calculation:
             group = groups.get(dimension, ())
             declared = self.settings.declared_preferences.get(dimension)
             uncertainty, weak = _concentration(group, S.AN_APPETITE, self.settings)
-            uncertainty[S.AN_CALC_EVIDENCE] = {
-                book.book_id: [
-                    evidence.model_dump(mode=S.JSON)
-                    for evidence in book.evidence
-                    if evidence.observation.field == S.AN_APPETITE
-                ]
-                for book in group
-            }
-            self.add(
-                S.AN_CALC_APPETITE.format(dimension=dimension),
-                group,
-                {
-                    S.AN_CALC_DECLARED: declared,
-                    S.AN_CALC_EXPOSURE: _ratio(len(group), len(labeled)) if group else C.NONE,
-                    S.AN_CALC_KNOWN: len(labeled),
-                    S.AN_CALC_TOTAL: len(self.read),
-                    S.AN_CALC_ENJOYMENT: (
-                        _rating_summary(group, self.settings, self.baseline) if group else C.NONE
-                    ),
-                },
-                missing=len(self.read) - len(labeled),
-                reliability=S.AN_CALC_WEAK if weak else S.AN_CALC_EXPLORATORY,
-                baseline=self.baseline,
-                uncertainty=uncertainty,
-                limitations=(S.AN_CALC_APP_NOTE, S.AN_CALC_NO_INFERENCE),
-            )
-            self.capability(
-                S.AN_CALC_APP_DECLARED.format(dimension=dimension),
-                C.ZERO if declared is C.NONE else C.ONE,
-                C.ONE,
-                S.AN_CALC_NEED_DECLARATION,
-                absent=C.AnalyticsCapability.UNSUPPORTED,
-            )
+            if group:
+                uncertainty[S.AN3_EVIDENCE_KEY] = {
+                    book.book_id: [
+                        _evidence_proof(evidence)
+                        for evidence in book.evidence
+                        if evidence.observation.field == S.AN_APPETITE
+                    ]
+                    for book in group
+                }
+                self.add(
+                    S.AN_CALC_APPETITE.format(dimension=dimension),
+                    group,
+                    {
+                        S.AN_CALC_DECLARED: declared,
+                        S.AN_CALC_EXPOSURE: _ratio(len(group), len(labeled)),
+                        S.AN_CALC_KNOWN: len(labeled),
+                        S.AN_CALC_TOTAL: len(self.read),
+                        S.AN_CALC_ENJOYMENT: _rating_summary(
+                            group, self.settings, self.baseline, self.usual
+                        ),
+                    },
+                    missing=len(self.read) - len(labeled),
+                    reliability=S.AN_CALC_WEAK if weak else S.AN_CALC_EXPLORATORY,
+                    baseline=self.baseline,
+                    uncertainty=uncertainty,
+                    limitations=(S.AN_CALC_APP_NOTE, S.AN_CALC_NO_INFERENCE),
+                    evidence_field=S.AN_APPETITE,
+                )
+            if declared is C.NONE:
+                self.park(
+                    S.AN_CALC_APP_DECLARED.format(dimension=dimension), S.AN_CALC_NEED_DECLARATION
+                )
+            else:
+                self.capability(
+                    S.AN_CALC_APP_DECLARED.format(dimension=dimension),
+                    C.ONE,
+                    C.ONE,
+                    S.AN_CALC_NEED_DECLARATION,
+                    absent=C.AnalyticsCapability.UNSUPPORTED,
+                )
             self.capability(
                 S.AN_CALC_APP_EXPOSURE.format(dimension=dimension),
                 len(group),
@@ -1936,22 +2124,23 @@ class _Calculation:
             and snapshot.attempt_state == C.SyncState.COMPLETE
             for snapshot in self.data.manifest.snapshots
         )
-        self.add(
-            S.AN_CALC_DNF,
-            dnf,
-            {
-                S.AN_CALC_N: len(dnf) if scoped or dnf else C.NONE,
-                S.AN_CALC_TOTAL: len(self.books),
-                S.AN_CALC_LABELS: {
-                    label: len(group) for label, group in _grouped(dnf, S.GENRES).items()
+        if scoped or dnf:
+            self.add(
+                S.AN_CALC_DNF,
+                dnf,
+                {
+                    S.AN_CALC_N: len(dnf),
+                    S.AN_CALC_TOTAL: len(self.books),
+                    S.AN_CALC_LABELS: {
+                        label: len(group) for label, group in _grouped(dnf, S.GENRES).items()
+                    },
+                    S.AN_CALC_KNOWN: sum(bool(_labels(book, S.GENRES)) for book in dnf),
+                    S.AN_CALC_MISSING: sum(not _labels(book, S.GENRES) for book in dnf),
                 },
-                S.AN_CALC_KNOWN: sum(bool(_labels(book, S.GENRES)) for book in dnf),
-                S.AN_CALC_MISSING: sum(not _labels(book, S.GENRES) for book in dnf),
-            },
-            population=S.AN_CALC_POP_HISTORY,
-            missing=C.ZERO if scoped else len(self.books) - len(dnf),
-            limitations=(S.AN_CALC_DNF_NOTE,),
-        )
+                population=S.AN_CALC_POP_HISTORY,
+                missing=C.ZERO if scoped else len(self.books) - len(dnf),
+                limitations=(S.AN_CALC_DNF_NOTE,),
+            )
         self.capability(
             S.AN_CALC_DNF,
             len(self.books) if scoped else len(dnf),
@@ -2164,6 +2353,7 @@ def build_taste(
     calculation.core()
     calculation.features()
     calculation.rating_availability()
+    calculation.linked_rating_availability()
     calculation.conditional()
     calculation.validation()
     cohorts = _dated_cohorts(calculation.read, data.as_of)
@@ -2176,13 +2366,8 @@ def build_taste(
     calculation.completion_cohorts()
     calculation.dnf()
     for metric, reason in C.AN_CALC_UNSUPPORTED_TOPICS:
-        calculation.capability(
-            metric,
-            C.ZERO,
-            len(calculation.read),
-            reason,
-            absent=C.AnalyticsCapability.UNSUPPORTED,
-        )
+        calculation.park(metric, reason)
+    calculation.emit_parked()
     if include_profile:
         profile = build_reading_profile(data, settings, key=key)
         calculation.findings.extend(profile.findings)
@@ -2246,19 +2431,21 @@ def build_watchlist(
                 ),
                 S.AN_CALC_PREFERENCE_DELTA: preference,
             }
-        calculation.add(
-            S.AN_CALC_WATCH_FEATURE.format(feature=feature),
-            tuple(book for book in watch if _labels(book, feature)),
-            {
-                S.AN_CALC_READ_KNOWN: read_known,
-                S.AN_CALC_WATCH_KNOWN: watch_known,
-                S.AN_CALC_LABELS: composition,
-                S.AN_CALC_UNSUPPORTED_LABELS: unsupported,
-            },
-            population=S.AN_CALC_POP_WATCH,
-            missing=len(watch) - watch_known,
-            limitations=(S.AN_CALC_WATCH_NOTE, S.AN_CALC_MULTILABEL),
-        )
+        if watch_known:
+            calculation.add(
+                S.AN_CALC_WATCH_FEATURE.format(feature=feature),
+                tuple(book for book in watch if _labels(book, feature)),
+                {
+                    S.AN_CALC_READ_KNOWN: read_known,
+                    S.AN_CALC_WATCH_KNOWN: watch_known,
+                    S.AN_CALC_LABELS: composition,
+                    S.AN_CALC_UNSUPPORTED_LABELS: unsupported,
+                },
+                population=S.AN_CALC_POP_WATCH,
+                missing=len(watch) - watch_known,
+                limitations=(S.AN_CALC_WATCH_NOTE, S.AN_CALC_MULTILABEL),
+                evidence_field=C.AN3_FEATURE_EVIDENCE_FIELD.get(feature, feature),
+            )
         calculation.capability(
             S.AN_CALC_WATCH_FEATURE.format(feature=feature),
             len(supported_books),
@@ -2294,30 +2481,32 @@ def build_watchlist(
                 )
         gaps.sort(key=lambda item: (-abs(item[C.ZERO]), item[C.ONE]))
         metric = S.AN_PROFILE_WATCH_COMPOSITION.format(feature=feature)
-        calculation.add(
-            metric,
-            tuple(book for book in watch if _labels(book, feature)),
-            {
-                S.AN_CALC_READ_KNOWN: read_known,
-                S.AN_CALC_WATCH_KNOWN: watch_known,
-                S.AN_CALC_READ_MISSING: len(calculation.read) - read_known,
-                S.AN_CALC_WATCH_MISSING: len(watch) - watch_known,
-                S.AN_CALC_READ_SHARE: dict(sorted(read_distribution.items())),
-                S.AN_CALC_WATCH_SHARE: dict(sorted(watch_distribution.items())),
-                S.AN_CALC_COMPOSITION_DISTANCE: _jensen_shannon(
-                    read_distribution, watch_distribution
-                ),
-                S.AN_CALC_COMPOSITION_GAPS: [
-                    entry for _, _, entry in gaps[: C.AN_CALC_PROFILE_GAPS]
-                ],
-            },
-            population=S.AN_CALC_POP_WATCH,
-            missing=len(watch) - watch_known,
-            reliability=S.AN_CALC_RELIABLE
-            if min(read_known, watch_known) >= settings.min_group_size
-            else S.AN_CALC_WEAK,
-            limitations=(S.AN_CALC_COMPOSITION_NOTE,),
-        )
+        if read_known and watch_known:
+            calculation.add(
+                metric,
+                tuple(book for book in watch if _labels(book, feature)),
+                {
+                    S.AN_CALC_READ_KNOWN: read_known,
+                    S.AN_CALC_WATCH_KNOWN: watch_known,
+                    S.AN_CALC_READ_MISSING: len(calculation.read) - read_known,
+                    S.AN_CALC_WATCH_MISSING: len(watch) - watch_known,
+                    S.AN_CALC_READ_SHARE: dict(sorted(read_distribution.items())),
+                    S.AN_CALC_WATCH_SHARE: dict(sorted(watch_distribution.items())),
+                    S.AN_CALC_COMPOSITION_DISTANCE: _jensen_shannon(
+                        read_distribution, watch_distribution
+                    ),
+                    S.AN_CALC_COMPOSITION_GAPS: [
+                        entry for _, _, entry in gaps[: C.AN_CALC_PROFILE_GAPS]
+                    ],
+                },
+                population=S.AN_CALC_POP_WATCH,
+                missing=len(watch) - watch_known,
+                reliability=S.AN_CALC_RELIABLE
+                if min(read_known, watch_known) >= settings.min_group_size
+                else S.AN_CALC_WEAK,
+                limitations=(S.AN_CALC_COMPOSITION_NOTE,),
+                evidence_field=C.AN3_FEATURE_EVIDENCE_FIELD.get(feature, feature),
+            )
         calculation.capability(
             metric,
             read_known + watch_known,
@@ -2330,7 +2519,9 @@ def build_watchlist(
             if min(read_known, watch_known) >= settings.min_group_size
             else read_known + watch_known + C.ONE,
         )
-        supported_watch.update(supported_books)
+        # Shelved-format preferences are not a taste signal, so they never support a mismatch check.
+        if feature not in C.AN3_MISMATCH_EXCLUDED:
+            supported_watch.update(supported_books)
     calculation.capability(
         S.AN_CALC_WATCH_MISMATCH,
         len(supported_watch),

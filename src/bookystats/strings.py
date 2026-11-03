@@ -3059,7 +3059,7 @@ AN_INPUT_METADATA: Final = (
 AN_UNKNOWN_DIMENSION: Final = "Unknown reading-appetite dimension."
 AN_INVALID_PREFERENCES: Final = "Declared preferences need known dimensions and values from 0 to 1."
 AN_WORK_ID: Final = "work:{work_id}"
-AN_CALCULATION_VERSION: Final = "analytics-v7-reader-first-storygraph-ratings"
+AN_CALCULATION_VERSION: Final = "analytics-v8-goodreads-dates-rating-tiers"
 AN_SUPPORTED: Final = "supported"
 AN_SUBSET: Final = "subset"
 AN_NEEDS_ENRICHMENT: Final = "needs_enrichment"
@@ -4151,7 +4151,7 @@ META_COVERAGE_TEST_SERIES_ID: Final = "OL123L"
 META_COVERAGE_TEST_BAD_SERIES_REFERENCE: Final = "/series/OL123W"
 
 # CONTENT_ANALYSIS: internal catalog-text rules, not an assessment or preference model.
-CONTENT_ANALYSIS_VERSION: Final = "catalog-mentions-v1"
+CONTENT_ANALYSIS_VERSION: Final = "catalog-mentions-v2"
 CONTENT_ANALYSIS_THEMES: Final = "content.themes.{collection}"
 CONTENT_ANALYSIS_HUNGERS: Final = "content.hunger_mentions.{collection}"
 CONTENT_ANALYSIS_UNIT: Final = "distinct_work_catalog_mentions"
@@ -4182,34 +4182,54 @@ CONTENT_ANALYSIS_RELATIONSHIPS: Final = "relationships"
 CONTENT_ANALYSIS_WORLDS: Final = "imagined_worlds"
 CONTENT_ANALYSIS_IDEAS: Final = "ideas_and_learning"
 CONTENT_ANALYSIS_ADVERSITY: Final = "danger_and_adversity"
-CONTENT_ANALYSIS_MYSTERY_PATTERN: Final = r"\b(?:murder|detective|crime|mystery|investigation)\b"
+CONTENT_ANALYSIS_MYSTERY_PATTERN: Final = (
+    r"\b(?:(?P<mystery_murder>murder)|(?P<mystery_detective>detective)"
+    r"|(?P<mystery_investigation>investigat(?:e|es|ed|ing|ion))"
+    r"|(?P<mystery_disappearance>disappearance)|(?P<mystery_unsolved>unsolved))\b"
+)
 CONTENT_ANALYSIS_RELATIONSHIPS_PATTERN: Final = (
-    r"\b(?:friendship|family|families|marriage|romance|relationships|lovers)\b"
+    r"\b(?:(?P<relationships_friendship>friendship)|(?P<relationships_family>family|families)"
+    r"|(?P<relationships_marriage>marriage)|(?P<relationships_relationships>relationships)"
+    r"|(?P<relationships_lovers>lovers))\b"
 )
 CONTENT_ANALYSIS_WORLDS_PATTERN: Final = (
-    r"\b(?:magic|magical|dragons?|alien worlds?|distant planets?|imaginary worlds?)\b"
+    r"\b(?:(?P<worlds_alien>alien worlds?)|(?P<worlds_planets>distant planets?)"
+    r"|(?P<worlds_imaginary>imaginary worlds?))\b"
 )
 CONTENT_ANALYSIS_IDEAS_PATTERN: Final = (
-    r"\b(?:science|scientific|philosophy|history|learning|research|mathematics)\b"
+    r"\b(?:(?P<ideas_science>science|scientific)|(?P<ideas_research>research)"
+    r"|(?P<ideas_mathematics>mathematics))\b"
 )
-CONTENT_ANALYSIS_ADVERSITY_PATTERN: Final = r"\b(?:survival|danger|war|battle|peril|threat|chase)\b"
+CONTENT_ANALYSIS_ADVERSITY_PATTERN: Final = (
+    r"\b(?:(?P<adversity_survival>survival)|(?P<adversity_danger>danger)|(?P<adversity_war>war)"
+    r"|(?P<adversity_battle>battle)|(?P<adversity_peril>peril)|(?P<adversity_threat>threat)"
+    r"|(?P<adversity_chase>chase))\b"
+)
 CONTENT_ANALYSIS_WONDER_PATTERN: Final = (
-    r"\b(?:sense of wonder|wondrous|magical|magic|dragons?|alien worlds?|distant planets?)\b"
+    r"\b(?:(?P<wonder_sense>sense of wonder)|(?P<wonder_wondrous>wondrous)"
+    r"|(?P<wonder_awe>awe and wonder))\b"
 )
 CONTENT_ANALYSIS_SURPRISE_PATTERN: Final = (
-    r"\b(?:plot twists?|unexpected|unpredictable|shocking revelations?|astonishing discoveries)\b"
+    r"\b(?:(?P<surprise_twist>plot twists?|twist ending)"
+    r"|(?P<surprise_unexpected>unexpected (?:twists?|turns|revelations?|discoveries))"
+    r"|(?P<surprise_revelation>shocking revelations?|astonishing discoveries))\b"
 )
 CONTENT_ANALYSIS_INTENSITY_PATTERN: Final = (
-    r"\b(?:suspense|suspenseful|thrilling|thriller|terrifying|peril|high stakes)\b"
+    r"\b(?:(?P<intensity_suspense>suspense|suspenseful)|(?P<intensity_terror>terrifying)"
+    r"|(?P<intensity_stakes>high stakes|life.and.death|race against time))\b"
 )
 CONTENT_ANALYSIS_MEANING_PATTERN: Final = (
-    r"\b(?:meaning of life|purpose|moral dilemmas?|mortality|existential|philosophy)\b"
+    r"\b(?:(?P<meaning_life>meaning of life|search for meaning)"
+    r"|(?P<meaning_dilemma>moral dilemmas?)|(?P<meaning_mortality>mortality|existential))\b"
 )
 CONTENT_ANALYSIS_CONNECTION_PATTERN: Final = (
-    r"\b(?:friendship|family|families|belonging|relationships|empathy|marriage)\b"
+    r"\b(?:(?P<connection_friendship>friendship)|(?P<connection_belonging>belonging)"
+    r"|(?P<connection_empathy>empathy)|(?P<connection_family>found family|family bonds?)"
+    r"|(?P<connection_human>human connection))\b"
 )
 CONTENT_ANALYSIS_CLARITY_PATTERN: Final = (
-    r"\b(?:explains?|explanation|understanding|practical guide|step.by.step|how to)\b"
+    r"\b(?:(?P<clarity_guide>practical guide|step.by.step)"
+    r"|(?P<clarity_explained>clearly explains?|accessible introduction|plain language))\b"
 )
 CONTENT_ANALYSIS_NEGATION_PATTERN: Final = (
     r"\b(?:no|not|never|without|neither|nor|isn['\u2019]t|doesn['\u2019]t|lack(?:s|ing)?)\b"
@@ -4246,12 +4266,12 @@ CONTENT_ANALYSIS_THIN: Final = (
 )
 CONTENT_ANALYSIS_UNKNOWN: Final = "Known public description evidence is insufficient."
 CONTENT_ANALYSIS_TEST_TEXT: Final = (
-    "A magical world of dragons. An unexpected plot twist brings suspense. "
-    "Family friendship and belonging meet philosophy and purpose. "
-    "A practical guide explains science and understanding."
+    "A sense of wonder fills the voyage. An unexpected twist brings suspense. "
+    "Friendship and belonging meet moral dilemmas. "
+    "A practical guide to science."
 )
 CONTENT_ANALYSIS_TEST_NEGATED: Final = (
-    "No magic or dragons here. Without suspense or peril. A familyless criminality."
+    "No sense of wonder here. Without suspense or high stakes. A familyless friendshipless tale."
 )
 CONTENT_ANALYSIS_TEST_UNMATCHED: Final = "A quiet catalog introduction."
 CONTENT_ANALYSIS_TEST_URL: Final = "https://www.goodreads.com/book/show/123"
@@ -4259,7 +4279,7 @@ CONTENT_ANALYSIS_TEST_FILE_URL: Final = "file:///synthetic/reading.csv"
 CONTENT_ANALYSIS_TEST_PRIVATE_URL: Final = (
     "https://www.goodreads.com/book/show/123?key=private-value#private-fragment"
 )
-CONTENT_ANALYSIS_TEST_REPEATED: Final = "Magic, magic, dragons, magical dragons."
+CONTENT_ANALYSIS_TEST_REPEATED: Final = "Suspense, suspense, high stakes, suspenseful high stakes."
 CONTENT_ANALYSIS_TEST_UNVERIFIED: Final = "unverified_capture_genres"
 CONTENT_ANALYSIS_TEST_GOOGLE_URL: Final = "https://www.googleapis.com/books/v1/volumes/test-volume"
 CONTENT_ANALYSIS_TEST_OPEN_LIBRARY_URL: Final = "https://openlibrary.org/works/OL123W"
@@ -4836,7 +4856,7 @@ QUEUE_STATUS_UNRESOLVED_SQL: Final = (
 )
 
 # ANX: positive-only catalog appetite evidence and associations.
-ANX_VERSION: Final = "catalog-appetite-associations-v2"
+ANX_VERSION: Final = "catalog-appetite-associations-v3"
 ANX_FEATURE: Final = "catalog_appetite_mentions"
 ANX_ENJOYMENT: Final = "content.appetite.enjoyment.read.{dimension}"
 ANX_EXPOSURE: Final = "content.appetite.exposure.read"
@@ -6168,3 +6188,151 @@ DBSAFE_TEST_CREATE_BACKUP: Final = "create_backup"
 DBSAFE_TEST_VERIFY_CONNECTION: Final = "verify_connection"
 DBSAFE_TEST_INVALID_REASON: Final = "../Escape"
 DBSAFE_TEST_BACKUP_FAILED: Final = "backup failed"
+# L2 lane: analytics.
+AN3_COMPLETION_DATES_FIELD: Final = "goodreads_completion_dates"
+AN3_LEGACY_COMPLETION_COUNTS: Final = "supplemental_completion_counts"
+AN3_EVIDENCE_KEY: Final = "evidence"
+AN3_DATE_SOURCES: Final = "date_sources"
+AN3_EVIDENCE_FACTS: Final = "consumed_evidence_facts"
+AN3_COMPLETION_NOTE: Final = (
+    "Each Read work counts once, using its earliest Goodreads completion date at the "
+    "precision Goodreads recorded (day, month or year). StoryGraph supplies ratings only "
+    "and its dates are never used. A completion date is not proof of a first reading or "
+    "of a complete history. Cohort ratings are current StoryGraph ratings grouped by "
+    "Goodreads completion year, not ratings given at that time; small rated cohorts have "
+    "no rating summary. Stable proof is stored; capture time and CSV lineage come from "
+    "the manifest."
+)
+AN3_CROWD_COUNTS: Final = "goodreads_ratings_count"
+AN3_CROWD_COUNTED: Final = "paired_books_with_ratings_count"
+AN3_CROWD_NOTE: Final = (
+    "The Goodreads rating count is how many Goodreads ratings stand behind the public "
+    "average on the captured book page. It shows how steady that average is and never "
+    "measures personal taste."
+)
+AN3_RATING_SCALE: Final = "read.rating_scale"
+AN3_STANDOUTS: Final = "read.standout_ratings"
+AN3_STANDOUT_CONCENTRATION: Final = "read.standout_ratings.concentration"
+AN3_TIER_STANDOUT: Final = "standout"
+AN3_TIER_SOLID: Final = "solid"
+AN3_TIER_BELOW: Final = "below_usual"
+AN3_USUAL: Final = "usual_rating"
+AN3_USUAL_COUNT: Final = "usual_rating_count"
+AN3_USUAL_SHARE: Final = "usual_rating_share"
+AN3_TIED_MODES: Final = "tied_most_used_ratings"
+AN3_TIER_COUNTS: Final = "tier_counts"
+AN3_TIER_SHARES: Final = "tier_shares"
+AN3_TIER_CUTS: Final = "tier_cut_points"
+AN3_CUT_ABOVE: Final = "standout_above"
+AN3_CUT_BELOW: Final = "below_usual_under"
+AN3_SMALLEST_STEP: Final = "smallest_observed_step"
+AN3_STANDOUT_SHARE_ALL: Final = "share_of_all_standout_ratings"
+AN3_STANDOUT_DIFFERENCE: Final = "standout_rate_difference_vs_complement"
+AN3_STANDOUT_SHRUNK: Final = "shrunk_standout_rate_difference_vs_complement"
+AN3_BELOW_DIFFERENCE: Final = "below_usual_rate_difference_vs_complement"
+AN3_BELOW_SHRUNK: Final = "shrunk_below_usual_rate_difference_vs_complement"
+AN3_TIER_NOTE: Final = (
+    "Rating tiers are relative to the most-used personal rating: above it is a standout, "
+    "equal to it is solid and below it is below your usual. The cut-point is recomputed "
+    "from the saved ratings each run. Tiers describe your own rating habits; they are not "
+    "a quality score, and the configured high-rating threshold is kept only for comparison."
+)
+AN3_UNAVAILABLE_TOPICS: Final = "capabilities.unavailable_topics"
+AN3_TOPIC_ENTRY: Final = "{reason} [{topics}]"
+AN3_TOPIC_JOIN: Final = ", "
+AN3_TOPIC_SEPARATOR: Final = " | "
+AN3_METHOD_VERSION: Final = "method_version"
+AN3_EVIDENCE_TIERS: Final = "evidence_tiers"
+AN3_EVIDENCE_FIELD: Final = "evidence_field"
+AN3_NOT_ASSESSED: Final = "not_assessed"
+AN3_METHOD_RATINGS: Final = "rating-tiers-v1"
+AN3_METHOD_AVAILABILITY: Final = "rating-availability-v1"
+AN3_METHOD_GROUPS: Final = "shrunk-group-association-v2"
+AN3_METHOD_VALIDATION: Final = "held-out-baseline-comparison-v1"
+AN3_METHOD_DATES: Final = "goodreads-dates-v2"
+AN3_METHOD_PROFILE: Final = "descriptive-profile-v2"
+AN3_METHOD_COMMUNITY: Final = "goodreads-crowd-context-v2"
+AN3_METHOD_CONTENT: Final = "catalog-mentions-v2"
+AN3_METHOD_DEFAULT: Final = "descriptive-count-v2"
+AN3_TOKENS_CONTENT: Final = ("content.",)
+AN3_TOKENS_VALIDATION: Final = ("validation",)
+AN3_TOKENS_COMMUNITY: Final = ("community",)
+AN3_TOKENS_AVAILABILITY: Final = ("availability",)
+AN3_TOKENS_RATINGS: Final = (
+    "personal_ratings",
+    "personal_rating_records",
+    "rated_works",
+    "rating_scale",
+    "standout_ratings",
+)
+AN3_TOKENS_DATES: Final = (
+    "completion_date",
+    "read.finished.",
+    "duration_days",
+    "library_addition",
+    "backlog_age",
+    "movement",
+    "dated_rereading",
+    "comparable_",
+    "reading_time_trends",
+)
+AN3_TOKENS_GROUPS: Final = (
+    "read.feature.",
+    "conditional",
+    "enjoyment",
+    "appetite",
+    "watchlist.feature.",
+    "preference_mismatch",
+)
+AN3_TOKENS_PROFILE: Final = (
+    "structure",
+    "profile",
+    "breadth",
+    "composition",
+    "reader_summary",
+)
+AN3_LINK_METRIC: Final = "ratings.linked_rating_availability"
+AN3_LINK_STATES: Final = "linked_rating_states"
+AN3_LINK_AVAILABLE: Final = "linked_rating_available"
+AN3_LINK_CONFLICT: Final = "linked_ratings_conflicting_or_unusable"
+AN3_LINK_EMPTY: Final = "linked_source_row_without_rating"
+AN3_LINK_PENDING: Final = "unresolved_possible_storygraph_match"
+AN3_LINK_NONE: Final = "no_linked_rating_evidence"
+AN3_LINK_NOTE: Final = (
+    "Linked-rating availability counts Read works by whether a usable StoryGraph rating is "
+    "linked to them. It reflects source coverage, link availability, unresolved candidate "
+    "matches, missing ratings and conflicts, not matching accuracy, and does not mean the "
+    "book was unrated. A pending candidate match is not a confirmed link."
+)
+AN3_TEST_LIBRARY_FORMAT: Final = "library-{index}.sqlite3"
+AN3_TEST_REPORT_FORMAT: Final = "analytics-{index}.sqlite3"
+AN3_CONTENT_MARKETING_PATTERN: Final = (
+    r"\b(?:best.?sell(?:er|ers|ing)|award.winning|new york times|critically acclaimed"
+    r"|praise for|must.read|page.turner|edge of your seat|unputdownable|heart.pounding)\b"
+)
+AN3_CONTENT_SENTENCE_PATTERN: Final = r"(?<=[.!?])\s+"
+AN3_CONTENT_WORD_PATTERN: Final = r"\S+"
+AN3_RULE_ID: Final = "rule_id"
+AN3_QUOTE_TRUNCATED: Final = "quote_truncated"
+AN3_CONTENT_RULES_NOTE: Final = (
+    "Mention cues are plain description phrases chosen to avoid genre labels, marketing "
+    "blurbs and common idioms. Each quote is a whole description sentence and is shortened "
+    "only on word boundaries when it is very long. A cue match is a mention, not a "
+    "judgement of what the book is like."
+)
+AN3_TEST_MARKETING: Final = (
+    "A bestselling suspenseful ride. A magical world of dragons and a thriller about "
+    "unexpected allies in unexpected places. Learn how to win with purpose."
+)
+AN3_TEST_LONG_SENTENCE: Final = (
+    "Across a long and winding road of many seasons and many quiet towns and many tired "
+    "travellers who rarely speak of their reasons, the story keeps returning to a sense of "
+    "wonder that nobody on the road can fully explain to the people they leave behind."
+)
+AN3_TEST_MIXED: Final = "A bestselling suspenseful ride. A sense of wonder fills the voyage."
+AN3_TEST_CUE_SENTENCE: Final = "A sense of wonder fills the voyage."
+AN3_TEST_WONDER_RULE: Final = "wonder_sense"
+AN3_TEST_MATCHES_FIELD: Final = "possible_read_matches"
+AN3_TEST_FIELD_EVIDENCE_FIELD: Final = "field_evidence"
+AN3_TEST_PREFERENCES_FIELD: Final = "preferences"
+AN3_TEST_FORMAT: Final = "paperback"

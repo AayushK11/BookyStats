@@ -33,7 +33,6 @@ from bookystats.domain.models import (
     PartialDate,
     ReadingStatus,
     Source,
-    SupplementalCompletionDate,
     SyncState,
 )
 from bookystats.persistence.payloads import PayloadStore, canonical_json
@@ -124,7 +123,6 @@ def _work(
     work_id: int,
     records: list[_Record],
     rating_evidence: list[AnalysisEvidence],
-    supplemental_dates: list[SupplementalCompletionDate],
     metadata: dict[int, list[AnalysisEvidence]],
     work_metadata: dict[int, list[AnalysisEvidence]],
     settings: AnalyticsSettings,
@@ -152,16 +150,6 @@ def _work(
     evidence.extend(item for record in records for item in metadata.get(record.record_id, ()))
     evidence.extend(work_metadata.get(work_id, ()))
     evidence.extend(rating_evidence)
-    supplemental_evidence = [
-        AnalysisEvidence(
-            source=item.source.value,
-            source_id=item.source_id,
-            observation=item.observation,
-            detail=S.DTX_SUPPLEMENTAL_LINEAGE,
-        )
-        for item in supplemental_dates
-    ]
-    evidence.extend(supplemental_evidence)
     states: dict[str, FieldState] = {}
     features: dict[str, tuple[str, ...]] = {}
     for field in C.AN_FEATURE_FIELDS:
@@ -300,18 +288,6 @@ def _work(
         )
     )
     added = {record.book.added_at.value for record in records if record.book.added_at is not C.NONE}
-    completion_values = {
-        item.finished.value
-        for item in supplemental_dates
-        if item.finished is not C.NONE and item.observation.state == FieldState.PRESENT
-    }
-    states[S.DTX_SUPPLEMENTAL_COMPLETION_DATE] = (
-        FieldState.FAILED
-        if len(completion_values) > C.ONE
-        else FieldState.PRESENT
-        if completion_values
-        else _missing_state(supplemental_evidence, S.DTX_SUPPLEMENTAL_COMPLETION_DATE)
-    )
     return AnalysisBook(
         work_id=work_id,
         source_ids=source_ids,
@@ -329,7 +305,6 @@ def _work(
         review=review,
         community_ratings=community,
         reading_events=tuple(event for record in records for event in record.book.reading_events),
-        supplemental_completion_dates=tuple(supplemental_dates),
         added_at=PartialDate(value=next(iter(added))) if len(added) == C.ONE else C.NONE,
         field_states=states,
         evidence=tuple(evidence),
@@ -352,7 +327,6 @@ def read_analytics_input(
     snapshots: list[AnalysisSnapshot] = []
     pinned: dict[tuple[str, str, str], BookRecord] = {}
     counts: dict[str, int] = {}
-    completion_counts: dict[str, int] = {}
     for row in connection.execute(S.AN_INPUT_SNAPSHOTS):
         if row[S.SOURCE] not in configured:
             continue
@@ -376,23 +350,6 @@ def read_analytics_input(
         counts[S.AN_SCOPE.format(source=snapshot.source.value, collection=snapshot.collection)] = (
             len(snapshot.records)
         )
-        if snapshot.source == Source.STORYGRAPH:
-            completion_counts.update(
-                {
-                    key: sum(
-                        any(
-                            item.observation.state == state
-                            for item in book.supplemental_completion_dates
-                        )
-                        or (
-                            state == FieldState.UNSUPPORTED
-                            and not book.supplemental_completion_dates
-                        )
-                        for book in snapshot.records
-                    )
-                    for state, key in C.DTX_SOURCE_COMPLETION_STATE_KEYS.items()
-                }
-            )
         pinned.update(
             ((snapshot.source.value, snapshot.collection, book.source_id), book)
             for book in snapshot.records
@@ -496,7 +453,6 @@ def read_analytics_input(
         )
     groups: dict[int, list[_Record]] = defaultdict(list)
     ratings: dict[int, list[AnalysisEvidence]] = defaultdict(list)
-    supplemental: dict[int, list[SupplementalCompletionDate]] = defaultdict(list)
     personal_count = C.ZERO
     for record_id, record in records.items():
         if record.book.source == Source.GOODREADS:
@@ -509,7 +465,6 @@ def read_analytics_input(
                 )
             )
         elif record.book.source == Source.STORYGRAPH:
-            supplemental[record.work_id].extend(record.book.supplemental_completion_dates)
             observations = [item for item in record.book.observations if item.field == S.RATING]
             ratings[record.work_id].extend(
                 AnalysisEvidence(
@@ -572,7 +527,6 @@ def read_analytics_input(
                 work_id,
                 records,
                 ratings[work_id],
-                supplemental[work_id],
                 metadata,
                 work_metadata,
                 settings,
@@ -587,7 +541,6 @@ def read_analytics_input(
             settings=settings,
         ),
         source_counts=counts,
-        supplemental_completion_counts=completion_counts,
         personal_rating_records=personal_count,
         issues=issues,
     )
