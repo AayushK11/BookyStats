@@ -466,8 +466,10 @@ def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
     report[S.LIBRARY_DATABASE] = str(library_path) if library_path.exists() else C.NONE
     report[S.LIBRARY_BYTES] = _file_size(library_path)
     report[S.LATEST_LOG] = str(newest_log) if newest_log is not C.NONE else C.NONE
-    saved = read_summary(directory)
-    report[S.RUNSUM_KEY] = saved.model_dump(mode=S.JSON) if saved is not C.NONE else C.NONE
+    run_summary = read_summary(directory)
+    report[S.RUNSUM_KEY] = (
+        run_summary.model_dump(mode=S.JSON) if run_summary is not C.NONE else C.NONE
+    )
     report[S.CSV_CONFIGURATION_PATH] = str(configuration_path(directory))
     report[S.DBSAFE_STORAGE] = storage_report(directory)
     configured = {account.source for account in settings.accounts}
