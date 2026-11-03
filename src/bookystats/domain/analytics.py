@@ -79,6 +79,14 @@ class PossibleReadMatch(C.Model):
     source_snapshot_ids: tuple[int, ...]
 
 
+class SeriesMembership(C.Model):
+    name: str = Field(min_length=C.ONE)
+    position: str | None = C.NONE
+    position_number: float | None = Field(default=C.NONE, ge=C.ZERO)
+    tier: C.EvidenceTier
+    provenance: str = Field(min_length=C.ONE)
+
+
 class AnalysisBook(C.Model):
     work_id: int = Field(ge=C.ONE)
     source_ids: tuple[str, ...]
@@ -101,6 +109,13 @@ class AnalysisBook(C.Model):
     field_states: dict[str, FieldState] = Field(default_factory=dict)
     evidence: tuple[AnalysisEvidence, ...] = ()
     possible_read_matches: tuple[PossibleReadMatch, ...] = ()
+    series: SeriesMembership | None = C.NONE
+    goodreads_completion_dates: tuple[PartialDate, ...] = ()
+    first_publication_date: PartialDate | None = C.NONE
+    edition_publication_date: PartialDate | None = C.NONE
+    edition_language: str | None = C.NONE
+    field_evidence: dict[str, C.EvidenceTier] = Field(default_factory=dict)
+    field_sources: dict[str, str] = Field(default_factory=dict)
 
     @property
     def book_id(self) -> str:

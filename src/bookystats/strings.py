@@ -5722,3 +5722,9 @@ LOG2_SOURCE_RETAINED: Final = (
     "Source {source}/{collection}: {state}; no complete replacement; "
     "any last-good snapshot retained."
 )
+
+# Shared cross-lane analysis contract.
+EVIDENCE_TIER_DECLARED: Final = "declared"
+EVIDENCE_TIER_SINGLE_SOURCE: Final = "single_source"
+EVIDENCE_TIER_CORROBORATED: Final = "corroborated"
+EVIDENCE_TIER_CONFLICTING: Final = "conflicting"
