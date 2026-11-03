@@ -11,10 +11,11 @@ from pydantic import JsonValue, ValidationError
 
 from bookystats import constants as C
 from bookystats import strings as S
+from bookystats.adapters.http import cooldown_message
 from bookystats.domain.dates import parse_date
 from bookystats.domain.errors import ConfigurationError, ConnectorError, ProviderDeferredError
 from bookystats.domain.identifiers import normalize_isbn, normalized_isbns, normalized_text
-from bookystats.domain.interfaces import HttpFetcher, HttpResponse
+from bookystats.domain.interfaces import HttpFetcher, HttpResponse, HttpRetryState
 from bookystats.domain.models import (
     BookRecord,
     EnrichmentResult,
@@ -448,6 +449,7 @@ class GoogleBooksProvider:
         api_key: str | None = C.NONE,
         access_token: str | None = C.NONE,
         cache: MetadataCache | None = C.NONE,
+        cooldown: HttpRetryState | None = C.NONE,
     ) -> None:
         self._http = http
         self._api_key = api_key.strip() if api_key else C.NONE
@@ -455,6 +457,7 @@ class GoogleBooksProvider:
         if self._access_token and not C.OAUTH_BEARER_PATTERN.fullmatch(self._access_token):
             raise ConfigurationError(S.OAUTH_FAILURE)
         self._cache = cache
+        self._cooldown = cooldown
         self._halted = C.FALSE
         self._halt_code = S.METADATA_DEFERRED
 
@@ -472,6 +475,13 @@ class GoogleBooksProvider:
             cached = self._cache.get(Source.GOOGLE_BOOKS, key, allow_expired=C.TRUE)
             if cached is not C.NONE:
                 return _cached(cached)
+        if self._cooldown is not C.NONE:
+            raise ProviderDeferredError(
+                cooldown_message(self._cooldown),
+                state=SyncState.BLOCKED,
+                code=S.PROVIDER_COOLDOWN,
+                retryable=C.TRUE,
+            )
         params = {
             S.Q: query,
             S.MAXRESULTS: str(C.FIVE),
@@ -519,7 +529,7 @@ class GoogleBooksProvider:
                 code=self._halt_code,
                 retryable=C.TRUE,
             )
-        if not (self._api_key or self._access_token):
+        if not (self._api_key or self._access_token or self._cooldown is not C.NONE):
             return EnrichmentResult(
                 source_id=book.source_id,
                 state=SyncState.NOT_CONFIGURED,

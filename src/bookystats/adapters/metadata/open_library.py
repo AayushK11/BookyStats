@@ -16,9 +16,11 @@ from bookystats.domain.errors import ConnectorError, ProviderDeferredError
 from bookystats.domain.identifiers import normalize_isbn, normalized_isbns, normalized_text
 from bookystats.domain.interfaces import HttpFetcher, HttpResponse
 from bookystats.domain.matching import (
+    relaxed_metadata_identity,
     select_metadata_candidate,
     work_bibliography_compatible,
     work_candidate_keys,
+    work_query_title,
 )
 from bookystats.domain.metadata import missing_fallback_fields
 from bookystats.domain.models import (
@@ -439,6 +441,10 @@ def _matches(book: BookRecord, candidate: MetadataCandidate) -> bool:
     return work_bibliography_compatible(book, candidate)
 
 
+def _related(book: BookRecord, candidate: MetadataCandidate) -> bool:
+    return _matches(book, candidate) or relaxed_metadata_identity(book, candidate) is not C.NONE
+
+
 def _query(book: BookRecord) -> str | None:
     isbns = normalized_isbns(book.isbns)
     if isbns:
@@ -450,7 +456,7 @@ def _query(book: BookRecord) -> str | None:
             )
             + S.OPEN_LIBRARY_QUERY_TEXT_2
         )
-    title = normalized_text(book.title)
+    title = work_query_title(book.title)
     authors = [normalized_text(author) for author in book.authors if normalized_text(author)]
     if (
         title
@@ -460,6 +466,41 @@ def _query(book: BookRecord) -> str | None:
     ):
         return S.OPEN_LIBRARY_QUERY_TEMPLATE.format(v0=title, v1=authors[C.ZERO])
     return C.NONE
+
+
+def _deferred(book: BookRecord, error: ProviderDeferredError) -> EnrichmentResult:
+    return EnrichmentResult(
+        source_id=book.source_id,
+        state=SyncState.PARTIAL,
+        issues=(
+            Issue(
+                code=S.MC_TARGET_DEFERRED,
+                message=S.META_RUN_HALTED_MESSAGE,
+                source_id=book.source_id,
+                retryable=C.TRUE,
+            ),
+            Issue(
+                code=error.code,
+                message=S.META_RUN_HALTED_MESSAGE,
+                source_id=book.source_id,
+                retryable=C.TRUE,
+            ),
+        ),
+    )
+
+
+def _without_isbns(book: BookRecord) -> BookRecord:
+    return book.model_copy(update={S.ISBNS: ()})
+
+
+def _title_fallback_due(book: BookRecord, result: EnrichmentResult) -> bool:
+    return (
+        bool(normalized_isbns(book.isbns))
+        and result.state == SyncState.COMPLETE
+        and not result.candidates
+        and not result.issues
+        and _query(_without_isbns(book)) is not C.NONE
+    )
 
 
 def _failure(book: BookRecord, error: ConnectorError | MetadataCacheError) -> EnrichmentResult:
@@ -506,7 +547,7 @@ def _result(book: BookRecord, search: _Search) -> EnrichmentResult:
                 message=S.OPEN_LIBRARY_RESULT_MESSAGE_OPEN_RETURNED_A_LIMITED_OR_APPROXIMATE,
             )
         )
-    candidates = tuple(candidate for candidate in search.candidates if _matches(book, candidate))
+    candidates = tuple(candidate for candidate in search.candidates if _related(book, candidate))
     state = SyncState.PARTIAL if issues else SyncState.COMPLETE
     if not candidates and any(issue.code == S.INVALID_WORK for issue in issues):
         state = SyncState.FAILED
@@ -956,7 +997,7 @@ class OpenLibraryProvider:
             ) from C.NONE
         search = _search_payload(_http_payload(response))
         unverified = any(
-            not any(_matches(books[pending[key][C.ZERO]], candidate) for key in selected)
+            not any(_related(books[pending[key][C.ZERO]], candidate) for key in selected)
             for candidate in search.candidates
         )
         if len(selected) > C.ONE and (not search.complete or search.issues or unverified):
@@ -964,7 +1005,17 @@ class OpenLibraryProvider:
             self._lookup_search(books, pending, queries, selected[:midpoint], results)
             self._lookup_search(books, pending, queries, selected[midpoint:], results)
             return
-        if unverified:
+        unrelated_ignored = (
+            unverified
+            and len(selected) == C.ONE
+            and search.complete
+            and not search.issues
+            and all(
+                select_metadata_candidate(books[index], search.candidates) is not C.NONE
+                for index in pending[selected[C.ZERO]]
+            )
+        )
+        if unverified and not unrelated_ignored:
             search = _Search(
                 search.candidates,
                 (
@@ -981,7 +1032,7 @@ class OpenLibraryProvider:
             matched = tuple(
                 candidate
                 for candidate in search.candidates
-                if _matches(books[pending[key][C.ZERO]], candidate)
+                if _related(books[pending[key][C.ZERO]], candidate)
             )
             matched_ids = {candidate.provider_id for candidate in matched}
             subset = _Search(
@@ -999,6 +1050,7 @@ class OpenLibraryProvider:
             )
             if (
                 self._cache
+                and not unrelated_ignored
                 and all(issue.code in C.META_COVERAGE_OPTIONAL_ISSUES for issue in subset.issues)
                 and (subset.candidates or subset.complete)
             ):
@@ -1035,6 +1087,29 @@ class OpenLibraryProvider:
             yield self._enrich_details(book, result) if self._work_details else result
 
     def _lookup_many_search(self, books: tuple[BookRecord, ...]) -> tuple[EnrichmentResult, ...]:
+        results = self._search_pass(books)
+        retry = tuple(
+            index
+            for index, (book, result) in enumerate(zip(books, results, strict=C.TRUE))
+            if _title_fallback_due(book, result)
+        )
+        if not retry:
+            return results
+        try:
+            fallback = self._search_pass(tuple(_without_isbns(books[index]) for index in retry))
+        except ProviderDeferredError as error:
+            fallback = tuple(_deferred(books[index], error) for index in retry)
+        merged = list(results)
+        for index, found in zip(retry, fallback, strict=C.TRUE):
+            if found.candidates or found.state != SyncState.COMPLETE or found.issues:
+                merged[index] = found
+            else:
+                merged[index] = results[index].model_copy(
+                    update={S.META_COVERAGE_CACHE_HIT: results[index].cache_hit and found.cache_hit}
+                )
+        return tuple(merged)
+
+    def _search_pass(self, books: tuple[BookRecord, ...]) -> tuple[EnrichmentResult, ...]:
         if self._halted:
             raise ProviderDeferredError(
                 S.META_RUN_HALTED_MESSAGE,
@@ -1143,24 +1218,7 @@ class OpenLibraryProvider:
                 for key in selected:
                     for index in pending[key]:
                         if results[index] is C.NONE:
-                            results[index] = EnrichmentResult(
-                                source_id=books[index].source_id,
-                                state=SyncState.PARTIAL,
-                                issues=(
-                                    Issue(
-                                        code=S.MC_TARGET_DEFERRED,
-                                        message=S.META_RUN_HALTED_MESSAGE,
-                                        source_id=books[index].source_id,
-                                        retryable=C.TRUE,
-                                    ),
-                                    Issue(
-                                        code=error.code,
-                                        message=S.META_RUN_HALTED_MESSAGE,
-                                        source_id=books[index].source_id,
-                                        retryable=C.TRUE,
-                                    ),
-                                ),
-                            )
+                            results[index] = _deferred(books[index], error)
             except (ConnectorError, MetadataCacheError) as error:
                 if isinstance(error, ConnectorError):
                     if error.code == S.REQUEST_BUDGET_EXHAUSTED:

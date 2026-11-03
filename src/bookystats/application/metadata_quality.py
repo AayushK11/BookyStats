@@ -21,6 +21,8 @@ from bookystats.domain.metadata_quality import (
     MetadataIdentitySummary,
     MetadataQualityDiagnostic,
     MetadataQualityReport,
+    early_first_publication_year,
+    implausible_page_count,
 )
 from bookystats.domain.models import FieldState, ReadingStatus, Source, canonical_json
 
@@ -43,6 +45,49 @@ def _public_provider_origin(item: AnalysisEvidence) -> bool:
     if item.source == Source.GOOGLE_BOOKS.value:
         return url == S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE.format(v0=item.source_id)
     return C.FALSE
+
+
+def _provider_sources(book: AnalysisBook) -> set[str]:
+    return {
+        item.source
+        for item in book.evidence
+        if item.source in C.ANALYTIC_CATEGORY_SOURCES and _public_provider_origin(item)
+    }
+
+
+def _provider_labels(book: AnalysisBook) -> bool:
+    return any(
+        item.source in C.ANALYTIC_CATEGORY_SOURCES
+        and item.observation.field == S.GENRES
+        and item.observation.scope == S.WORK
+        and item.observation.state == FieldState.PRESENT
+        and _public_provider_origin(item)
+        and any(
+            isinstance(label, str) and label.strip()
+            for label in (
+                item.observation.value
+                if isinstance(item.observation.value, list)
+                else [item.observation.value]
+            )
+        )
+        for item in book.evidence
+    )
+
+
+def _missing_cause(book: AnalysisBook, field: str, state: FieldState) -> str:
+    if field == S.RATING:
+        if book.rating_conflict:
+            return S.MQ_REPORT_RATING_CONFLICT
+        return S.L1_COV_CAUSE_NO_RATING if _read(book) else S.L1_COV_CAUSE_NOT_APPLICABLE
+    if not _provider_sources(book):
+        return S.L1_COV_CAUSE_NO_RECORD
+    if field == S.GENRES and _provider_labels(book):
+        return S.L1_COV_CAUSE_UNMAPPED
+    if state == FieldState.FAILED:
+        return S.L1_COV_CAUSE_FAILED
+    if state == FieldState.UNSUPPORTED:
+        return S.L1_COV_CAUSE_UNSUPPORTED
+    return S.L1_COV_CAUSE_NO_VALUE
 
 
 def _trusted(item: AnalysisEvidence, field: str) -> bool:
@@ -142,7 +187,8 @@ def _coverage(
     for field, scope in C.MQ_REPORT_FIELDS:
         states: Counter[str] = Counter()
         sources: Counter[str] = Counter()
-        available = C.ZERO
+        causes: Counter[str] = Counter()
+        available = specific = C.ZERO
         for book in books:
             value = _value(book, field)
             present = value is not C.NONE and value != S.EMPTY and value != []
@@ -163,6 +209,10 @@ def _coverage(
                         if _trusted(item, field) and _backs(item, field, value)
                     }
                 )
+                if field == S.GENRES and isinstance(value, list):
+                    specific += any(label not in C.L1_COV_BROAD_GENRES for label in value)
+            else:
+                causes[_missing_cause(book, field, state)] += C.ONE
         rows.append(
             MetadataFieldCoverage(
                 field=field,
@@ -173,6 +223,8 @@ def _coverage(
                 missing=len(books) - available,
                 states=dict(sorted(states.items())),
                 sources=dict(sorted(sources.items())),
+                missing_causes=dict(sorted(causes.items())),
+                specific_available=specific if field == S.GENRES else C.NONE,
             )
         )
     return tuple(rows)
@@ -225,11 +277,7 @@ def build_metadata_quality(
     groups: dict[tuple[str, str | None], set[int]] = defaultdict(set)
     linked = cross = anchored = comparable = consistent = C.ZERO
     for book in data.books:
-        providers = {
-            item.source
-            for item in book.evidence
-            if item.source in C.ANALYTIC_CATEGORY_SOURCES and _public_provider_origin(item)
-        }
+        providers = _provider_sources(book)
         linked += bool(providers)
         cross += len(providers) > C.ONE
         if any(
@@ -281,6 +329,10 @@ def build_metadata_quality(
             and book.first_publication_year > book.publication_year
         ):
             groups[(S.MQ_REPORT_YEAR_ORDER, S.FIRST_PUBLICATION_YEAR)].add(book.work_id)
+        if implausible_page_count(book.page_count):
+            groups[(S.L1_COV_IMPLAUSIBLE_PAGES, S.PAGE_COUNT)].add(book.work_id)
+        if early_first_publication_year(book.first_publication_year):
+            groups[(S.L1_COV_EARLY_FIRST_PUBLICATION, S.FIRST_PUBLICATION_YEAR)].add(book.work_id)
         for item in book.evidence:
             observation = item.observation
             if observation.state != FieldState.PRESENT:
@@ -334,5 +386,5 @@ def build_metadata_quality(
         ),
         capabilities=(*analysis.taste.capabilities, *analysis.watchlist.capabilities),
         provider_status=dict(provider_status),
-        limitations=C.MQ_REPORT_LIMITATIONS,
+        limitations=C.L1_COV_LIMITATIONS,
     )

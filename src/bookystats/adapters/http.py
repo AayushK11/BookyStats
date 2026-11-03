@@ -44,6 +44,95 @@ def public_url(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, S.EMPTY, S.EMPTY))
 
 
+def cooldown_message(state: HttpRetryState) -> str:
+    message = S.DR_COOLDOWN_MESSAGE.format(deadline=state.retry_at)
+    scope = state.quota.get(S.L1_QUOTA_SCOPE)
+    template = {
+        S.L1_QUOTA_DAILY: S.L1_COOLDOWN_DAILY_NOTE,
+        S.L1_QUOTA_PER_MINUTE: S.L1_COOLDOWN_MINUTE_NOTE,
+    }.get(scope or S.EMPTY)
+    if template is C.NONE:
+        return message
+    limit = (
+        state.quota.get(S.L1_QUOTA_LIMIT)
+        or state.quota.get(S.L1_QUOTA_UNIT)
+        or state.quota.get(S.L1_QUOTA_REASON)
+        or S.L1_QUOTA_UNNAMED_LIMIT
+    )
+    return S.L1_COOLDOWN_JOIN.format(message=message, note=template.format(limit=limit))
+
+
+def active_cooldown(
+    store: RetryStateStore,
+    provider: Source,
+    host: str,
+    *,
+    wall_clock: Callable[[], float] = time.time,
+) -> HttpRetryState | None:
+    state = store.get_retry_state(provider, host)
+    if state is not C.NONE and state.retry_at is not C.NONE and wall_clock() < state.retry_at:
+        return state
+    return C.NONE
+
+
+def _quota_fields(source: Mapping[str, object]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for name, key in C.L1_QUOTA_SOURCE_KEYS:
+        value = source.get(key)
+        if isinstance(value, str) and C.L1_QUOTA_PATTERNS[name].fullmatch(value):
+            fields[name] = value
+    return fields
+
+
+def google_quota_evidence(body: bytes) -> dict[str, str]:
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeError, RecursionError):
+        return {}
+    error = payload.get(S.ERROR) if isinstance(payload, dict) else C.NONE
+    if not isinstance(error, dict):
+        return {}
+    entries: list[dict[str, str]] = []
+    details = error.get(S.QUEUE_GOOGLE_ERROR_DETAILS)
+    for detail in details if isinstance(details, list) else ():
+        if (
+            not isinstance(detail, dict)
+            or detail.get(S.QUEUE_GOOGLE_DETAIL_TYPE) != S.QUEUE_GOOGLE_ERROR_INFO
+        ):
+            continue
+        metadata = detail.get(S.METADATA)
+        if not isinstance(metadata, dict):
+            continue
+        unit = metadata.get(S.QUEUE_GOOGLE_QUOTA_UNIT)
+        if not isinstance(unit, str):
+            continue
+        if unit.startswith(S.QUEUE_GOOGLE_DAILY_UNIT_PREFIX) and unit != (
+            S.QUEUE_GOOGLE_DAILY_UNIT_PREFIX
+        ):
+            scope = S.L1_QUOTA_DAILY
+        elif C.L1_QUOTA_MINUTE_UNIT.fullmatch(unit):
+            scope = S.L1_QUOTA_PER_MINUTE
+        else:
+            continue
+        entry = {S.L1_QUOTA_SCOPE: scope, **_quota_fields(metadata)}
+        reason = detail.get(S.REASON)
+        if isinstance(reason, str) and C.L1_QUOTA_PATTERNS[S.L1_QUOTA_REASON].fullmatch(reason):
+            entry[S.L1_QUOTA_REASON] = reason
+        entries.append(entry)
+    reasons = error.get(S.ERRORS)
+    if isinstance(reasons, list) and any(
+        isinstance(item, dict) and item.get(S.REASON) == S.DAILYLIMITEXCEEDED for item in reasons
+    ):
+        entries.append(
+            {S.L1_QUOTA_SCOPE: S.L1_QUOTA_DAILY, S.L1_QUOTA_REASON: S.DAILYLIMITEXCEEDED}
+        )
+    for scope in (S.L1_QUOTA_DAILY, S.L1_QUOTA_PER_MINUTE):
+        for entry in entries:
+            if entry[S.L1_QUOTA_SCOPE] == scope:
+                return entry
+    return {}
+
+
 class HttpClient:
     def __init__(
         self,
@@ -118,7 +207,7 @@ class HttpClient:
             and self._wall_clock() < state.retry_at
         ):
             raise ProviderDeferredError(
-                S.DR_COOLDOWN_MESSAGE.format(deadline=state.retry_at),
+                cooldown_message(state),
                 state=SyncState.BLOCKED,
                 code=S.PROVIDER_COOLDOWN,
                 retryable=C.TRUE,
@@ -131,6 +220,7 @@ class HttpClient:
                     status_code=C.NONE,
                     headers={},
                     error_code=S.REQUEST_BUDGET_EXHAUSTED,
+                    quota={},
                 ),
             )
             raise ConnectorError(
@@ -158,6 +248,7 @@ class HttpClient:
             headers={},
             error_code=S.DR_REQUEST_PENDING,
             retry_at=self._wall_clock() + max(self._timeout, self._backoff(state.failures)),
+            quota={},
         )
         self._save_state(host, state)
         try:
@@ -189,7 +280,8 @@ class HttpClient:
                         )
                     parts.append(part)
                 body = S.EMPTY_BYTES.join(parts)
-                if self._google_daily_quota(host, response.status_code, body):
+                quota = self._google_quota(host, response.status_code, body)
+                if quota.get(S.L1_QUOTA_SCOPE) == S.L1_QUOTA_DAILY:
                     state = replace(
                         state,
                         retry_at=max(
@@ -200,7 +292,11 @@ class HttpClient:
                         ),
                         failures=state.failures + (response.status_code not in C.NET_RETRYABLE),
                         error_code=S.DR_HTTP_RETRYABLE,
+                        quota=quota,
                     )
+                    self._save_state(host, state)
+                elif quota and state.error_code == S.DR_HTTP_RETRYABLE:
+                    state = replace(state, quota=quota)
                     self._save_state(host, state)
                 result = HttpResponse(
                     url=public_url(str(response.url)),
@@ -234,45 +330,14 @@ class HttpClient:
             self._record_error(host, error)
             raise
 
-    def _google_daily_quota(self, host: str, status: int, body: bytes) -> bool:
+    def _google_quota(self, host: str, status: int, body: bytes) -> dict[str, str]:
         if (
             self._provider != Source.GOOGLE_BOOKS
             or host != S.WWW_GOOGLEAPIS_COM
             or status not in C.QUEUE_GOOGLE_DAILY_STATUSES
         ):
-            return C.FALSE
-        try:
-            payload = json.loads(body)
-        except (ValueError, UnicodeError, RecursionError):
-            return C.FALSE
-        error = payload.get(S.ERROR) if isinstance(payload, dict) else C.NONE
-        if not isinstance(error, dict):
-            return C.FALSE
-        reasons = error.get(S.ERRORS)
-        if isinstance(reasons, list) and any(
-            isinstance(item, dict) and item.get(S.REASON) == S.DAILYLIMITEXCEEDED
-            for item in reasons
-        ):
-            return C.TRUE
-        details = error.get(S.QUEUE_GOOGLE_ERROR_DETAILS)
-        if isinstance(details, list):
-            for detail in details:
-                if not isinstance(detail, dict):
-                    continue
-                metadata = detail.get(S.METADATA)
-                unit = (
-                    metadata.get(S.QUEUE_GOOGLE_QUOTA_UNIT)
-                    if isinstance(metadata, dict)
-                    else C.NONE
-                )
-                if (
-                    detail.get(S.QUEUE_GOOGLE_DETAIL_TYPE) == S.QUEUE_GOOGLE_ERROR_INFO
-                    and isinstance(unit, str)
-                    and unit.startswith(S.QUEUE_GOOGLE_DAILY_UNIT_PREFIX)
-                    and unit != S.QUEUE_GOOGLE_DAILY_UNIT_PREFIX
-                ):
-                    return C.TRUE
-        return C.FALSE
+            return {}
+        return google_quota_evidence(body)
 
     @staticmethod
     def _safe_headers(
@@ -418,6 +483,7 @@ class HttpClient:
                             retry_at=C.NONE,
                             failures=C.ZERO,
                             error_code=C.NONE,
+                            quota={},
                         ),
                     )
                     break

@@ -1,0 +1,380 @@
+{
+  "source": "storygraph",
+  "account_id": "export-reader",
+  "collection": "library",
+  "state": "complete",
+  "records": [
+    {
+      "source": "storygraph",
+      "source_id": "legacy-day",
+      "title": "Synthetic Legacy legacy-day",
+      "authors": [
+        "Ada Example"
+      ],
+      "url": "https://app.thestorygraph.com/books/legacy-day",
+      "status": "unknown",
+      "raw_status": null,
+      "isbns": [],
+      "edition_format": null,
+      "language": null,
+      "collections": [
+        "library"
+      ],
+      "shelves": [],
+      "added_at": null,
+      "shelf_position": null,
+      "observations": [
+        {
+          "field": "title",
+          "value": "Synthetic Legacy legacy-day",
+          "state": "present",
+          "scope": "work",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "authors",
+          "value": [
+            "Ada Example"
+          ],
+          "state": "present",
+          "scope": "work",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "isbns",
+          "value": null,
+          "state": "unavailable",
+          "scope": "edition",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "import_identity_kind",
+          "value": "native",
+          "state": "present",
+          "scope": "edition",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "rating",
+          "value": 4.25,
+          "state": "present",
+          "scope": "reader",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "supplemental_completion_date",
+          "value": "2024-02-29",
+          "state": "present",
+          "scope": "reader",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        }
+      ],
+      "reading_events": [],
+      "supplemental_completion_dates": [
+        {
+          "source": "storygraph",
+          "source_id": "legacy-day",
+          "finished": {
+            "value": "2024-02-29",
+            "raw": "2024-02-29"
+          },
+          "observation": {
+            "field": "supplemental_completion_date",
+            "value": "2024-02-29",
+            "state": "present",
+            "scope": "reader",
+            "source_url": "synthetic-fixture.csv",
+            "observed_at": "2026-10-30T10:00:00+00:00"
+          }
+        }
+      ],
+      "detail_checked_at": null,
+      "raw_fields": {
+        "Title": "Synthetic Legacy legacy-day",
+        "Authors": "Ada Example",
+        "Read Status": "read",
+        "ISBN/UID": "legacy-day",
+        "Format": "Paperback",
+        "Date Added": "2020",
+        "Last Date Read": "2024-02-29",
+        "Dates Read": "2024-03, 2025/04/06",
+        "Read Count": "2",
+        "Star Rating": "4.25",
+        "Review": "First line, with a comma.\nSecond line has \"quotes\".",
+        "Moods": "hopeful, reflective",
+        "Pace": "medium",
+        "Tags": "favorites",
+        "Content Warnings": "grief",
+        "Future Detail": " original, spelling \nunchanged "
+      }
+    },
+    {
+      "source": "storygraph",
+      "source_id": "legacy-invalid",
+      "title": "Synthetic Legacy legacy-invalid",
+      "authors": [
+        "Ada Example"
+      ],
+      "url": "https://app.thestorygraph.com/books/legacy-invalid",
+      "status": "unknown",
+      "raw_status": null,
+      "isbns": [],
+      "edition_format": null,
+      "language": null,
+      "collections": [
+        "library"
+      ],
+      "shelves": [],
+      "added_at": null,
+      "shelf_position": null,
+      "observations": [
+        {
+          "field": "title",
+          "value": "Synthetic Legacy legacy-invalid",
+          "state": "present",
+          "scope": "work",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "authors",
+          "value": [
+            "Ada Example"
+          ],
+          "state": "present",
+          "scope": "work",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "isbns",
+          "value": null,
+          "state": "unavailable",
+          "scope": "edition",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "import_identity_kind",
+          "value": "native",
+          "state": "present",
+          "scope": "edition",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "rating",
+          "value": 4.25,
+          "state": "present",
+          "scope": "reader",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "supplemental_completion_date",
+          "value": null,
+          "state": "unavailable",
+          "scope": "reader",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        }
+      ],
+      "reading_events": [],
+      "supplemental_completion_dates": [
+        {
+          "source": "storygraph",
+          "source_id": "legacy-invalid",
+          "finished": null,
+          "observation": {
+            "field": "supplemental_completion_date",
+            "value": null,
+            "state": "unavailable",
+            "scope": "reader",
+            "source_url": "synthetic-fixture.csv",
+            "observed_at": "2026-10-30T10:00:00+00:00"
+          }
+        }
+      ],
+      "detail_checked_at": null,
+      "raw_fields": {
+        "Title": "Synthetic Legacy legacy-invalid",
+        "Authors": "Ada Example",
+        "Read Status": "read",
+        "ISBN/UID": "legacy-invalid",
+        "Format": "Paperback",
+        "Date Added": "2020",
+        "Last Date Read": "2023-02-29",
+        "Dates Read": "2024-03, 2025/04/06",
+        "Read Count": "2",
+        "Star Rating": "4.25",
+        "Review": "First line, with a comma.\nSecond line has \"quotes\".",
+        "Moods": "hopeful, reflective",
+        "Pace": "medium",
+        "Tags": "favorites",
+        "Content Warnings": "grief",
+        "Future Detail": " original, spelling \nunchanged "
+      }
+    },
+    {
+      "source": "storygraph",
+      "source_id": "legacy-empty",
+      "title": "Synthetic Legacy legacy-empty",
+      "authors": [
+        "Ada Example"
+      ],
+      "url": "https://app.thestorygraph.com/books/legacy-empty",
+      "status": "unknown",
+      "raw_status": null,
+      "isbns": [],
+      "edition_format": null,
+      "language": null,
+      "collections": [
+        "library"
+      ],
+      "shelves": [],
+      "added_at": null,
+      "shelf_position": null,
+      "observations": [
+        {
+          "field": "title",
+          "value": "Synthetic Legacy legacy-empty",
+          "state": "present",
+          "scope": "work",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "authors",
+          "value": [
+            "Ada Example"
+          ],
+          "state": "present",
+          "scope": "work",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "isbns",
+          "value": null,
+          "state": "unavailable",
+          "scope": "edition",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "import_identity_kind",
+          "value": "native",
+          "state": "present",
+          "scope": "edition",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "rating",
+          "value": 4.25,
+          "state": "present",
+          "scope": "reader",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        },
+        {
+          "field": "supplemental_completion_date",
+          "value": null,
+          "state": "empty",
+          "scope": "reader",
+          "source_url": "synthetic-fixture.csv",
+          "observed_at": "2026-10-30T10:00:00+00:00"
+        }
+      ],
+      "reading_events": [],
+      "supplemental_completion_dates": [
+        {
+          "source": "storygraph",
+          "source_id": "legacy-empty",
+          "finished": null,
+          "observation": {
+            "field": "supplemental_completion_date",
+            "value": null,
+            "state": "empty",
+            "scope": "reader",
+            "source_url": "synthetic-fixture.csv",
+            "observed_at": "2026-10-30T10:00:00+00:00"
+          }
+        }
+      ],
+      "detail_checked_at": null,
+      "raw_fields": {
+        "Title": "Synthetic Legacy legacy-empty",
+        "Authors": "Ada Example",
+        "Read Status": "read",
+        "ISBN/UID": "legacy-empty",
+        "Format": "Paperback",
+        "Date Added": "2020",
+        "Last Date Read": "",
+        "Dates Read": "2024-03, 2025/04/06",
+        "Read Count": "2",
+        "Star Rating": "4.25",
+        "Review": "First line, with a comma.\nSecond line has \"quotes\".",
+        "Moods": "hopeful, reflective",
+        "Pace": "medium",
+        "Tags": "favorites",
+        "Content Warnings": "grief",
+        "Future Detail": " original, spelling \nunchanged "
+      }
+    }
+  ],
+  "started_at": "2026-10-30T10:00:00+00:00",
+  "finished_at": "2026-11-03T12:30:20.085922+00:00",
+  "pages_seen": 1,
+  "expected_count": 3,
+  "identity_verified": false,
+  "termination_verified": true,
+  "capabilities": {
+    "community_rating": "unsupported",
+    "edition_format": "unsupported",
+    "import_identity_kind": "present",
+    "status": "unsupported",
+    "supplemental_completion_date": "present",
+    "pace": "unsupported",
+    "tags": "unsupported",
+    "reading_events": "unsupported",
+    "title": "present",
+    "rating": "present",
+    "content_warnings": "unsupported",
+    "review": "unsupported",
+    "isbns": "unavailable",
+    "moods": "unsupported",
+    "read_count": "unsupported",
+    "added_at": "unsupported",
+    "authors": "present"
+  },
+  "issues": [
+    {
+      "code": "export_unmapped_column",
+      "message": "Export column Future Detail is preserved verbatim in raw_fields but has no typed mapping.",
+      "source_id": null,
+      "retryable": false
+    },
+    {
+      "code": "storygraph_ratings_only",
+      "message": "Only explicitly Read StoryGraph rows supply personal ratings and matching identity. Read status selects the import scope but is not published as reading history. Explicit Last Date Read supplies separately attributed supplemental completion dates through confirmed work links, never replacing Goodreads history. All other source fields, including reviews and other reading dates, remain raw-only.",
+      "source_id": null,
+      "retryable": false
+    },
+    {
+      "code": "storygraph_completion_date_invalid",
+      "message": "Export record 3: Last Date Read is not a supported date. The original value remains raw; its supplemental completion date is unavailable.",
+      "source_id": "legacy-invalid",
+      "retryable": false
+    }
+  ],
+  "input_kind": "file",
+  "raw_document_id": "synthetic-raw-document",
+  "processing_version": "csv-v6-storygraph-supplemental-completion"
+}
