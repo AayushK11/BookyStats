@@ -16,6 +16,8 @@ class MetadataFieldCoverage(C.Model):
     missing: int = Field(ge=C.ZERO)
     states: dict[str, int]
     sources: dict[str, int]
+    missing_causes: dict[str, int] = Field(default_factory=dict)
+    specific_available: int | None = Field(default=C.NONE, ge=C.ZERO)
 
 
 class MetadataIdentitySummary(C.Model):
@@ -50,3 +52,11 @@ class MetadataQualityReport(C.Model):
     capabilities: tuple[Capability, ...] = ()
     provider_status: dict[str, JsonValue] = Field(default_factory=dict)
     limitations: tuple[str, ...] = ()
+
+
+def implausible_page_count(pages: int | None) -> bool:
+    return pages is not C.NONE and pages < C.L1_COV_MIN_PLAUSIBLE_PAGES
+
+
+def early_first_publication_year(year: int | None) -> bool:
+    return year is not C.NONE and year < C.L1_COV_EARLY_YEAR_LIMIT

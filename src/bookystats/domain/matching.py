@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Callable
 
 from bookystats import constants as C
 from bookystats import strings as S
@@ -323,22 +324,85 @@ def compare_books(left: Matchable, right: Matchable) -> MatchResult:
     )
 
 
-def compare_metadata_identity(book: BookRecord, candidate: MetadataCandidate) -> MatchResult:
-    comparison = compare_books(book, candidate)
-    if (
-        comparison.kind != MatchKind.CONFLICTING
-        and candidate.provider == Source.OPEN_LIBRARY
+def _open_library_work(candidate: MetadataCandidate) -> bool:
+    return (
+        candidate.provider == Source.OPEN_LIBRARY
         and candidate.work_id == candidate.provider_id
         and candidate.edition_id is C.NONE
         and all(item.scope == S.WORK for item in candidate.observations)
+    )
+
+
+def _article_free(key: str) -> str:
+    article, _, rest = key.partition(S.SPACE)
+    return rest if article in C.L1_ID_LEADING_ARTICLES and rest else key
+
+
+def _article_variant(left: str, right: str) -> bool:
+    return left != right and (left == _article_free(right) or right == _article_free(left))
+
+
+def _names_series(series: dict[str, str], title: str) -> bool:
+    return any(_article_free(name) == _article_free(title) for name in series)
+
+
+def work_query_title(title: str) -> str:
+    stripped, _ = _title_parts(title)
+    return normalized_text(stripped)
+
+
+def relaxed_metadata_identity(book: BookRecord, candidate: MetadataCandidate) -> MatchResult | None:
+    if not _open_library_work(candidate):
+        return C.NONE
+    book_title, book_series = _title_parts(book.title)
+    candidate_title, candidate_series = _title_parts(candidate.title)
+    left, right = _title_key(book_title), _title_key(candidate_title)
+    authors, candidate_authors = _authors(book), _authors(candidate)
+    if (
+        not left
+        or not right
+        or not authors
+        or S.EMPTY in authors | candidate_authors
+        or _series_conflict(book_series, candidate_series)
+        or _edition_conflict(book, candidate)
+        or _names_series(book_series, right)
+        or _names_series(candidate_series, left)
+    ):
+        return C.NONE
+    shared = tuple(
+        sorted(set(normalized_isbns(book.isbns)) & set(normalized_isbns(candidate.isbns)))
+    )
+    if authors == candidate_authors and _article_variant(left, right):
+        return MatchResult(MatchKind.CONFIRMED, S.L1_ID_ARTICLE_REASON, shared)
+    if shared and left == right and authors <= candidate_authors:
+        return MatchResult(MatchKind.CONFIRMED, S.L1_ID_CONTRIBUTOR_REASON, shared)
+    return C.NONE
+
+
+def _strict_metadata_identity(book: BookRecord, candidate: MetadataCandidate) -> MatchResult:
+    comparison = compare_books(book, candidate)
+    if (
+        comparison.kind != MatchKind.CONFLICTING
+        and _open_library_work(candidate)
         and work_bibliography_compatible(book, candidate)
     ):
         return MatchResult(MatchKind.CONFIRMED, S.MATCH_REPAIR_WORK_REASON)
     return comparison
 
 
-def select_metadata_candidate(
-    book: BookRecord, candidates: tuple[MetadataCandidate, ...]
+def compare_metadata_identity(book: BookRecord, candidate: MetadataCandidate) -> MatchResult:
+    strict = _strict_metadata_identity(book, candidate)
+    if strict.kind != MatchKind.CONFIRMED:
+        relaxed = relaxed_metadata_identity(book, candidate)
+        if relaxed is not C.NONE:
+            return relaxed
+    return strict
+
+
+def _unique_confirmed(
+    book: BookRecord,
+    candidates: tuple[MetadataCandidate, ...],
+    compare: Callable[[BookRecord, MetadataCandidate], MatchResult],
 ) -> MetadataCandidate | None:
     plausible: list[tuple[MetadataCandidate, MatchResult]] = []
     seen: set[str] = set()
@@ -347,9 +411,18 @@ def select_metadata_candidate(
         if serialized in seen:
             continue
         seen.add(serialized)
-        comparison = compare_metadata_identity(book, candidate)
+        comparison = compare(book, candidate)
         if comparison.kind != MatchKind.UNRELATED:
             plausible.append((candidate, comparison))
     if len(plausible) == C.ONE and plausible[C.ZERO][C.ONE].kind == MatchKind.CONFIRMED:
         return plausible[C.ZERO][C.ZERO]
     return C.NONE
+
+
+def select_metadata_candidate(
+    book: BookRecord, candidates: tuple[MetadataCandidate, ...]
+) -> MetadataCandidate | None:
+    selected = _unique_confirmed(book, candidates, _strict_metadata_identity)
+    if selected is not C.NONE:
+        return selected
+    return _unique_confirmed(book, candidates, compare_metadata_identity)

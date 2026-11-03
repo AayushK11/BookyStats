@@ -5,6 +5,7 @@ import hmac
 import json
 import math
 import sqlite3
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -42,6 +43,18 @@ def _checksum(payload: str, expires_at: float) -> str:
     return hashlib.sha256(
         S.CACHE_CHECKSUM_TEMPLATE.format(v0=expires_at, v1=payload).encode()
     ).hexdigest()
+
+
+def _valid_quota(value: object) -> bool:
+    if not isinstance(value, Mapping):
+        return C.FALSE
+    return all(
+        isinstance(name, str)
+        and name in C.L1_QUOTA_PATTERNS
+        and isinstance(item, str)
+        and C.L1_QUOTA_PATTERNS[name].fullmatch(item) is not C.NONE
+        for name, item in value.items()
+    ) and (not value or S.L1_QUOTA_SCOPE in value)
 
 
 class MetadataCache:
@@ -218,7 +231,10 @@ class MetadataCache:
             ):
                 raise ValueError
             value = json.loads(payload)
-            if not isinstance(value, dict) or set(value) != C.DR_RETRY_KEYS:
+            if not isinstance(value, dict) or set(value) not in (
+                C.DR_RETRY_KEYS,
+                C.L1_RETRY_KEYS_WITH_QUOTA,
+            ):
                 raise ValueError
             deadline = value[S.DR_RETRY_AT]
             status = value[S.DR_STATUS_CODE]
@@ -226,6 +242,7 @@ class MetadataCache:
             attempts = value[S.DR_WIRE_ATTEMPTS]
             failures = value[S.DR_FAILURES]
             error = value[S.DR_ERROR_CODE]
+            quota = value.get(S.L1_QUOTA, {})
             if (
                 (
                     deadline is not C.NONE
@@ -251,9 +268,10 @@ class MetadataCache:
                 or type(failures) is not int
                 or failures < C.ZERO
                 or (error is not C.NONE and error not in C.DR_ERROR_CODES)
+                or not _valid_quota(quota)
             ):
                 raise ValueError
-            return HttpRetryState(deadline, status, headers, attempts, failures, error)
+            return HttpRetryState(deadline, status, headers, attempts, failures, error, quota)
         except (sqlite3.Error, ValueError, TypeError, RecursionError, OverflowError):
             raise MetadataCacheError(S.DR_RETRY_READ_ERROR) from C.NONE
 
@@ -281,24 +299,24 @@ class MetadataCache:
                 or state.failures < C.ZERO
                 or (state.error_code is not C.NONE and state.error_code not in C.DR_ERROR_CODES)
                 or any(not isinstance(value, str) for value in state.headers.values())
+                or not _valid_quota(state.quota)
             ):
                 raise ValueError
-            payload = json.dumps(
-                {
-                    S.DR_RETRY_AT: state.retry_at,
-                    S.DR_STATUS_CODE: state.status_code,
-                    S.DR_HEADERS: {
-                        name: value
-                        for name, value in state.headers.items()
-                        if name in C.NET_SAFE_HEADERS
-                    },
-                    S.DR_WIRE_ATTEMPTS: state.wire_attempts,
-                    S.DR_FAILURES: state.failures,
-                    S.DR_ERROR_CODE: state.error_code,
+            document: dict[str, object] = {
+                S.DR_RETRY_AT: state.retry_at,
+                S.DR_STATUS_CODE: state.status_code,
+                S.DR_HEADERS: {
+                    name: value
+                    for name, value in state.headers.items()
+                    if name in C.NET_SAFE_HEADERS
                 },
-                sort_keys=C.TRUE,
-                allow_nan=C.FALSE,
-            )
+                S.DR_WIRE_ATTEMPTS: state.wire_attempts,
+                S.DR_FAILURES: state.failures,
+                S.DR_ERROR_CODE: state.error_code,
+            }
+            if state.quota:
+                document[S.L1_QUOTA] = dict(state.quota)
+            payload = json.dumps(document, sort_keys=C.TRUE, allow_nan=C.FALSE)
         except (ValueError, TypeError, OverflowError, RecursionError):
             raise MetadataCacheError(S.DR_RETRY_WRITE_ERROR) from C.NONE
         try:

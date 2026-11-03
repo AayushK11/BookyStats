@@ -585,9 +585,11 @@ def test_approximate_empty_response_is_partial_and_not_negative_cached(
     approximate = response({S.NUMFOUND: C.ZERO, S.DOCS: [], S.NUMFOUNDEXACT: C.FALSE})
     first = OpenLibraryProvider(FakeHttp(approximate), cache=cache).lookup(book)
     assert first.state == SyncState.PARTIAL
-    http = FakeHttp(response({S.NUMFOUND: C.ZERO, S.DOCS: []}))
+    http = FakeHttp(
+        response({S.NUMFOUND: C.ZERO, S.DOCS: []}), response({S.NUMFOUND: C.ZERO, S.DOCS: []})
+    )
     second = OpenLibraryProvider(http, cache=cache).lookup(book)
-    assert not second.cache_hit and len(http.calls) == C.ONE
+    assert not second.cache_hit and len(http.calls) == C.TWO
     cache.close()
 
 
@@ -850,7 +852,10 @@ def test_legacy_count_shape_and_normal_no_results_can_be_cached(
     book: BookRecord, tmp_path: Path
 ) -> None:
     cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
-    http = FakeHttp(response({S.NUM_FOUND: C.ZERO, S.START: C.ZERO, S.DOCS: []}))
+    http = FakeHttp(
+        response({S.NUM_FOUND: C.ZERO, S.START: C.ZERO, S.DOCS: []}),
+        response({S.NUMFOUND: C.ZERO, S.START: C.ZERO, S.DOCS: []}),
+    )
     first = OpenLibraryProvider(http, cache=cache).lookup(book)
     second = OpenLibraryProvider(FakeHttp(), cache=cache).lookup(book)
     assert first.state == second.state == SyncState.COMPLETE

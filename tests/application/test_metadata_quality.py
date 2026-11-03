@@ -192,6 +192,41 @@ def test_contamination_provenance_and_unbacked_selection_are_reported_without_re
     assert data.books[C.ZERO] == book
 
 
+def _storygraph(field: str, value: str | float) -> AnalysisEvidence:
+    return AnalysisEvidence(
+        source=Source.STORYGRAPH.value,
+        source_id=S.TESTVOLUME_1,
+        observation=Observation(
+            field=field,
+            value=value,
+            state=FieldState.PRESENT,
+            scope=S.READER,
+            source_url=S.MQ_REPORT_TEST_CSV_ORIGIN,
+            observed_at=S.AN_CALC_TEST_FINISH,
+        ),
+    )
+
+
+def test_storygraph_evidence_beyond_ratings_is_reader_contamination() -> None:
+    rated = _book(evidence=(_storygraph(S.RATING, C.FOUR),), rating=C.FOUR)
+    dated = _book(
+        C.TWO,
+        evidence=(
+            _storygraph(S.RATING, C.FOUR),
+            _storygraph(S.DTX_SUPPLEMENTAL_COMPLETION_DATE, S.DTX_TEST_DAY),
+        ),
+        rating=C.FOUR,
+    )
+    data = _data(rated, dated)
+    report = build_metadata_quality(data, _analysis(data), {})
+    contamination = [
+        (diagnostic.field, diagnostic.work_ids)
+        for diagnostic in report.diagnostics
+        if diagnostic.code == S.MQ_REPORT_READER_CONTAMINATION
+    ]
+    assert contamination == [(S.DTX_SUPPLEMENTAL_COMPLETION_DATE, (C.TWO,))]
+
+
 def test_quality_rejects_mismatched_analysis_snapshot_or_as_of() -> None:
     data = _data(_book())
     report = _analysis(data)

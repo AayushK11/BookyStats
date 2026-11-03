@@ -15,12 +15,17 @@ from pydantic import JsonValue, ValidationError
 
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.adapters.http import HttpClient
+from bookystats.adapters.http import HttpClient, active_cooldown
 from bookystats.application.sync import SourceReceipt, SyncReceipt, SyncService
 from bookystats.application.verification import verify_run
 from bookystats.cli.report import run_lines, status_lines
 from bookystats.domain.errors import AlreadyRunning, BookyError, ConfigurationError
-from bookystats.domain.interfaces import MetadataProvider, SourceConnector
+from bookystats.domain.interfaces import (
+    HttpRetryState,
+    MetadataProvider,
+    RetryStateStore,
+    SourceConnector,
+)
 from bookystats.domain.models import (
     CollectionProgress,
     Issue,
@@ -132,6 +137,24 @@ def _write_fetch_helper(directory: Path, settings: Settings, *, as_json: bool) -
         )
 
 
+def _google_cooldown(directory: Path, cache: RetryStateStore | None) -> HttpRetryState | None:
+    from bookystats.persistence.cache import MetadataCache, MetadataCacheError
+
+    try:
+        if cache is not C.NONE:
+            return active_cooldown(cache, Source.GOOGLE_BOOKS, S.WWW_GOOGLEAPIS_COM)
+        path = database_path(directory, S.METADATA_SQLITE3)
+        if not path.is_file():
+            return C.NONE
+        probe = MetadataCache(path)
+        try:
+            return active_cooldown(probe, Source.GOOGLE_BOOKS, S.WWW_GOOGLEAPIS_COM)
+        finally:
+            probe.close()
+    except MetadataCacheError:
+        return C.NONE
+
+
 def _build_service(
     directory: Path,
     settings: Settings,
@@ -193,7 +216,9 @@ def _build_service(
         and settings.metadata.strategy == S.ENR_STRATEGY_OPEN_LIBRARY_FIRST
         and not key
     )
-    if settings.metadata.google_books and not key and not deferred_google:
+    eager_oauth = settings.metadata.google_books and not key and not deferred_google
+    google_gate = _google_cooldown(directory, C.NONE) if eager_oauth else C.NONE
+    if eager_oauth and google_gate is C.NONE:
         from bookystats.adapters.google_oauth import AuthorizationRequired, ensure_access_token
 
         try:
@@ -215,7 +240,8 @@ def _build_service(
         for source, configured in (
             (
                 Source.GOOGLE_BOOKS,
-                settings.metadata.google_books and (bool(key or token) or deferred_google),
+                settings.metadata.google_books
+                and (bool(key or token) or deferred_google or google_gate is not C.NONE),
             ),
             (Source.OPEN_LIBRARY, settings.metadata.open_library),
         )
@@ -234,7 +260,8 @@ def _build_service(
 
     def google_provider() -> MetadataProvider | Issue:
         access_token = token
-        if deferred_google:
+        gate = _google_cooldown(directory, cache) if deferred_google else google_gate
+        if deferred_google and gate is C.NONE:
             from bookystats.adapters.google_oauth import AuthorizationRequired, ensure_access_token
 
             try:
@@ -265,12 +292,13 @@ def _build_service(
             api_key=key,
             access_token=access_token,
             cache=cache,
+            cooldown=gate,
         )
 
     if settings.metadata.google_books and cache is not C.NONE:
         if deferred_google:
             provider_factories[Source.GOOGLE_BOOKS] = google_provider
-        elif key or token:
+        elif key or token or google_gate is not C.NONE:
             initialized = google_provider()
             if isinstance(initialized, Issue):
                 provider_issues[Source.GOOGLE_BOOKS] = initialized

@@ -100,6 +100,7 @@ class HttpRetryState:
     wire_attempts: int = C.ZERO
     failures: int = C.ZERO
     error_code: str | None = C.NONE
+    quota: Mapping[str, str] = C.L1_EMPTY_QUOTA
 
 
 class RetryStateStore(Protocol):

@@ -30,7 +30,6 @@ from bookystats.domain.models import (
     ReadingEvent,
     ReadingStatus,
     Source,
-    SupplementalCompletionDate,
     SyncState,
     utc_now,
 )
@@ -284,32 +283,6 @@ class _ExportRow:
         assert date is not C.NONE
         self.observe(S.ADDED_AT, date.value, S.READER)
         return date
-
-    def supplemental_completion_date(self, source_id: str) -> SupplementalCompletionDate:
-        date: PartialDate | None = C.NONE
-        if not self.absent(S.IMPORT_LAST_DATE_READ, S.DTX_SUPPLEMENTAL_COMPLETION_DATE, S.READER):
-            try:
-                date = self.date_value(S.IMPORT_LAST_DATE_READ)
-            except ConnectorError:
-                self.observe(
-                    S.DTX_SUPPLEMENTAL_COMPLETION_DATE,
-                    C.NONE,
-                    S.READER,
-                    FieldState.UNAVAILABLE,
-                )
-                self.issue(
-                    S.DTX_INVALID_COMPLETION_CODE,
-                    S.DTX_INVALID_COMPLETION_MESSAGE,
-                    field=S.IMPORT_LAST_DATE_READ,
-                )
-            else:
-                assert date is not C.NONE
-                self.observe(S.DTX_SUPPLEMENTAL_COMPLETION_DATE, date.value, S.READER)
-        return SupplementalCompletionDate(
-            source_id=source_id,
-            finished=date,
-            observation=self.observations[-C.ONE],
-        )
 
     def year(self, header: str, field: str, scope: S.ObservationScope) -> None:
         if self.absent(header, field, scope):
@@ -580,7 +553,6 @@ class _ExportRow:
                 maximum=C.FIVE,
                 quarters=C.TRUE,
             )
-            supplemental_date = self.supplemental_completion_date(source_id)
             return BookRecord(
                 source=source,
                 source_id=source_id,
@@ -589,7 +561,6 @@ class _ExportRow:
                 url=url,
                 isbns=isbns,
                 collections=C.IMPORT_COLLECTIONS,
-                supplemental_completion_dates=(supplemental_date,),
                 observations=tuple(self.observations),
                 raw_fields=dict(self.raw),
             )
