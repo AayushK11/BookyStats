@@ -17,6 +17,7 @@ from bookystats.application.analytics import (
 from bookystats.domain.analytics import (
     AnalysisEvidence,
     AnalysisInput,
+    AnalyticsReport,
     AnalyticsSettings,
     Capability,
     Finding,
@@ -26,6 +27,7 @@ from bookystats.domain.models import (
     FieldState,
     Observation,
     PartialDate,
+    ReadingEvent,
     ReadingStatus,
     Source,
     SyncState,
@@ -33,8 +35,8 @@ from bookystats.domain.models import (
 from bookystats.persistence.analysis_input import AnalyticsInputError
 from bookystats.persistence.analytics import AnalyticsStore
 from bookystats.persistence.library import Database
-from tests.application.test_statistics import _book, _data, _supplemental
-from tests.persistence.test_analysis_input import publish_scope, seed
+from tests.application.test_statistics import _book, _data, _goodreads_dates
+from tests.persistence.test_analysis_input import publish_scope, seed, supplemental
 from tests.persistence.test_library import book, rating
 from tests.support.sources import accounts
 
@@ -213,7 +215,7 @@ def test_process_parallel_results_equal_serial_results(monkeypatch: pytest.Monke
                             ),
                         ),
                     ),
-                    S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),),
+                    S.AN3_COMPLETION_DATES_FIELD: (PartialDate(value=S.ANX_TEST_EARLIER_DATE),),
                 }
             )
             for index in range(C.ONE, C.FOUR)
@@ -270,27 +272,13 @@ def test_read_membership_invalidates_taste_without_watchlist_overlap_invalidatio
     )
 
 
-def test_supplemental_recapture_reuses_calculation_and_rebinds_current_provenance(
+def test_goodreads_date_recapture_reuses_calculation_and_rebinds_current_provenance(
     tmp_path: Path,
 ) -> None:
     settings = AnalyticsSettings()
-    supplemental = _supplemental(S.ANX_TEST_EARLIER_DATE)
-    original = _data(
-        _book(C.ONE).model_copy(update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (supplemental,)})
-    )
-    recaptured = supplemental.model_copy(
-        update={
-            S.DTX_OBSERVATION: supplemental.observation.model_copy(
-                update={S.OBSERVED_AT: S.TEST_STORAGE_FINISH_T10}
-            )
-        }
-    )
+    original = _data(_goodreads_dates(_book(C.ONE), S.ANX_TEST_EARLIER_DATE))
     current = original.model_copy(
         update={
-            S.BOOKS: tuple(
-                book.model_copy(update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (recaptured,)})
-                for book in original.books
-            ),
             S.AN_STORE_TEST_MANIFEST: original.manifest.model_copy(
                 update={
                     S.AN_STORE_TEST_SNAPSHOTS: tuple(
@@ -322,23 +310,138 @@ def test_supplemental_recapture_reuses_calculation_and_rebinds_current_provenanc
     assert isinstance(selected, dict)
     entry = selected[current.books[C.ZERO].book_id]
     assert isinstance(entry, dict)
-    proof = entry[S.AN_CALC_EVIDENCE]
-    assert isinstance(proof, list)
-    assert proof[C.ZERO][S.ANX_SOURCE_URL] == S.CONTENT_ANALYSIS_TEST_FILE_URL
-    assert S.OBSERVED_AT not in proof[C.ZERO]
+    assert entry[S.AN3_EVIDENCE_KEY] == [
+        {
+            S.SOURCE: S.GOODREADS,
+            S.CONTENT_ANALYSIS_FIELD: S.AN3_COMPLETION_DATES_FIELD,
+            S.VALUE: S.ANX_TEST_EARLIER_DATE,
+        }
+    ]
 
 
-def test_library_addition_and_supplemental_completion_changes_invalidate_taste() -> None:
+def test_library_addition_and_goodreads_completion_changes_invalidate_taste() -> None:
     settings = AnalyticsSettings()
     original = _data(_book(C.ONE))
     for update in (
         {S.ADDED_AT: PartialDate(value=S.ANX_TEST_EARLIER_DATE)},
-        {S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),)},
+        {S.AN3_COMPLETION_DATES_FIELD: (PartialDate(value=S.ANX_TEST_EARLIER_DATE),)},
+        {
+            S.READING_EVENTS: (
+                ReadingEvent(
+                    finished=PartialDate(value=S.ANX_TEST_EARLIER_DATE),
+                    status=ReadingStatus.READ,
+                ),
+            )
+        },
     ):
         changed = original.model_copy(
             update={S.BOOKS: tuple(book.model_copy(update=update) for book in original.books)}
         )
         assert _component_key(original, settings) != _component_key(changed, settings)
+
+
+def test_legacy_storygraph_dates_do_not_change_inputs_keys_or_reports(tmp_path: Path) -> None:
+    settings = AnalyticsSettings()
+    legacy = supplemental(S.DTX_TEST_OTHER_DATE)
+    history = ReadingEvent(
+        finished=PartialDate(value=S.AN_CALC_TEST_FINISH), status=ReadingStatus.READ
+    )
+    personal: tuple[dict[str, object], ...] = (
+        {S.OBSERVATIONS: (rating(C.FOUR),)},
+        {
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (legacy,),
+            S.OBSERVATIONS: (rating(C.FOUR), legacy.observation),
+        },
+    )
+    inputs: list[AnalysisInput] = []
+    reports: list[AnalyticsReport] = []
+    for index, fields in enumerate(personal):
+        with (
+            closing(Database(tmp_path / S.AN3_TEST_LIBRARY_FORMAT.format(index=index))) as library,
+            AnalyticsStore(tmp_path / S.AN3_TEST_REPORT_FORMAT.format(index=index)) as store,
+        ):
+            library.initialize()
+            publish_scope(library, Source.STORYGRAPH, book(**fields))
+            publish_scope(
+                library,
+                Source.GOODREADS,
+                book(**{S.SOURCE: Source.GOODREADS, S.READING_EVENTS: (history,)}),
+                collection=S.READ,
+            )
+            data = library.analytics_input(accounts(), settings).model_copy(
+                update={S.CONTENT_ANALYSIS_AS_OF: S.ANX_TEST_AS_OF}
+            )
+            AnalyticsService(_InputReader(data), store).run(accounts(), settings)
+            report = store.latest()
+        assert report is not C.NONE
+        inputs.append(data)
+        reports.append(report)
+    plain, dated = inputs
+    assert dated.books == plain.books
+    assert dated.books[C.ZERO].reading_events == (history,)
+    assert _component_key(dated, settings) == _component_key(plain, settings)
+    assert reports[C.ONE].taste == reports[C.ZERO].taste
+    assert S.DTX_TEST_OTHER_DATE not in reports[C.ONE].model_dump_json()
+    finding = next(
+        item for item in reports[C.ONE].taste.findings if item.metric_id == S.ANX_COMPLETION_COHORTS
+    )
+    assert isinstance(finding.value, dict)
+    assert finding.value[S.AN3_DATE_SOURCES] == [S.GOODREADS]
+    selected = finding.value[S.ANX_SELECTED_DATES]
+    assert isinstance(selected, dict)
+    assert [entry[S.VALUE] for entry in selected.values()] == [S.AN_CALC_TEST_FINISH]
+
+
+def _observed_page_count(source: str, observed_at: str, url: str) -> AnalysisInput:
+    return _data(
+        _book(C.ONE, C.FOUR).model_copy(
+            update={
+                S.AN_EVIDENCE: (
+                    AnalysisEvidence(
+                        source=source,
+                        source_id=S.TEST,
+                        observation=Observation(
+                            field=S.PAGE_COUNT,
+                            value=C.AN3_TEST_PAGES,
+                            scope=S.EDITION,
+                            state=FieldState.PRESENT,
+                            source_url=url,
+                            observed_at=observed_at,
+                        ),
+                    ),
+                )
+            }
+        )
+    )
+
+
+def test_evidence_source_changes_invalidate_taste_but_capture_time_does_not() -> None:
+    settings = AnalyticsSettings()
+    original = _observed_page_count(
+        S.GOOGLE_BOOKS, S.AN_CALC_TEST_FINISH, S.CONTENT_ANALYSIS_TEST_URL
+    )
+    recaptured = _observed_page_count(
+        S.GOOGLE_BOOKS, S.TEST_STORAGE_FINISH_T10, S.CONTENT_ANALYSIS_TEST_FILE_URL
+    )
+    reattributed = _observed_page_count(
+        S.OPEN_LIBRARY, S.AN_CALC_TEST_FINISH, S.CONTENT_ANALYSIS_TEST_URL
+    )
+    assert _component_key(original, settings) == _component_key(recaptured, settings)
+    assert _component_key(original, settings) != _component_key(reattributed, settings)
+
+
+def test_watchlist_only_books_do_not_move_the_taste_key() -> None:
+    settings = AnalyticsSettings()
+    original = _observed_page_count(
+        S.GOOGLE_BOOKS, S.AN_CALC_TEST_FINISH, S.CONTENT_ANALYSIS_TEST_URL
+    )
+    listed = _book(C.TWO, status=ReadingStatus.TO_READ).model_copy(
+        update={S.COLLECTIONS: (S.TO_READ,)}
+    )
+    with_watchlist = original.model_copy(update={S.BOOKS: (*original.books, listed)})
+    assert _component_key(_taste_input(with_watchlist), settings) == _component_key(
+        _taste_input(original), settings
+    )
 
 
 def test_worker_failure_keeps_last_published_report(

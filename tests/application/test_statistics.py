@@ -4,6 +4,7 @@ from concurrent.futures import ProcessPoolExecutor
 from math import comb
 
 import pytest
+from pydantic import ValidationError
 
 from bookystats import constants as C
 from bookystats import strings as S
@@ -11,6 +12,7 @@ from bookystats.application.statistics import (
     _author_components,
     _author_folds,
     _completion_date,
+    _dated_cohorts,
     _labels,
     _paired_stability,
     _predict_held_out,
@@ -26,7 +28,9 @@ from bookystats.domain.analytics import (
     AnalysisManifest,
     AnalysisSnapshot,
     AnalyticsSettings,
+    Capability,
     Finding,
+    PossibleReadMatch,
 )
 from bookystats.domain.categories import analytical_categories
 from bookystats.domain.models import (
@@ -36,7 +40,6 @@ from bookystats.domain.models import (
     ReadingEvent,
     ReadingStatus,
     Source,
-    SupplementalCompletionDate,
     SyncState,
 )
 
@@ -109,27 +112,21 @@ def _group(component: AnalysisComponent, feature: str, label: str) -> Finding:
     return _finding(component, S.AN_CALC_GROUP.format(feature=feature, label=label))
 
 
-def _supplemental(
-    value: str | None,
-    *,
-    source_id: str = S.TEST_IMPORT_SECOND_ID,
-    state: FieldState = FieldState.PRESENT,
-) -> SupplementalCompletionDate:
-    return SupplementalCompletionDate(
-        source_id=source_id,
-        finished=PartialDate(value=value) if value is not C.NONE else C.NONE,
-        observation=Observation(
-            field=S.DTX_SUPPLEMENTAL_COMPLETION_DATE,
-            value=value,
-            state=state,
-            scope=S.READER,
-            source_url=S.CONTENT_ANALYSIS_TEST_FILE_URL,
-            observed_at=S.AN_CALC_TEST_FINISH,
-        ),
+def _capability(component: AnalysisComponent, metric: str) -> Capability:
+    return next(item for item in component.capabilities if item.metric_id == metric)
+
+
+def _has_finding(component: AnalysisComponent, metric: str) -> bool:
+    return any(finding.metric_id == metric for finding in component.findings)
+
+
+def _goodreads_dates(book: AnalysisBook, *values: str) -> AnalysisBook:
+    return book.model_copy(
+        update={S.AN3_COMPLETION_DATES_FIELD: tuple(PartialDate(value=value) for value in values)}
     )
 
 
-def test_supplemental_completion_cohorts_preserve_goodreads_precedence_and_unknowns() -> None:
+def test_completion_cohorts_use_goodreads_dates_only_and_keep_precision_and_unknowns() -> None:
     actual = _book(
         C.ONE,
         C.FOUR,
@@ -139,72 +136,98 @@ def test_supplemental_completion_cohorts_preserve_goodreads_precedence_and_unkno
                 status=ReadingStatus.READ,
             ),
         ),
-    ).model_copy(
-        update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),)}
     )
-    fallback = _book(C.TWO).model_copy(
-        update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),)}
-    )
-    conflicting = _book(C.THREE).model_copy(
-        update={
-            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (
-                _supplemental(S.ANX_TEST_EARLIER_DATE),
-                _supplemental(S.ANX_TEST_LATER_DATE),
-            )
-        }
-    )
-    unavailable = _book(C.FOUR).model_copy(
-        update={
-            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (
-                _supplemental(C.NONE, state=FieldState.UNAVAILABLE),
-            )
-        }
-    )
-    future = _book(C.FIVE).model_copy(
-        update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_FUTURE_DATE),)}
-    )
+    contract = _goodreads_dates(_book(C.TWO), S.ANX_TEST_EARLIER_DATE)
+    repeated = _goodreads_dates(_book(C.THREE), S.ANX_TEST_LATER_DATE, S.ANX_TEST_EARLIER_DATE)
+    undated = _book(C.FOUR)
+    future = _goodreads_dates(_book(C.FIVE), S.ANX_TEST_FUTURE_DATE)
     library_only = _book(C.SIX).model_copy(
         update={S.ADDED_AT: PartialDate(value=S.ANX_TEST_EARLIER_DATE)}
     )
-    data = _data(actual, fallback, conflicting, unavailable, future, library_only).model_copy(
+    data = _data(actual, contract, repeated, undated, future, library_only).model_copy(
         update={S.CONTENT_ANALYSIS_AS_OF: S.ANX_TEST_AS_OF}
     )
-    finding = _finding(_taste(data), S.ANX_COMPLETION_COHORTS)
-    summary = _summary(_taste(data), S.ANX_COMPLETION_COHORTS)
-    assert finding.sample_size == C.TWO
-    assert finding.missing_count == C.FOUR
-    assert summary[S.ANX_CONFLICTING_DATES] == [conflicting.book_id]
+    component = _taste(data)
+    finding = _finding(component, S.ANX_COMPLETION_COHORTS)
+    summary = _summary(component, S.ANX_COMPLETION_COHORTS)
+    assert finding.sample_size == C.THREE
+    assert finding.missing_count == C.THREE
     assert summary[S.ANX_FUTURE_DATES] == C.ONE
+    assert summary[S.AN3_DATE_SOURCES] == [S.GOODREADS]
     selected = summary[S.ANX_SELECTED_DATES]
     assert selected[actual.book_id][S.VALUE] == S.AN_CALC_TEST_YEAR
-    assert selected[actual.book_id][S.ANX_DATE_ORIGIN] == S.ANX_AUTHORITATIVE_DATE
-    assert selected[fallback.book_id][S.ANX_DATE_ORIGIN] == S.ANX_SUPPLEMENTAL_DATE
-    assert selected[fallback.book_id][S.AN_CALC_EVIDENCE][C.ZERO][S.SOURCE_ID] == (
-        S.TEST_IMPORT_SECOND_ID
+    assert selected[actual.book_id][S.AN_CALC_PRECISION] == S.YEAR
+    assert selected[actual.book_id][S.AN3_EVIDENCE_KEY][C.ZERO][S.CONTENT_ANALYSIS_FIELD] == (
+        S.READING_EVENTS
     )
-    assert summary[S.ANX_SUPPLEMENTAL_STATES][FieldState.UNAVAILABLE.value] == C.ONE
-    assert summary[S.ANX_COHORTS][S.AN_CALC_TEST_YEAR][S.ANX_CURRENT_RATINGS] is C.NONE
-    assert actual.reading_events[C.ZERO].finished is not C.NONE
-    assert fallback.reading_events == ()
-
-
-def test_duplicate_supplemental_values_are_consistent_not_multiple_reading_events() -> None:
-    book = _book(C.ONE).model_copy(
-        update={
-            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (
-                _supplemental(S.ANX_TEST_EARLIER_DATE),
-                _supplemental(
-                    S.ANX_TEST_EARLIER_DATE,
-                    source_id=S.TEST_IMPORT_THIRD_ID,
-                ),
-            )
+    assert selected[repeated.book_id][S.VALUE] == S.ANX_TEST_EARLIER_DATE
+    assert selected[contract.book_id][S.AN3_EVIDENCE_KEY] == [
+        {
+            S.SOURCE: S.GOODREADS,
+            S.CONTENT_ANALYSIS_FIELD: S.AN3_COMPLETION_DATES_FIELD,
+            S.VALUE: S.ANX_TEST_EARLIER_DATE,
         }
+    ]
+    assert {item[S.ANX_DATE_ORIGIN] for item in selected.values()} == {S.ANX_AUTHORITATIVE_DATE}
+    cohorts = summary[S.ANX_COHORTS]
+    assert cohorts[S.AN_CALC_TEST_YEAR][S.ANX_DATE_PRECISIONS] == {S.YEAR: C.ONE}
+    earlier_year = S.ANX_TEST_EARLIER_DATE[: C.FOUR]
+    assert cohorts[earlier_year][S.AN_CALC_N] == C.TWO
+    assert cohorts[earlier_year][S.ANX_DATE_PRECISIONS] == {S.DAY: C.TWO}
+    assert cohorts[earlier_year][S.ANX_DATE_ORIGIN] == {S.ANX_AUTHORITATIVE_DATE: C.TWO}
+    assert cohorts[earlier_year][S.ANX_CURRENT_RATINGS] is C.NONE
+    for dropped in (
+        S.ANX_CONFLICTING_DATES,
+        S.ANX_SUPPLEMENTAL_STATES,
+        S.ANX_MATCHED_DATES,
+        S.ANX_PRECEDENCE,
+    ):
+        assert dropped not in summary
+
+
+def test_storygraph_supplemental_dates_have_no_analysis_channel() -> None:
+    book = _book(C.ONE, C.FOUR)
+    data = _data(book).model_copy(update={S.CONTENT_ANALYSIS_AS_OF: S.ANX_TEST_AS_OF})
+    book_payload = book.model_dump(mode=S.JSON)
+    assert AnalysisBook.model_validate(book_payload) == book
+    with pytest.raises(ValidationError):
+        AnalysisBook.model_validate({**book_payload, S.DTX_SUPPLEMENTAL_COMPLETION_DATES: ()})
+    data_payload = data.model_dump(mode=S.JSON)
+    assert AnalysisInput.model_validate(data_payload) == data
+    with pytest.raises(ValidationError):
+        AnalysisInput.model_validate({**data_payload, S.AN3_LEGACY_COMPLETION_COUNTS: {}})
+    finding = _finding(_taste(data), S.ANX_COMPLETION_COHORTS)
+    assert finding.sample_size == C.ZERO and finding.missing_count == C.ONE
+
+
+def test_completion_date_deduplicates_goodreads_sources_and_keeps_earliest_precision() -> None:
+    both = _goodreads_dates(
+        _book(
+            C.ONE,
+            events=(
+                ReadingEvent(
+                    finished=PartialDate(value=S.ANX_TEST_EARLIER_DATE), status=ReadingStatus.READ
+                ),
+            ),
+        ),
+        S.ANX_TEST_EARLIER_DATE,
+        S.AN_CALC_TEST_YEAR,
     )
-    finished, origin, conflict = _completion_date(book)
+    finished = _completion_date(both)
     assert finished is not C.NONE and finished.value == S.ANX_TEST_EARLIER_DATE
-    assert origin == S.ANX_SUPPLEMENTAL_DATE
-    assert not conflict
-    assert book.reading_events == ()
+    assert finished.precision == S.DAY
+    month_only = _completion_date(_goodreads_dates(_book(C.TWO), S.AN_CALC_TEST_MONTH))
+    assert month_only is not C.NONE and month_only.precision == S.MONTH
+    assert _completion_date(_book(C.THREE)) is C.NONE
+
+
+def test_dated_cohorts_consume_goodreads_contract_dates_at_day_precision_only() -> None:
+    day = _goodreads_dates(_book(C.ONE), S.ANX_TEST_EARLIER_DATE)
+    coarse = _goodreads_dates(_book(C.TWO), S.AN_CALC_TEST_YEAR, S.AN_CALC_TEST_MONTH)
+    future = _goodreads_dates(_book(C.THREE), S.ANX_TEST_FUTURE_DATE)
+    cohorts = _dated_cohorts((day, coarse, future, _book(C.FOUR)), S.ANX_TEST_AS_OF)
+    assert cohorts == {S.ANX_TEST_EARLIER_DATE[: C.FOUR]: (day,)}
+    assert _dated_cohorts((day,), S.CONTENT_ANALYSIS_AS_OF) == {}
 
 
 def test_library_addition_profile_keeps_partial_dates_and_day_only_ages_separate() -> None:
@@ -407,14 +430,10 @@ def test_year_precision_is_not_month_or_duration_and_duplicate_events_count_once
     assert isinstance(durations.value, dict)
     assert durations.value[S.AN_CALC_MEAN] == C.AN_CALC_TEST_DAYS
     assert durations.value[S.AN_CALC_EVENT_COUNT] == C.ONE
-    assert (
-        next(
-            capability
-            for capability in component.capabilities
-            if capability.metric_id == S.AN_CALC_REVISIONS
-        ).state
-        == C.AnalyticsCapability.UNSUPPORTED
-    )
+    unavailable = _capability(component, S.AN3_UNAVAILABLE_TOPICS)
+    assert unavailable.state == C.AnalyticsCapability.UNSUPPORTED
+    assert S.AN_CALC_REVISIONS in unavailable.reason
+    assert not any(item.metric_id == S.AN_CALC_REVISIONS for item in component.capabilities)
 
 
 def test_dnf_is_separate_from_low_rating_and_absence_is_not_zero() -> None:
@@ -426,8 +445,9 @@ def test_dnf_is_separate_from_low_rating_and_absence_is_not_zero() -> None:
     assert explicit.supporting_books == (dnf.book_id,)
     assert isinstance(explicit.value, dict)
     assert explicit.value[S.AN_CALC_N] == C.ONE
-    unknown = _summary(_taste(_data(read)), S.AN_CALC_DNF)
-    assert unknown[S.AN_CALC_N] is C.NONE
+    unknown = _taste(_data(read))
+    assert not _has_finding(unknown, S.AN_CALC_DNF)
+    assert _capability(unknown, S.AN_CALC_DNF).available == C.ZERO
 
 
 def test_community_comparison_keeps_providers_and_unknowns_separate() -> None:
@@ -466,15 +486,10 @@ def test_appetite_uses_only_explicit_labels_and_independent_declarations() -> No
     )
     component = _taste(_data(_book(C.ONE, C.FIVE, genre=S.AN_CALC_TEST_GENRE)), settings)
     for dimension in C.ANALYTICS_DIMENSIONS:
-        summary = _summary(component, S.AN_CALC_APPETITE.format(dimension=dimension))
-        assert summary[S.AN_CALC_DECLARED] == C.ONE
-        assert summary[S.AN_CALC_EXPOSURE] is C.NONE
-        assert summary[S.AN_CALC_ENJOYMENT] is C.NONE
-        exposure = next(
-            capability
-            for capability in component.capabilities
-            if capability.metric_id == S.AN_CALC_APP_EXPOSURE.format(dimension=dimension)
-        )
+        assert not _has_finding(component, S.AN_CALC_APPETITE.format(dimension=dimension))
+        declared = _capability(component, S.AN_CALC_APP_DECLARED.format(dimension=dimension))
+        assert declared.state == C.AnalyticsCapability.SUPPORTED
+        exposure = _capability(component, S.AN_CALC_APP_EXPOSURE.format(dimension=dimension))
         assert exposure.state == C.AnalyticsCapability.NEEDS_ENRICHMENT
     assert not any(key.startswith(S.AN_CALC_APPETITE_LABELS) for key in component.preferences)
 
@@ -498,7 +513,9 @@ def test_review_mentions_preserve_exact_negative_context_and_evidence() -> None:
     excerpts = pacing[S.AN_CALC_EXCERPT]
     assert isinstance(excerpts, list)
     assert excerpts[C.ZERO][S.AN_CALC_EXCERPT] == S.AN_CALC_TEST_REVIEW
-    assert excerpts[C.ZERO][S.AN_CALC_EVIDENCE]
+    proofs = excerpts[C.ZERO][S.AN3_EVIDENCE_KEY]
+    assert proofs
+    assert all(S.OBSERVED_AT not in proof and S.ANX_SOURCE_URL not in proof for proof in proofs)
     assert not component.preferences
 
 
@@ -535,10 +552,16 @@ def test_empty_input_has_explicit_capability_gates_not_fabricated_findings() -> 
     assert _summary(component, S.AN_CALC_RATINGS)[S.AN_CALC_MEAN] is C.NONE
     assert not component.preferences
     capabilities = {capability.metric_id: capability for capability in component.capabilities}
-    assert capabilities[S.AN_CALC_REVIEWS].state == C.AnalyticsCapability.UNSUPPORTED
     assert capabilities[S.AN_CALC_TIME].state == C.AnalyticsCapability.NEEDS_OBSERVATIONS
     assert capabilities[S.AN_CALC_COMMUNITY].state == C.AnalyticsCapability.NEEDS_ENRICHMENT
-    assert all(metric in capabilities for metric, _reason in C.AN_CALC_UNSUPPORTED_TOPICS)
+    unavailable = capabilities[S.AN3_UNAVAILABLE_TOPICS]
+    assert unavailable.state == C.AnalyticsCapability.UNSUPPORTED
+    assert unavailable.available == C.ZERO
+    assert S.AN_CALC_REVIEWS in unavailable.reason
+    assert all(metric in unavailable.reason for metric, _reason in C.AN_CALC_UNSUPPORTED_TOPICS)
+    assert not any(
+        capability.metric_id.startswith(S.AN_CALC_REVIEWS) for capability in capabilities.values()
+    )
 
 
 def test_watchlist_age_preserves_partial_precision_and_uses_explicit_as_of() -> None:
@@ -582,14 +605,14 @@ def test_explicit_appetite_labels_support_exposure_without_heuristics() -> None:
     )
     component = _taste(_data(book))
     for dimension in C.ANALYTICS_DIMENSIONS:
-        summary = _summary(component, S.AN_CALC_APPETITE.format(dimension=dimension))
         if dimension in book.features[S.AN_APPETITE]:
+            summary = _summary(component, S.AN_CALC_APPETITE.format(dimension=dimension))
             assert summary[S.AN_CALC_EXPOSURE] == C.ONE
             enjoyment = summary[S.AN_CALC_ENJOYMENT]
             assert isinstance(enjoyment, dict)
             assert enjoyment[S.AN_CALC_MEAN] == C.FOUR
         else:
-            assert summary[S.AN_CALC_EXPOSURE] is C.NONE
+            assert not _has_finding(component, S.AN_CALC_APPETITE.format(dimension=dimension))
 
 
 def test_multilabel_breadth_uses_fractional_work_membership() -> None:
@@ -1005,14 +1028,7 @@ def test_comparable_current_rating_change_removes_genre_mix_shift_without_revisi
     assert finding.sample_size == C.TEN * C.FOUR
     assert finding.reliability == S.AN_CALC_EXPLORATORY
     assert S.AN_CALC_CHANGE_NOTE in finding.limitations
-    assert (
-        next(
-            capability
-            for capability in component.capabilities
-            if capability.metric_id == S.AN_CALC_REVISIONS
-        ).state
-        == C.AnalyticsCapability.UNSUPPORTED
-    )
+    assert S.AN_CALC_REVISIONS in _capability(component, S.AN3_UNAVAILABLE_TOPICS).reason
 
 
 def test_comparable_change_requires_shared_supported_strata_not_just_two_years() -> None:
@@ -1169,11 +1185,8 @@ def test_work_language_availability_does_not_supply_edition_language_composition
     assert coverage[S.LANGUAGES][S.AN_CALC_KNOWN] == C.ONE
     result = build_watchlist(data, AnalyticsSettings(), taste, key=S.AN_CALC_TEST_KEY)
     metric = S.AN_PROFILE_WATCH_COMPOSITION.format(feature=S.LANGUAGE)
-    assert _summary(result, metric)[S.AN_CALC_COMPOSITION_DISTANCE] is C.NONE
-    assert _summary(result, metric)[S.AN_CALC_COMPOSITION_GAPS] == []
-    assert next(item for item in result.capabilities if item.metric_id == metric).state == (
-        C.AnalyticsCapability.NEEDS_ENRICHMENT
-    )
+    assert not _has_finding(result, metric)
+    assert _capability(result, metric).state == C.AnalyticsCapability.NEEDS_ENRICHMENT
 
 
 @pytest.mark.parametrize(S.AN_TEST_FIELD_STATE, C.AN_CALC_TEST_UNKNOWN_FEATURE_STATES)
@@ -1303,3 +1316,141 @@ def test_rating_availability_audit_detects_unrepresentative_known_book_types() -
     assert unavailable[S.AN_CALC_TOTAL] == C.FIVE
     assert _finding(component, metric).sample_size == C.TEN
     assert _finding(component, metric).reliability == S.AN_CALC_EXPLORATORY
+
+
+def _with_crowd(book: AnalysisBook, size: int | None) -> AnalysisBook:
+    evidence = AnalysisEvidence(
+        source=S.GOODREADS,
+        source_id=str(book.work_id),
+        observation=Observation(
+            field=S.RATINGS_COUNT,
+            value=size,
+            scope=S.WORK,
+            state=FieldState.PRESENT if size is not C.NONE else FieldState.UNAVAILABLE,
+            source_url=S.CONTENT_ANALYSIS_TEST_URL,
+        ),
+    )
+    return book.model_copy(update={S.AN_EVIDENCE: (evidence,)})
+
+
+def _labeled(book: AnalysisBook, feature: str, label: str) -> AnalysisBook:
+    return book.model_copy(update={S.AN_CALC_TEST_FEATURES_FIELD: {feature: (label,)}})
+
+
+def test_goodreads_crowd_size_comes_from_captured_work_counts_and_unknown_stays_unknown() -> None:
+    goodreads = {S.GOODREADS: C.THREE}
+    counted = _with_crowd(_book(C.ONE, C.FOUR, providers=goodreads), C.AN3_TEST_CROWD_SIZE)
+    unknown = _with_crowd(_book(C.TWO, C.FOUR, providers=goodreads), C.NONE)
+    metric = S.AN_CALC_PROVIDER.format(provider=S.GOODREADS)
+    summary = _summary(_taste(_data(counted, unknown)), metric)
+    assert summary[S.AN3_CROWD_COUNTED] == C.ONE
+    sizes = summary[S.AN3_CROWD_COUNTS]
+    assert isinstance(sizes, dict)
+    assert sizes[S.AN_CALC_N] == C.ONE
+    assert sizes[S.AN_CALC_MAX] == C.AN3_TEST_CROWD_SIZE
+    none_known = _summary(_taste(_data(unknown)), metric)
+    assert none_known[S.AN3_CROWD_COUNTED] == C.ZERO
+    assert none_known[S.AN3_CROWD_COUNTS] is C.NONE
+    other = _book(C.THREE, C.FOUR, providers={S.GOOGLE_BOOKS: C.THREE})
+    google = _summary(_taste(_data(other)), S.AN_CALC_PROVIDER.format(provider=S.GOOGLE_BOOKS))
+    assert S.AN3_CROWD_COUNTED not in google
+
+
+def test_rating_tiers_follow_the_usual_rating_and_name_tied_modes() -> None:
+    ratings = (C.FIVE, C.FOUR, C.THREE, C.THREE, C.THREE, C.TWO)
+    component = _taste(_data(*(_book(i, r) for i, r in enumerate(ratings, C.ONE))))
+    scale = _summary(component, S.AN3_RATING_SCALE)
+    assert scale[S.AN3_USUAL] == C.THREE
+    assert scale[S.AN3_TIER_COUNTS] == {
+        S.AN3_TIER_STANDOUT: C.TWO,
+        S.AN3_TIER_SOLID: C.THREE,
+        S.AN3_TIER_BELOW: C.ONE,
+    }
+    assert _finding(component, S.AN3_STANDOUTS).sample_size == C.TWO
+    assert not _has_finding(component, S.AN_CALC_FAVORITES)
+    tied = (C.FIVE, C.FIVE, C.FOUR, C.FOUR, C.THREE)
+    tied_scale = _summary(
+        _taste(_data(*(_book(i, r) for i, r in enumerate(tied, C.ONE)))), S.AN3_RATING_SCALE
+    )
+    assert tied_scale[S.AN3_USUAL] == C.FOUR
+    assert tied_scale[S.AN3_TIED_MODES] == [C.FOUR, C.FIVE]
+
+
+def test_group_tier_gaps_compare_a_label_with_its_complement() -> None:
+    books = tuple(
+        _book(index, C.FIVE, genre=S.AN_CALC_TEST_GENRE) for index in range(C.ONE, C.FOUR)
+    ) + tuple(_book(index, C.THREE, genre=S.AN_CALC_TEST_OTHER) for index in range(C.FOUR, C.EIGHT))
+    summary = dict(_group(_taste(_data(*books)), S.GENRES, S.AN_CALC_TEST_GENRE).value)
+    assert summary[S.AN3_STANDOUT_DIFFERENCE] == C.ONE
+    assert summary[S.AN3_BELOW_DIFFERENCE] == C.ZERO
+    assert summary[S.AN3_STANDOUT_SHARE_ALL] == C.ONE
+
+
+def test_linked_rating_availability_partitions_every_read_work_once() -> None:
+    states = {S.RATING: FieldState.EMPTY}
+    empty = _book(C.TWO).model_copy(update={S.AN_CALC_FIELD_STATES_FIELD: states})
+    failed = _book(C.THREE).model_copy(
+        update={S.AN_CALC_FIELD_STATES_FIELD: {S.RATING: FieldState.FAILED}}
+    )
+    candidate = PossibleReadMatch(
+        candidate_id=C.ONE,
+        work_id=C.FOUR,
+        source=Source.STORYGRAPH,
+        source_id=str(C.FOUR),
+        source_snapshot_ids=(C.ONE,),
+    )
+    pending = _book(C.FOUR).model_copy(update={S.AN3_TEST_MATCHES_FIELD: (candidate,)})
+    component = _taste(_data(_book(C.ONE, C.FOUR), empty, failed, pending, _book(C.FIVE)))
+    assert _summary(component, S.AN3_LINK_METRIC)[S.AN3_LINK_STATES] == {
+        S.AN3_LINK_AVAILABLE: C.ONE,
+        S.AN3_LINK_CONFLICT: C.ONE,
+        S.AN3_LINK_EMPTY: C.ONE,
+        S.AN3_LINK_PENDING: C.ONE,
+        S.AN3_LINK_NONE: C.ONE,
+    }
+    finding = _finding(component, S.AN3_LINK_METRIC)
+    assert (finding.sample_size, finding.missing_count) == (C.FIVE, C.FOUR)
+    assert _capability(component, S.AN3_LINK_METRIC).available == C.ONE
+
+
+def test_findings_declare_method_version_and_evidence_tiers_cover_their_sample() -> None:
+    tiers = {S.GENRES: C.EvidenceTier.SINGLE_SOURCE}
+    books = tuple(
+        _book(index, C.FOUR, genre=S.AN_CALC_TEST_GENRE).model_copy(
+            update={S.AN3_TEST_FIELD_EVIDENCE_FIELD: tiers} if index <= C.TWO else {}
+        )
+        for index in range(C.ONE, C.SEVEN)
+    )
+    component = _taste(_data(*books))
+    assert all(S.AN3_METHOD_VERSION in finding.uncertainty for finding in component.findings)
+    breadth = _finding(component, S.AN_CALC_BREADTH.format(feature=S.GENRES))
+    counts = breadth.uncertainty[S.AN3_EVIDENCE_TIERS]
+    assert isinstance(counts, dict)
+    assert counts[C.EvidenceTier.SINGLE_SOURCE.value] == C.TWO
+    assert counts[S.AN3_NOT_ASSESSED] == C.FOUR
+    assert sum(item for item in counts.values() if isinstance(item, int)) == breadth.sample_size
+
+
+def test_empty_sample_placeholders_are_absent_instead_of_empty_findings() -> None:
+    component = _taste(_data(_book(C.ONE, C.FOUR)))
+    dimension = next(iter(C.ANALYTICS_DIMENSIONS))
+    for metric in (
+        S.AN_CALC_DURATION,
+        S.AN_CALC_DNF,
+        S.AN_CALC_APPETITE.format(dimension=dimension),
+    ):
+        assert not _has_finding(component, metric)
+
+
+def test_format_preferences_never_support_a_preference_mismatch_check() -> None:
+    for feature, label, expected in (
+        (S.EDITION_FORMAT, S.AN3_TEST_FORMAT, C.ZERO),
+        (S.GENRES, S.AN_CALC_TEST_GENRE, C.ONE),
+    ):
+        read = _labeled(_book(C.ONE, C.FOUR), feature, label)
+        watch = _labeled(_book(C.TWO, status=ReadingStatus.TO_READ), feature, label)
+        data = _data(read, watch)
+        key = S.AN_CALC_PREFERENCE_KEY.format(feature=feature, label=_labels(read, feature)[C.ZERO])
+        taste = _taste(data).model_copy(update={S.AN3_TEST_PREFERENCES_FIELD: {key: C.ONE}})
+        result = build_watchlist(data, AnalyticsSettings(), taste, key=S.AN_CALC_TEST_KEY)
+        assert _capability(result, S.AN_CALC_WATCH_MISMATCH).available == expected
