@@ -16,6 +16,8 @@ from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.domain.analytics import AnalysisComponent, AnalyticsReport
 from bookystats.domain.errors import BookyError
+from bookystats.persistence.backup import protect_migration
+from bookystats.persistence.inspection import open_read_only, require_readable
 
 
 class AnalyticsStoreError(BookyError):
@@ -102,9 +104,15 @@ def _bind(component: AnalysisComponent, binding: JsonValue) -> AnalysisComponent
 
 
 class AnalyticsStore:
-    def __init__(self, path: Path, *, require_existing: bool = C.FALSE) -> None:
+    def __init__(
+        self, path: Path, *, require_existing: bool = C.FALSE, read_only: bool = C.FALSE
+    ) -> None:
         self._connection: sqlite3.Connection | None = C.NONE
+        self.upgrade_pending = C.FALSE
         try:
+            if read_only:
+                self._open_read_only(path)
+                return
             if require_existing:
                 self._connection = sqlite3.connect(
                     path.resolve().as_uri() + S.LAYOUT_SQLITE_EXISTING_QUERY,
@@ -118,6 +126,7 @@ class AnalyticsStore:
             connection.execute(S.AN_STORE_FOREIGN_KEYS)
             if connection.execute(S.AN_STORE_FOREIGN_KEYS_CHECK).fetchall() != [(C.ONE,)]:
                 raise AnalyticsStoreError(S.AN_STORE_ERROR)
+            self._protect_legacy(path)
             with self._transaction():
                 objects = connection.execute(S.AN_STORE_SCHEMA).fetchall()
                 app_id = connection.execute(S.AN_STORE_APP_ID).fetchone()[C.ZERO]
@@ -140,11 +149,33 @@ class AnalyticsStore:
                     connection.execute(S.REC_CREATE_CACHE)
                     connection.execute(S.REC_CREATE_REPORTS)
                     connection.execute(S.REC_SET_VERSION)
+                # Opening checks identity, schema and structure; saved payloads are verified when
+                # read and by verify_history, not on every open.
                 self._validate()
-                self._validate_payloads()
         except (OSError, sqlite3.Error, AnalyticsStoreError, ValueError, UnicodeError):
             self.close()
             raise AnalyticsStoreError(S.AN_STORE_ERROR) from C.NONE
+        except BaseException:
+            self.close()
+            raise
+
+    def _open_read_only(self, path: Path) -> None:
+        handle = open_read_only(path)
+        self._connection = handle.connection
+        inspection = require_readable(handle, C.StoreKind.ANALYTICS)
+        self.upgrade_pending = inspection.state is C.StoreState.UPGRADE_NEEDED
+        self._validate(legacy=self.upgrade_pending)
+
+    def _protect_legacy(self, path: Path) -> None:
+        connection = self._db()
+        if (
+            connection.execute(S.AN_STORE_APP_ID).fetchone()[C.ZERO] == C.AN_STORE_APPLICATION_ID
+            and connection.execute(S.AN_STORE_VERSION).fetchone()[C.ZERO]
+            == C.AN_STORE_SCHEMA_VERSION
+        ):
+            protect_migration(
+                connection, path, C.StoreKind.ANALYTICS, reason=S.DBSAFE_REASON_MIGRATION
+            )
 
     def _db(self) -> sqlite3.Connection:
         if self._connection is C.NONE:
@@ -174,11 +205,21 @@ class AnalyticsStore:
         ):
             raise AnalyticsStoreError(S.AN_STORE_ERROR)
 
-    def _validate_payloads(self) -> None:
+    def _validate_payloads(self) -> dict[str, int]:
+        checked = {S.DBSAFE_CHECKED_COMPONENTS: C.ZERO, S.DBSAFE_CHECKED_REPORTS: C.ZERO}
         for row in self._db().execute(S.AN_STORE_ALL_COMPONENTS):
             self._component(row)
+            checked[S.DBSAFE_CHECKED_COMPONENTS] += C.ONE
         for row in self._db().execute(S.AN_STORE_ALL_REPORTS):
             self._report(row)
+            checked[S.DBSAFE_CHECKED_REPORTS] += C.ONE
+        return checked
+
+    def verify_history(self) -> dict[str, int]:
+        try:
+            return self._validate_payloads()
+        except (sqlite3.Error, UnicodeError):
+            raise AnalyticsStoreError(S.AN_STORE_ERROR) from C.NONE
 
     @staticmethod
     def _component(row: tuple[object, ...]) -> AnalysisComponent:

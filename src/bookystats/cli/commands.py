@@ -19,6 +19,12 @@ from bookystats.adapters.http import HttpClient
 from bookystats.application.sync import SourceReceipt, SyncReceipt, SyncService
 from bookystats.application.verification import verify_run
 from bookystats.cli.report import run_lines, status_lines
+from bookystats.cli.storage_status import (
+    attention_lines,
+    latest_analytics,
+    library_status,
+    storage_report,
+)
 from bookystats.domain.errors import AlreadyRunning, BookyError, ConfigurationError
 from bookystats.domain.interfaces import MetadataProvider, SourceConnector
 from bookystats.domain.models import (
@@ -421,30 +427,22 @@ def _file_size(path: Path) -> int | None:
 
 def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
     path = database_path(directory, S.LIBRARY_SQLITE3)
-    if not path.exists():
-        report: dict[str, JsonValue] = {
+    saved = library_status(path) if path.exists() else C.NONE
+    report: dict[str, JsonValue] = (
+        saved
+        if saved is not C.NONE
+        else {
             S.LIBRARY: {},
             S.SOURCES: [],
             S.LAST_RUN: C.NONE,
-            S.STATE: S.NOT_SYNCED,
+            S.STATE: S.DBSAFE_STATE_UNAVAILABLE if path.exists() else S.NOT_SYNCED,
         }
-    else:
-        from bookystats.persistence.library import Database
-
-        store = Database(path)
-        try:
-            store.initialize(require_existing=C.TRUE)
-            report = store.status()
-        finally:
-            store.close()
+    )
     report[S.DATA_DIRECTORY] = str(directory)
     analysis_path = database_path(directory, S.AN_DATABASE)
     latest: AnalyticsReport | None = C.NONE
     if analysis_path.is_file():
-        from bookystats.persistence.analytics import AnalyticsStore
-
-        with AnalyticsStore(analysis_path, require_existing=C.TRUE) as analysis_store:
-            latest = analysis_store.latest()
+        latest = latest_analytics(analysis_path)
         report[S.AN_ANALYTICS] = latest.model_dump(mode=S.JSON) if latest is not C.NONE else C.NONE
     from bookystats.persistence.products import ReportBundleStore
 
@@ -464,6 +462,7 @@ def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
     report[S.LIBRARY_BYTES] = _file_size(library_path)
     report[S.LATEST_LOG] = str(newest_log) if newest_log is not C.NONE else C.NONE
     report[S.CSV_CONFIGURATION_PATH] = str(configuration_path(directory))
+    report[S.DBSAFE_STORAGE] = storage_report(directory)
     configured = {account.source for account in settings.accounts}
     report[S.CSV_INPUTS] = [
         {
@@ -483,6 +482,8 @@ def _print_status(report: dict[str, JsonValue], *, as_json: bool) -> None:
         print(json.dumps(report, indent=C.TWO, ensure_ascii=C.TRUE))
         return
     for line in status_lines(report):
+        print(line)
+    for line in attention_lines(report):
         print(line)
 
 

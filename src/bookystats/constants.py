@@ -960,7 +960,7 @@ TEST_REPORTING_MTIME_OLDER: Final = 1700000000
 TEST_REPORTING_MTIME_NEWER: Final = 1800000000
 
 # Processed-storage compaction.
-STORAGE_SCHEMA_VERSION: Final = 3
+STORAGE_SCHEMA_VERSION: Final = 4
 STORAGE_LEGACY_VERSION: Final = 1
 STORAGE_PAYLOAD_COMPRESSION_LEVEL: Final = 6
 STORAGE_PAYLOAD_MAX_BYTES: Final = 134217728
@@ -2037,3 +2037,170 @@ class EvidenceTier(StrEnum):
     SINGLE_SOURCE = S.EVIDENCE_TIER_SINGLE_SOURCE
     CORROBORATED = S.EVIDENCE_TIER_CORROBORATED
     CONFLICTING = S.EVIDENCE_TIER_CONFLICTING
+
+
+# Storage safety: read-only inspection, verified backups and integrity checks.
+class StoreKind(StrEnum):
+    LIBRARY = S.DBSAFE_KIND_LIBRARY
+    ANALYTICS = S.DBSAFE_KIND_ANALYTICS
+    RAW = S.DBSAFE_KIND_RAW
+    METADATA = S.DBSAFE_KIND_METADATA
+
+
+class StoreState(StrEnum):
+    CURRENT = S.DBSAFE_STATE_CURRENT
+    UPGRADE_NEEDED = S.DBSAFE_STATE_UPGRADE_NEEDED
+    NEWER_THAN_SUPPORTED = S.DBSAFE_STATE_NEWER
+    UNRECOGNIZED = S.DBSAFE_STATE_UNRECOGNIZED
+    DAMAGED = S.DBSAFE_STATE_DAMAGED
+    ABSENT = S.DBSAFE_STATE_ABSENT
+    BUSY = S.DBSAFE_STATE_BUSY
+
+
+DBSAFE_QUIET_STATES: Final = (StoreState.CURRENT, StoreState.ABSENT)
+
+
+@frozen_dataclass
+class StoreContract:
+    kind: StoreKind
+    filename: str
+    application_id: int
+    accepted_application_ids: frozenset[int]
+    current_version: int
+    required_tables: frozenset[str]
+    upgrade_versions: tuple[int, ...]
+    readable_versions: tuple[int, ...]
+    shapes: Mapping[str, tuple[tuple[str, str, int, int], ...]]
+    adopts_unstamped: bool
+
+
+DBSAFE_LIBRARY_PRIOR_VERSION: Final = 3
+DBSAFE_METADATA_APPLICATION_ID: Final = 0x42594D44
+DBSAFE_METADATA_VERSION: Final = 1
+DBSAFE_HEADER_SIZE: Final = 100
+DBSAFE_HEADER_FORMAT_OFFSET: Final = 18
+DBSAFE_WAL_FORMAT: Final = 2
+DBSAFE_READ_TIMEOUT_SECONDS: Final = 2
+DBSAFE_READ_ATTEMPTS: Final = 3
+DBSAFE_HASH_CHUNK_BYTES: Final = 1048576
+DBSAFE_FREE_SPACE_MARGIN: Final = 16777216
+DBSAFE_NAME_ATTEMPTS: Final = 100
+DBSAFE_MANIFEST_FORMAT: Final = 1
+DBSAFE_REASON_PATTERN: Final = re.compile(S.DBSAFE_REASON_PATTERN)
+DBSAFE_BUSY_WORDS: Final = (S.DBSAFE_WORD_LOCKED, S.DBSAFE_WORD_BUSY)
+DBSAFE_RECOVERY_WORDS: Final = (S.DBSAFE_WORD_READONLY,)
+DBSAFE_PAYLOAD_COLUMNS: Final = tuple(
+    tuple(spec.split(S.DBSAFE_DOT)) for spec in S.DBSAFE_PAYLOAD_COLUMNS.split(S.COMMA)
+)
+DBSAFE_COLLECTION_COLUMNS: Final = tuple(
+    tuple(spec.split(S.DBSAFE_DOT)) for spec in S.DBSAFE_COLLECTION_COLUMNS.split(S.COMMA)
+)
+DBSAFE_LIBRARY_INDEXES: Final = (
+    S.DBSAFE_INDEX_CANDIDATES_ATTEMPT,
+    S.DBSAFE_INDEX_RECORDS_WORK,
+    S.DBSAFE_INDEX_DECISIONS_CANDIDATE,
+    S.DBSAFE_INDEX_DECISIONS_RECORD,
+)
+DBSAFE_LIBRARY_LEGACY_TABLES: Final = frozenset(S.DBSAFE_LIBRARY_TABLES.split(S.COMMA)) - {
+    S.DBSAFE_PAYLOAD_TABLE
+}
+DBSAFE_METADATA_SHAPES: Final = {
+    S.DBSAFE_TABLE_METADATA_CACHE: (
+        (S.DBSAFE_COLUMN_PROVIDER, S.DBSAFE_TYPE_TEXT, ONE, ONE),
+        (S.DBSAFE_COLUMN_CACHE_KEY, S.DBSAFE_TYPE_TEXT, ONE, TWO),
+        (S.DBSAFE_COLUMN_PAYLOAD, S.DBSAFE_TYPE_TEXT, ONE, ZERO),
+        (S.DBSAFE_COLUMN_EXPIRES_AT, S.DBSAFE_TYPE_REAL, ONE, ZERO),
+        (S.DBSAFE_COLUMN_CHECKSUM, S.DBSAFE_TYPE_TEXT, ONE, ZERO),
+    ),
+    S.DBSAFE_TABLE_METADATA_RETRY: (
+        (S.DBSAFE_COLUMN_PROVIDER, S.DBSAFE_TYPE_TEXT, ONE, ONE),
+        (S.DBSAFE_COLUMN_HOST_KEY, S.DBSAFE_TYPE_TEXT, ONE, TWO),
+        (S.DBSAFE_COLUMN_PAYLOAD, S.DBSAFE_TYPE_TEXT, ONE, ZERO),
+        (S.DBSAFE_COLUMN_CHECKSUM, S.DBSAFE_TYPE_TEXT, ONE, ZERO),
+    ),
+}
+DBSAFE_CONTRACTS: Final = {
+    StoreKind.LIBRARY: StoreContract(
+        kind=StoreKind.LIBRARY,
+        filename=S.LIBRARY_SQLITE3,
+        application_id=STORAGE_APPLICATION_ID,
+        accepted_application_ids=frozenset((ZERO, STORAGE_APPLICATION_ID)),
+        current_version=STORAGE_SCHEMA_VERSION,
+        required_tables=frozenset(S.DBSAFE_LIBRARY_TABLES.split(S.COMMA)),
+        upgrade_versions=(
+            STORAGE_LEGACY_VERSION,
+            META_COVERAGE_PRIOR_SCHEMA_VERSION,
+            DBSAFE_LIBRARY_PRIOR_VERSION,
+        ),
+        readable_versions=(DBSAFE_LIBRARY_PRIOR_VERSION,),
+        shapes={},
+        adopts_unstamped=FALSE,
+    ),
+    StoreKind.ANALYTICS: StoreContract(
+        kind=StoreKind.ANALYTICS,
+        filename=S.AN_DATABASE,
+        application_id=AN_STORE_APPLICATION_ID,
+        accepted_application_ids=frozenset((AN_STORE_APPLICATION_ID,)),
+        current_version=REC_SCHEMA_VERSION,
+        required_tables=frozenset(
+            (
+                S.AN_STORE_COMPONENT_TABLE,
+                S.AN_STORE_REPORT_TABLE,
+                S.REC_CACHE_TABLE,
+                S.REC_REPORT_TABLE,
+            )
+        ),
+        upgrade_versions=(AN_STORE_SCHEMA_VERSION,),
+        readable_versions=(AN_STORE_SCHEMA_VERSION,),
+        shapes={},
+        adopts_unstamped=FALSE,
+    ),
+    StoreKind.RAW: StoreContract(
+        kind=StoreKind.RAW,
+        filename=S.CLI_RAW_DATABASE,
+        application_id=RAW_APPLICATION_ID,
+        accepted_application_ids=frozenset((RAW_APPLICATION_ID,)),
+        current_version=DR_RAW_SCHEMA_VERSION,
+        required_tables=frozenset((S.RAW_CAPTURE_TABLE, S.RAW_PAYLOAD_TABLE)),
+        upgrade_versions=(RAW_LEGACY_SCHEMA_VERSION, RAW_SCHEMA_VERSION),
+        readable_versions=(),
+        shapes={},
+        adopts_unstamped=FALSE,
+    ),
+    StoreKind.METADATA: StoreContract(
+        kind=StoreKind.METADATA,
+        filename=S.METADATA_SQLITE3,
+        application_id=DBSAFE_METADATA_APPLICATION_ID,
+        accepted_application_ids=frozenset((DBSAFE_METADATA_APPLICATION_ID,)),
+        current_version=DBSAFE_METADATA_VERSION,
+        required_tables=frozenset((S.DBSAFE_TABLE_METADATA_CACHE,)),
+        upgrade_versions=(),
+        readable_versions=(),
+        shapes=DBSAFE_METADATA_SHAPES,
+        adopts_unstamped=TRUE,
+    ),
+}
+DBSAFE_TEST_TTL_SECONDS: Final = 3600
+DBSAFE_TEST_FLIP_MASK: Final = 255
+DBSAFE_TEST_PRIOR_LAYOUTS: Final = (DBSAFE_LIBRARY_PRIOR_VERSION, STORAGE_LEGACY_VERSION)
+DBSAFE_TEST_INDEX_NAMES: Final = (
+    S.DBSAFE_TEST_INDEX_CANDIDATES,
+    S.DBSAFE_TEST_INDEX_RECORDS,
+    S.DBSAFE_TEST_INDEX_DECISIONS_CANDIDATE,
+    S.DBSAFE_TEST_INDEX_DECISIONS_RECORD,
+)
+DBSAFE_TEST_INDEX_PLANS: Final = (
+    (S.DBSAFE_TEST_QUERY_CANDIDATES, S.DBSAFE_TEST_INDEX_CANDIDATES),
+    (S.DBSAFE_TEST_QUERY_RECORDS, S.DBSAFE_TEST_INDEX_RECORDS),
+    (S.DBSAFE_TEST_QUERY_DECISIONS_CANDIDATE, S.DBSAFE_TEST_INDEX_DECISIONS_CANDIDATE),
+    (S.DBSAFE_TEST_QUERY_DECISIONS_RECORD, S.DBSAFE_TEST_INDEX_DECISIONS_RECORD),
+)
+DBSAFE_TEST_PAYLOAD_DAMAGE: Final = (
+    (S.DBSAFE_TEST_CORRUPT_PAYLOADS, S.DBSAFE_FAILURE_PAYLOAD_DAMAGED),
+    (S.DBSAFE_TEST_DELETE_PAYLOADS, S.DBSAFE_FAILURE_PAYLOAD_DANGLING),
+)
+DBSAFE_TEST_REJECTED_METADATA: Final = (
+    S.DBSAFE_TEST_SCENARIO_FOREIGN,
+    S.DBSAFE_TEST_SCENARIO_NEWER,
+    S.DBSAFE_TEST_SCENARIO_EXTRA,
+)

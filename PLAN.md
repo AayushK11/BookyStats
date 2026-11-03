@@ -480,6 +480,12 @@ Protect local payloads, profiles, and credentials; logs contain references and
 counts, not personal payloads or secrets. Do not delete raw data or automatically
 prune history to conceal duplicate processed storage.
 
+Implemented subset: status opens stores read-only and reports `upgrade_needed`;
+each schema upgrade first writes a SQLite-API backup to
+`data\backups\<UTC>-<store>-pre-migration\` with a SHA-256 manifest and refuses to
+change the database if integrity or backup verification fails. This is not the
+full retention/restore policy above.
+
 ### Data rules
 
 - **Raw means original:** retain every supplied source field, including fields

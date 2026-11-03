@@ -26,6 +26,7 @@ from bookystats import strings as S
 from bookystats.domain.errors import BookyError
 from bookystats.domain.interfaces import HttpFetcher, HttpResponse, PageDocument
 from bookystats.domain.models import Account, CollectionSnapshot, Source, SyncState, utc_now
+from bookystats.persistence.backup import StoreMigrationBlocked, protect_migration
 
 
 class RawStoreError(BookyError):
@@ -92,15 +93,30 @@ class RawStore:
             self._connection = connection
             connection.execute(S.RAW_PRAGMA_FOREIGN_KEYS)
             connection.execute(S.RAW_PRAGMA_SYNCHRONOUS)
+            self._protect_migration(path, connection)
             with connection:
                 connection.execute(S.RAW_BEGIN)
                 self._initialize(connection)
         except RawStoreError:
             self.close()
             raise
+        except StoreMigrationBlocked:
+            self.close()
+            raise RawStoreError(S.DBSAFE_RAW_BLOCKED) from C.NONE
         except (OSError, sqlite3.Error):
             self.close()
             raise RawStoreError(S.RAW_OPEN_ERROR) from C.NONE
+
+    @staticmethod
+    def _protect_migration(path: Path, connection: sqlite3.Connection) -> None:
+        # Older raw layouts are upgraded in place, so they get a verified backup first.
+        application = connection.execute(S.RAW_PRAGMA_APPLICATION).fetchone()[C.ZERO]
+        version = connection.execute(S.RAW_PRAGMA_VERSION).fetchone()[C.ZERO]
+        if application == C.RAW_APPLICATION_ID and version in (
+            C.RAW_LEGACY_SCHEMA_VERSION,
+            C.RAW_SCHEMA_VERSION,
+        ):
+            protect_migration(connection, path, C.StoreKind.RAW, reason=S.DBSAFE_REASON_MIGRATION)
 
     @staticmethod
     def _initialize(connection: sqlite3.Connection) -> None:
@@ -491,6 +507,21 @@ class RawStore:
                 connection.close()
             except sqlite3.Error:
                 raise RawStoreError(S.RAW_CLOSE_ERROR) from C.NONE
+
+
+def verify_documents(connection: sqlite3.Connection) -> tuple[int, int]:
+    # Explicit comprehensive check of every saved capture; normal reads verify only the document
+    # they load. Older layouts are verified by the backup and upgrade path instead.
+    if connection.execute(S.RAW_PRAGMA_VERSION).fetchone()[C.ZERO] != C.DR_RAW_SCHEMA_VERSION:
+        return C.ZERO, C.ZERO
+    total = damaged = C.ZERO
+    for row in connection.execute(S.DBSAFE_SELECT_RAW_DOCUMENTS):
+        total += C.ONE
+        try:
+            RawStore._document(row)
+        except RawStoreError:
+            damaged += C.ONE
+    return total, damaged
 
 
 def _sensitive_name(name: str) -> bool:

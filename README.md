@@ -366,6 +366,12 @@ conflicting locations fail explicitly instead of overwriting either file.
 Interrupted file moves resume safely on the next sync. Nonsecret configuration
 stays at its existing location, and CSV paths remain relative to `data`.
 
+`booky status` opens databases read-only: it does not migrate, checkpoint or create
+SQLite sidecars, and an older database shows as `upgrade_needed` until a sync
+upgrades it. Before any schema upgrade the store takes a verified SQLite backup
+under `data\backups\` and leaves the database unchanged if that backup or its
+integrity check fails. Normal sync never drops historical tables or deletes backups.
+
 SQLite may create `-wal` and `-shm` files alongside an active database. They hold
 pending-checkpoint committed changes and coordination state, not spare copies.
 Never delete or move them during use; SQLite normally cleans them up after its

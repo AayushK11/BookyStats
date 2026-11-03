@@ -91,8 +91,8 @@ def test_hash_corruption_is_detected_before_reuse(tmp_path: Path) -> None:
         _tamper(path, S.REC_TEST_CORRUPT, (S.REC_TEST_BAD_HASH, saved.key))
         with pytest.raises(RecommendationStoreError):
             service.run(pinned, analysis(pinned))
-    with pytest.raises(RecommendationStoreError):
-        RecommendationStore(path)
+    with RecommendationStore(path) as store, pytest.raises(RecommendationStoreError):
+        store.verify_history()
 
 
 def test_legacy_v2_migration_preserves_exact_payloads_hashes_and_reports(tmp_path: Path) -> None:
