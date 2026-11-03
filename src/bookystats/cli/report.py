@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import PureWindowsPath
 
 from pydantic import JsonValue
 
 from bookystats import constants as C
 from bookystats import strings as S
+from bookystats.application.outcome import (
+    format_duration,
+    format_instant,
+    parse_utc,
+    readable_deadlines,
+)
 from bookystats.application.sync import SourceReceipt, SyncReceipt
 from bookystats.domain.models import Issue, Verification
 from bookystats.domain.products import ProductReceipt
@@ -18,7 +25,7 @@ def _issue_lines(issues: Sequence[Issue], limit: int | None) -> list[str]:
     shown = groups if limit is C.NONE else groups[: max(C.ZERO, limit)]
     lines = [
         (S.REPORT_REPEATED_ISSUE_LINE if count > C.ONE else S.REPORT_ISSUE_LINE).format(
-            code=code, message=message, count=count
+            code=code, message=readable_deadlines(message), count=count
         )
         for (code, message), count in shown
     ]
@@ -248,11 +255,47 @@ def _analytics_lines(analysis: Mapping[str, JsonValue]) -> list[str]:
     return lines
 
 
-def status_lines(report: Mapping[str, JsonValue]) -> list[str]:
+def _run_summary_lines(report: Mapping[str, JsonValue], now: datetime) -> list[str]:
+    saved = _mapping(report.get(S.RUNSUM_KEY))
+    if not saved:
+        return []
+    zone = now.tzinfo or UTC
+    finished = parse_utc(_text(saved.get(S.RUNSUM_FINISHED_KEY), S.EMPTY))
+    lines = [
+        S.RUNSUM_ATTEMPT_LINE.format(
+            finished=format_instant(finished.timestamp(), zone)
+            if finished is not C.NONE
+            else S.OUTCOME_TIME_UNKNOWN
+        )
+    ]
+    lines.extend(
+        S.RUNSUM_TEXT_LINE.format(text=_text(line, S.EMPTY))
+        for line in _sequence(saved.get(S.RUNSUM_LINES_KEY))
+    )
+    names = {source.value: name for source, name in C.OUTCOME_PROVIDER_NAMES.items()}
+    for item in _sequence(saved.get(S.RUNSUM_GATES_KEY)):
+        gate = _mapping(item)
+        until = parse_utc(_text(gate.get(S.RUNSUM_RETRY_KEY), S.EMPTY))
+        if until is C.NONE:
+            continue
+        provider = _text(gate.get(S.RUNSUM_PROVIDER_KEY), S.STATUS_UNKNOWN)
+        remaining = (until - now).total_seconds()
+        lines.append(
+            (S.RUNSUM_GATE_ACTIVE if remaining > C.ZERO else S.RUNSUM_GATE_PASSED).format(
+                provider=names.get(provider, provider),
+                until=format_instant(until.timestamp(), zone),
+                remaining=format_duration(remaining),
+            )
+        )
+    return lines
+
+
+def status_lines(report: Mapping[str, JsonValue], *, now: datetime | None = C.NONE) -> list[str]:
     lines = [
         S.CLI_PRINT_STATUS_BOOKYSTATS_STATUS_LOCAL_DATA_NO_SOURCE_REQUESTS,
         S.STATUS_LAST_RUN_LINE.format(value=_last_run(report.get(S.LAST_RUN))),
     ]
+    lines.extend(_run_summary_lines(report, now or datetime.now(UTC).astimezone()))
     analysis = _mapping(report.get(S.AN_ANALYTICS))
     if analysis:
         lines.append(

@@ -1,231 +1,442 @@
 from __future__ import annotations
 
-import hashlib
+import errno
 import os
-from dataclasses import replace
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
+from bookystats import __version__
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.application.sync import MetadataReceipt, SourceReceipt
-from bookystats.cli.report import run_lines
-from bookystats.domain.analytics import AnalyticsReceipt
-from bookystats.domain.models import (
-    Check,
-    CheckName,
-    Issue,
-    Source,
-    SyncState,
-    Verification,
-    VerificationResult,
-)
-from bookystats.domain.products import ProductReceipt
-from bookystats.persistence.raw import RawDocument
+from bookystats.application.outcome import RunProbe, format_duration
+from bookystats.application.sync import MetadataReceipt
+from bookystats.domain.errors import BookyError
+from bookystats.domain.models import Issue, Source, SyncState
 from bookystats.runtime.runlog import (
     OperationalLog,
+    RunLogError,
     latest_log,
     log_directory,
-    prune_logs,
     write_failure_log,
-    write_run_log,
 )
-from tests.support.reporting import reporting_issues, run_receipt
+from bookystats.runtime.runsummary import read_summary, summary_path
+from tests.support.outcomes import (
+    RetryStore,
+    StepTimer,
+    explainer,
+    inject_append_fault,
+    local_clock,
+    sync_receipt,
+)
 
 
-def _document() -> RawDocument:
-    return RawDocument(
-        id=S.TEST_IMPORT_DOCUMENT_ID,
-        source=Source.GOODREADS,
-        account_id=S.TEST_REPORTING_ACCOUNT,
-        body=S.TEST_REPORTING_FIXTURE_CSV,
-        media_type=S.RAW_CSV_MEDIA_TYPE,
-        origin=S.TEST_REPORTING_FILE,
-        captured_at=S.TEST_REPORTING_FIRST_TIME,
-        sha256=hashlib.sha256(S.TEST_REPORTING_FIXTURE_CSV).hexdigest(),
+def _text(directory: Path) -> str:
+    return (log_directory(directory) / S.LOG_FILE_NAME).read_text(encoding=S.UTF_8)
+
+
+def _open(
+    directory: Path, timer: StepTimer | None = C.NONE, warnings: list[str] | None = C.NONE
+) -> OperationalLog:
+    return OperationalLog(
+        directory,
+        trigger=S.INPUT_FILE,
+        secrets=C.TEST_REPORTING_SECRETS,
+        clock=local_clock,
+        timer=timer if timer is not C.NONE else StepTimer(),
+        warn=warnings.append if warnings is not C.NONE else C.NONE,
     )
 
 
-def test_run_log_keeps_full_issues_verification_and_raw_lineage_without_source_paths(
+def _end_line(text: str) -> str:
+    return next(line for line in reversed(text.splitlines()) if line.startswith(S.OPLOG_END_TOKEN))
+
+
+def test_a_run_appends_one_readable_block_after_the_existing_history(tmp_path: Path) -> None:
+    folder = log_directory(tmp_path)
+    folder.mkdir()
+    (folder / S.LOG_FILE_NAME).write_text(S.TEST_OPLOG_LEGACY_TEXT, encoding=S.UTF_8)
+    receipt = sync_receipt()
+    timer = StepTimer()
+    started = S.PROD_RUN_STARTED.format(run_id=C.TEST_OPLOG_RUN_ID)
+    with _open(tmp_path, timer) as log:
+        log.event(started)
+        timer.value = C.TEST_OPLOG_TOTAL
+        outcome = log.finish(receipt, explainer(receipt))
+    text = _text(tmp_path)
+    lines = text.splitlines()
+    begin = lines.index(
+        S.OPLOG_START.format(instant=S.TEST_OPLOG_CLOCK_INSTANT, trigger=S.INPUT_FILE)
+    )
+    assert text.startswith(S.TEST_OPLOG_LEGACY_TEXT)
+    assert lines[begin - C.ONE] == S.EMPTY
+    assert lines[begin + C.ONE] == S.OPLOG_VERSION_LINE.format(
+        version=__version__, format=C.OPLOG_FORMAT
+    )
+    assert lines[begin + C.TWO] == S.OPLOG_EVENT.format(
+        stamp=S.TEST_OPLOG_LOCAL_STAMP, message=started
+    )
+    for expected in (
+        S.OPLOG_RUN_LINE.format(run_id=C.TEST_OPLOG_RUN_ID, state=S.COMPLETE),
+        S.OPLOG_VERIFICATION_NONE,
+        S.OPLOG_ISSUES_NONE,
+    ):
+        assert S.OPLOG_INDENT + expected in lines
+    assert lines[-C.ONE - len(outcome.lines) : -C.ONE] == list(outcome.lines)
+    assert lines[-C.ONE] == S.OPLOG_END.format(
+        instant=S.TEST_OPLOG_CLOCK_INSTANT,
+        run_id=C.TEST_OPLOG_RUN_ID,
+        state=S.COMPLETE,
+        exit_code=C.ZERO,
+        duration=format_duration(C.TEST_OPLOG_TOTAL),
+    )
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    assert (saved.outcome, saved.exit_code, saved.run_id, saved.trigger) == (
+        S.COMPLETE,
+        C.ZERO,
+        C.TEST_OPLOG_RUN_ID,
+        S.INPUT_FILE,
+    )
+    assert saved.finished_utc == S.TEST_OPLOG_CLOCK_UTC
+    assert saved.lines == outcome.lines
+
+
+def test_stage_durations_come_from_the_orchestration_events(tmp_path: Path) -> None:
+    receipt = sync_receipt()
+    timer = StepTimer()
+    metadata_stage = S.PROD_STAGE_METADATA.format(provider=Source.GOOGLE_BOOKS.value)
+    with _open(tmp_path, timer) as log:
+        timer.value = C.TEST_OPLOG_SOURCES_START
+        log.event(S.PROD_STAGE_SOURCES)
+        timer.value = C.TEST_OPLOG_METADATA_START
+        log.event(metadata_stage)
+        timer.value = C.TEST_OPLOG_STAGES_END
+        log.event(S.PROD_STAGE_FINISHED.format(run_id=C.TEST_OPLOG_RUN_ID, state=S.COMPLETE))
+        timer.value = C.TEST_OPLOG_TOTAL
+        log.finish(receipt, explainer(receipt))
+
+    def name(stage: str) -> str:
+        return stage.removeprefix(S.OPLOG_STAGE_PREFIX).removesuffix(S.OPLOG_PERIOD)
+
+    spent = C.TEST_OPLOG_STAGES_END - C.TEST_OPLOG_SOURCES_START
+    expected = [
+        S.OPLOG_INDENT + S.OPLOG_TIME_HEADING,
+        S.OPLOG_DEEP_INDENT
+        + S.OPLOG_TIME_LINE.format(
+            duration=format_duration(C.TEST_OPLOG_METADATA_START - C.TEST_OPLOG_SOURCES_START),
+            stage=name(S.PROD_STAGE_SOURCES),
+        ),
+        S.OPLOG_DEEP_INDENT
+        + S.OPLOG_TIME_LINE.format(
+            duration=format_duration(C.TEST_OPLOG_STAGES_END - C.TEST_OPLOG_METADATA_START),
+            stage=name(metadata_stage),
+        ),
+        S.OPLOG_DEEP_INDENT
+        + S.OPLOG_TIME_LINE.format(
+            duration=format_duration(C.TEST_OPLOG_TOTAL - spent), stage=S.OPLOG_TIME_OTHER
+        ),
+    ]
+    lines = _text(tmp_path).splitlines()
+    first = lines.index(expected[C.ZERO])
+    assert lines[first : first + len(expected)] == expected
+
+
+def test_log_and_summary_never_contain_secrets_credentials_paths_or_personal_text(
     tmp_path: Path,
 ) -> None:
-    document = _document()
-    verification = Verification(
-        result=VerificationResult.PARTIAL,
-        checks=(
-            Check(
-                name=CheckName.METADATA,
-                result=VerificationResult.PARTIAL,
-                source=Source.GOOGLE_BOOKS,
-                detail=S.TEST_REPORTING_MESSAGE_ONE,
-            ),
-        ),
+    messages = (
+        S.LOG_TEST_PROVIDER_MESSAGE,
+        S.LOG2_TEST_PRIVATE_PATH_MESSAGE,
+        S.TEST_OPLOG_URL_MESSAGE,
+        S.TEST_REPORTING_SECRET_MESSAGE,
     )
-    receipt = run_receipt(
-        sources=(
-            SourceReceipt(
-                source=Source.GOODREADS,
-                state=SyncState.COMPLETE,
-                issues=reporting_issues(),
-                collection=S.READ,
-                input_kind=S.INPUT_FILE,
-            ),
-        ),
-        verification=verification,
-    )
-    path = write_run_log(
-        tmp_path,
-        receipt,
-        trigger=S.INPUT_FILE,
-        inputs={
-            (Source.GOODREADS, S.READ): replace(
-                document, origin=S.TEST_REPORTING_PRIVATE_PATH, collection=S.READ
-            )
-        },
-        secrets=(),
-        report_lines=run_lines(receipt, issue_limit=C.NONE),
-    )
-    text = path.read_text(encoding=S.UTF_8)
-    assert str(tmp_path) not in text
-    assert S.TEST_REPORTING_PRIVATE_PATH not in text
-    assert (
-        S.RUNLOG_FILE_LINE.format(
-            source=S.GOODREADS + S.SLASH + S.READ,
-            origin=S.TEST_REPORTING_FILE,
-            size=len(document.body),
-            sha256=document.sha256,
-            captured=document.captured_at,
-            document=document.id,
-        )
-        in text
-    )
-    for issue in reporting_issues():
-        assert S.REPORT_ISSUE_LINE.format(code=issue.code, message=issue.message) in text
-    assert S.REPORT_RESULT_LINE.format(result=S.PARTIAL.upper()) in text
-    assert text.endswith(S.NEWLINE)
-    assert path.parent == log_directory(tmp_path)
-
-
-def test_run_logs_redact_explicit_keys_query_keys_and_bearer_tokens(tmp_path: Path) -> None:
-    receipt = run_receipt(
-        sources=(
-            SourceReceipt(
-                source=Source.GOODREADS,
-                state=SyncState.FAILED,
-                issues=(
-                    Issue(
-                        code=S.TEST_REPORTING_ISSUE_ONE,
-                        message=S.TEST_REPORTING_SECRET_MESSAGE,
-                    ),
+    receipt = sync_receipt(
+        metadata=(
+            MetadataReceipt(
+                provider=Source.GOOGLE_BOOKS,
+                state=SyncState.PARTIAL,
+                issues=tuple(
+                    Issue(code=S.TEST_REPORTING_ISSUE_ONE, message=message) for message in messages
                 ),
             ),
         )
     )
-    path = write_run_log(
-        tmp_path,
-        receipt,
-        trigger=S.INPUT_FILE,
-        inputs={},
-        secrets=iter(C.TEST_REPORTING_SECRETS),
-        report_lines=run_lines(receipt, issue_limit=C.NONE),
+    with _open(tmp_path) as log:
+        for message in messages:
+            log.event(message)
+        log.finish(receipt, explainer(receipt, exit_code=C.THREE))
+    saved = summary_path(tmp_path).read_text(encoding=S.UTF_8)
+    text = _text(tmp_path)
+    for private in C.TEST_OPLOG_PRIVATE_VALUES:
+        assert private not in text
+        assert private not in saved
+    assert S.TEST_OPLOG_URL_HOST in text
+    assert S.TEST_OPLOG_QUERY_REMOVED in text
+
+
+def test_failures_keep_the_cause_but_never_private_exception_text(tmp_path: Path) -> None:
+    plain = tmp_path / S.TEST_REPORTING_ENV_DIRECTORY
+    inside = tmp_path / S.TEST_REPORTING_OVERRIDE_DIRECTORY
+    redacted = tmp_path / S.TEST_REPORTING_PLATFORM_DIRECTORY
+    with pytest.raises(ValueError), _open(plain):
+        raise ValueError(S.TEST_OPLOG_PERSONAL)
+    store = RetryStore()
+    store.states[(Source.GOOGLE_BOOKS, C.OUTCOME_PROVIDER_HOSTS[Source.GOOGLE_BOOKS])] = ValueError(
+        S.TEST_OPLOG_PERSONAL
     )
-    text = path.read_text(encoding=S.UTF_8)
-    assert all(value not in text for value in C.TEST_REPORTING_REDACTED_VALUES)
-    assert S.REDACTION_REDACT_RESULT_REDACTED in text
-    assert S.TEST_REPORTING_ISSUE_ONE in text
+    probe = RunProbe()
+    probe.attach(store)
+    with pytest.raises(ValueError), _open(inside):
+        probe.begin()
+    with pytest.raises(BookyError), _open(redacted):
+        raise BookyError(S.TEST_REPORTING_SECRET_MESSAGE)
+    assert S.OPLOG_UNEXPECTED_BARE.format(type=S.TEST_OPLOG_VALUE_ERROR) in _text(plain)
+    first_party = _text(inside)
+    assert S.TEST_OPLOG_VALUE_ERROR in first_party
+    assert S.TEST_OPLOG_PROBE_FRAME in first_party
+    for directory in (plain, inside, redacted):
+        assert S.TEST_OPLOG_FAILED_END in _end_line(_text(directory))
+        assert S.TEST_OPLOG_PERSONAL not in _text(directory)
+        assert S.TEST_REPORTING_SECRET not in _text(directory)
+        saved = read_summary(directory)
+        assert saved is not C.NONE
+        assert (saved.outcome, saved.exit_code) == (S.FAILED, C.ONE)
+    assert S.TEST_REPORTING_KEY_SECRET not in _text(redacted)
 
 
-def test_failure_logs_are_redacted_and_keep_the_explicit_error(
+def test_issue_counts_are_complete_while_examples_stay_bounded_and_clipped(
+    tmp_path: Path,
+) -> None:
+    notice = min(C.LOG2_EXPECTED_NOTICE_CODES)
+    issues = (
+        *(
+            Issue(
+                code=S.TEST_REPORTING_ISSUE_ONE,
+                message=S.TEST_OPLOG_DISTINCT.format(number=number),
+            )
+            for number in range(C.LOG2_TEST_LARGE_NOTICE_COUNT)
+        ),
+        Issue(
+            code=S.TEST_REPORTING_ISSUE_TWO,
+            message=S.TEST_OPLOG_FILLER * C.TEST_OPLOG_LONG_COUNT,
+        ),
+        *(
+            Issue(code=notice, message=S.TEST_OPLOG_DISTINCT.format(number=number))
+            for number in range(C.LOG2_TEST_LARGE_NOTICE_COUNT)
+        ),
+    )
+    receipt = sync_receipt(
+        metadata=(
+            MetadataReceipt(provider=Source.GOOGLE_BOOKS, state=SyncState.PARTIAL, issues=issues),
+        )
+    )
+    with _open(tmp_path) as log:
+        log.finish(receipt, explainer(receipt, exit_code=C.THREE))
+    lines = _text(tmp_path).splitlines()
+    scope = Source.GOOGLE_BOOKS.value
+    for code in (S.TEST_REPORTING_ISSUE_ONE, notice):
+        counted = S.OPLOG_ISSUE_COUNT.format(
+            scope=scope, code=code, count=C.LOG2_TEST_LARGE_NOTICE_COUNT
+        )
+        assert S.OPLOG_DEEP_INDENT + counted in lines
+    single = S.OPLOG_ISSUE_COUNT_ONE.format(scope=scope, code=S.TEST_REPORTING_ISSUE_TWO)
+    assert S.OPLOG_DEEP_INDENT + single in lines
+    prefix = S.OPLOG_EXAMPLE_INDENT + S.TEST_OPLOG_EXAMPLE_PREFIX
+    examples = [line for line in lines if line.startswith(prefix)]
+    assert len(examples) == C.LOG_ISSUE_EXAMPLES + C.ONE
+    assert [len(line) for line in examples if line.endswith(S.OPLOG_TRUNCATED)] == [
+        len(prefix) + C.LOG_ISSUE_MESSAGE_LENGTH + len(S.OPLOG_TRUNCATED)
+    ]
+    assert S.OPLOG_INDENT + S.LOG2_NOTICE_EXPLANATION in lines
+
+
+def test_a_log_that_cannot_be_opened_stops_the_run_without_naming_the_path(
+    tmp_path: Path,
+) -> None:
+    log_directory(tmp_path).write_text(S.EMPTY, encoding=S.UTF_8)
+    with pytest.raises(RunLogError) as opening, _open(tmp_path):
+        pass
+    with pytest.raises(RunLogError) as failure:
+        write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
+    for caught in (opening, failure):
+        assert str(caught.value)
+        assert str(tmp_path) not in str(caught.value)
+
+
+def test_a_failure_log_that_cannot_be_completed_raises_instead_of_looking_recorded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(S.TEST_REPORTING_CLOCK, lambda: S.TEST_REPORTING_FIRST_TIME)
-    path = write_failure_log(
-        tmp_path, S.TEST_REPORTING_SECRET_MESSAGE, secrets=C.TEST_REPORTING_SECRETS
-    )
-    text = path.read_text(encoding=S.UTF_8)
-    assert S.RUNLOG_FAILED_TITLE + S.NEWLINE in text
-    assert S.RUNLOG_TIME_LINE.format(time=S.TEST_REPORTING_FIRST_TIME) in text
-    assert all(value not in text for value in C.TEST_REPORTING_REDACTED_VALUES)
-    plain = write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
-    assert S.RUNLOG_FAILURE_LINE.format(message=S.TEST_REPORTING_FAILURE) in plain.read_text(
-        encoding=S.UTF_8
-    )
+    inject_append_fault(monkeypatch, lambda call: call >= C.TWO)
+    with pytest.raises(RunLogError, match=S.TEST_OPLOG_DISK_FULL):
+        write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
 
 
-def test_same_second_failures_append_to_one_persistent_file(
+def test_symlinked_log_folder_or_file_is_refused_without_writing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(S.TEST_REPORTING_CLOCK, lambda: S.TEST_REPORTING_FIRST_TIME)
-    first = write_failure_log(tmp_path, S.TEST_REPORTING_MESSAGE_ONE, secrets=())
-    second = write_failure_log(tmp_path, S.TEST_REPORTING_MESSAGE_TWO, secrets=())
-    assert first == second
-    assert S.TEST_REPORTING_MESSAGE_ONE in second.read_text(encoding=S.UTF_8)
-    assert S.TEST_REPORTING_MESSAGE_TWO in second.read_text(encoding=S.UTF_8)
-    third = write_failure_log(tmp_path, S.TEST_REPORTING_MESSAGE_THREE, secrets=())
-    assert second.exists()
-    assert S.TEST_REPORTING_MESSAGE_THREE in third.read_text(encoding=S.UTF_8)
-    assert list(log_directory(tmp_path).glob(S.RUNLOG_PATTERN)) == [third]
+    folder = log_directory(tmp_path)
+    monkeypatch.setattr(Path, S.LOG2_TEST_SYMLINK, lambda path: path.name == S.LOGS_FOLDER)
+    with pytest.raises(RunLogError, match=S.LOG_SYMLINK_ERROR), _open(tmp_path):
+        pass
+    assert not folder.exists()
+    folder.mkdir()
+    monkeypatch.setattr(Path, S.LOG2_TEST_SYMLINK, lambda path: path.name == S.LOG_FILE_NAME)
+    with pytest.raises(RunLogError, match=S.LOG_SYMLINK_ERROR), _open(tmp_path):
+        pass
+    assert not (folder / S.LOG_FILE_NAME).exists()
 
 
-def test_repeated_receipt_logs_preserve_previous_entries(tmp_path: Path) -> None:
-    receipt = run_receipt()
-    first = write_run_log(
-        tmp_path,
-        receipt,
-        trigger=S.INPUT_FILE,
-        inputs={},
-        secrets=(),
-        report_lines=run_lines(receipt, issue_limit=C.NONE),
-    )
-    original = first.read_bytes()
-    second = write_run_log(
-        tmp_path,
-        receipt,
-        trigger=S.INPUT_FILE,
-        inputs={},
-        secrets=(),
-        report_lines=run_lines(receipt, issue_limit=C.NONE),
-    )
-    assert second == first
-    assert second.read_bytes().startswith(original)
-    assert second.read_text(encoding=S.UTF_8).count(S.LOG_TEST_START_TOKEN) == C.TWO
-    assert second.read_text(encoding=S.UTF_8).count(S.LOG_TEST_END_TOKEN) == C.TWO
-
-
-def test_run_log_preserves_supplied_report_lines_from_an_iterator(tmp_path: Path) -> None:
-    path = write_run_log(
-        tmp_path,
-        run_receipt(),
-        trigger=S.INPUT_FILE,
-        inputs={},
-        secrets=(),
-        report_lines=iter((S.TEST_REPORTING_MESSAGE_ONE, S.TEST_REPORTING_MESSAGE_TWO)),
-    )
-    assert S.NEWLINE.join(
-        (S.TEST_REPORTING_MESSAGE_ONE, S.TEST_REPORTING_MESSAGE_TWO)
-    ) in path.read_text(encoding=S.UTF_8)
-
-
-def test_equal_utc_instants_from_different_offsets_append_normalized_utc_boundaries(
+def test_mid_run_write_failure_warns_once_and_can_never_end_as_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(S.TEST_REPORTING_CLOCK, lambda: S.TEST_REPORTING_FIRST_TIME)
-    first = write_failure_log(tmp_path, S.TEST_REPORTING_MESSAGE_ONE, secrets=())
-    monkeypatch.setattr(S.TEST_REPORTING_CLOCK, lambda: S.TEST_REPORTING_OFFSET_TIME)
-    second = write_failure_log(tmp_path, S.TEST_REPORTING_MESSAGE_TWO, secrets=())
-    assert first == second
-    text = second.read_text(encoding=S.UTF_8)
-    assert S.TEST_REPORTING_MESSAGE_ONE in text
-    assert S.TEST_REPORTING_MESSAGE_TWO in text
-    assert S.TEST_REPORTING_OFFSET_TIME not in text
-    assert S.TEST_REPORTING_FIRST_TIME in text
+    inject_append_fault(monkeypatch, lambda call: C.TWO <= call <= C.THREE)
+    warnings: list[str] = []
+    receipt = sync_receipt()
+    with _open(tmp_path, warnings=warnings) as log:
+        log.event(S.TEST_REPORTING_MESSAGE_ONE)
+        log.event(S.TEST_REPORTING_MESSAGE_TWO)
+        outcome = log.finish(receipt, explainer(receipt))
+    incomplete = S.OUTCOME_LOG_INCOMPLETE.format(reason=S.TEST_OPLOG_DISK_FULL)
+    text = _text(tmp_path)
+    assert log.problem == S.TEST_OPLOG_DISK_FULL
+    assert warnings == [S.OPLOG_WARNING.format(reason=S.TEST_OPLOG_DISK_FULL)]
+    assert (outcome.state, outcome.exit_code) == (S.OUTCOME_NEEDS_ATTENTION, C.THREE)
+    assert S.OUTCOME_CAUSE_LINE.format(text=incomplete) in outcome.lines
+    assert S.TEST_REPORTING_MESSAGE_ONE not in text
+    assert (
+        S.OPLOG_INDENT + S.OPLOG_DEGRADED.format(count=C.TWO, reason=S.TEST_OPLOG_DISK_FULL)
+        in text.splitlines()
+    )
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    assert saved.exit_code == C.THREE
 
 
-def test_appending_preserves_legacy_logs_unmanaged_files_and_directories(tmp_path: Path) -> None:
+def test_final_write_failure_is_reported_in_the_outcome_and_the_saved_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inject_append_fault(monkeypatch, lambda call: call >= C.TWO)
+    warnings: list[str] = []
+    receipt = sync_receipt()
+    with _open(tmp_path, warnings=warnings) as log:
+        outcome = log.finish(receipt, explainer(receipt))
+    assert outcome.exit_code == C.THREE
+    assert warnings == [S.OPLOG_WARNING.format(reason=S.TEST_OPLOG_DISK_FULL)]
+    assert S.OPLOG_END_TOKEN not in _text(tmp_path)
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    assert (saved.exit_code, saved.lines) == (C.THREE, outcome.lines)
+    assert (
+        S.OUTCOME_CAUSE_LINE.format(
+            text=S.OUTCOME_LOG_INCOMPLETE.format(reason=S.TEST_OPLOG_DISK_FULL)
+        )
+        in saved.lines
+    )
+
+
+def test_summary_save_failure_is_warned_and_does_not_hide_the_finished_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*arguments: object, **options: object) -> None:
+        raise OSError(errno.ENOSPC, S.TEST_OPLOG_DISK_FULL)
+
+    monkeypatch.setattr(os, S.TEST_OPLOG_REPLACE_ATTRIBUTE, refuse)
+    warnings: list[str] = []
+    receipt = sync_receipt()
+    with _open(tmp_path, warnings=warnings) as log:
+        outcome = log.finish(receipt, explainer(receipt))
+    assert outcome.exit_code == C.ZERO
+    assert warnings == [S.OPLOG_SUMMARY_WARNING.format(reason=S.TEST_OPLOG_DISK_FULL)]
+    assert _text(tmp_path).count(S.OPLOG_END_TOKEN) == C.ONE
+    assert read_summary(tmp_path) is C.NONE
+    assert list(summary_path(tmp_path).parent.iterdir()) == []
+
+
+def test_interrupt_is_recorded_with_exit_code_130_and_the_run_id_seen_so_far(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(KeyboardInterrupt), _open(tmp_path) as log:
+        log.event(S.PROD_RUN_STARTED.format(run_id=C.TEST_OPLOG_RUN_ID))
+        raise KeyboardInterrupt
+    assert _end_line(_text(tmp_path)) == S.OPLOG_END.format(
+        instant=S.TEST_OPLOG_CLOCK_INSTANT,
+        run_id=C.TEST_OPLOG_RUN_ID,
+        state=S.INTERRUPTED,
+        exit_code=C.CLI_MAIN,
+        duration=format_duration(C.ZERO),
+    )
+    assert log.outcome is not C.NONE
+    assert log.outcome.lines[-C.ONE] == S.OUTCOME_NEXT_LINE.format(
+        action=S.OUTCOME_ACTION_INTERRUPTED
+    )
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    assert (saved.outcome, saved.exit_code) == (S.INTERRUPTED, C.CLI_MAIN)
+
+
+def test_leaving_the_block_without_a_receipt_is_a_failure_not_a_success(tmp_path: Path) -> None:
+    with _open(tmp_path) as log:
+        pass
+    assert log.outcome is not C.NONE
+    assert (log.outcome.state, log.outcome.exit_code) == (S.FAILED, C.ONE)
+    assert S.OUTCOME_CAUSE_LINE.format(text=S.OPLOG_NO_RECEIPT) in log.outcome.lines
+    assert S.OPLOG_NO_RUN in _end_line(_text(tmp_path))
+
+
+def test_a_previous_run_without_an_end_line_is_called_out_once(tmp_path: Path) -> None:
     folder = log_directory(tmp_path)
     folder.mkdir()
+    killed = S.OPLOG_START.format(instant=S.TEST_OPLOG_CLOCK_INSTANT, trigger=S.SCHEDULED)
+    (folder / S.LOG_FILE_NAME).write_text(killed + S.NEWLINE, encoding=S.UTF_8)
+    for _ in range(C.TWO):
+        with _open(tmp_path) as log:
+            log.fail(S.TEST_REPORTING_FAILURE)
+    text = _text(tmp_path)
+    described = killed.removeprefix(S.OPLOG_START_TOKEN).strip(S.OPLOG_START_STRIP)
+    assert text.count(S.TEST_OPLOG_UNTERMINATED_FRAGMENT) == C.ONE
+    assert S.OPLOG_UNTERMINATED.format(start=described) in text
+    assert text.count(S.OPLOG_START_TOKEN) == C.THREE
+    assert text.count(S.OPLOG_END_TOKEN) == C.TWO
+
+
+def test_finishing_twice_returns_the_same_outcome_and_late_events_are_rejected(
+    tmp_path: Path,
+) -> None:
+    receipt = sync_receipt()
+    with _open(tmp_path) as log:
+        first = log.finish(receipt, explainer(receipt))
+        assert log.finish(receipt, explainer(receipt)) is first
+        with pytest.raises(RuntimeError, match=S.LOG_ALREADY_FINISHED):
+            log.event(S.TEST_REPORTING_MESSAGE_ONE)
+    assert _text(tmp_path).count(S.OPLOG_END_TOKEN) == C.ONE
+
+
+def test_failure_log_records_state_exit_code_and_redacted_message(tmp_path: Path) -> None:
+    path = write_failure_log(
+        tmp_path,
+        S.TEST_REPORTING_SECRET_MESSAGE,
+        secrets=C.TEST_REPORTING_SECRETS,
+        state=S.INTERRUPTED,
+        exit_code=C.CLI_MAIN,
+    )
+    text = path.read_text(encoding=S.UTF_8)
+    saved = read_summary(tmp_path)
+    assert path == log_directory(tmp_path) / S.LOG_FILE_NAME
+    assert S.TEST_OPLOG_INTERRUPTED_END in _end_line(text)
+    assert S.TEST_REPORTING_SECRET not in text
+    assert saved is not C.NONE
+    assert saved.trigger == S.LOG_FAILURE_TRIGGER
+
+
+def test_runs_preserve_history_legacy_logs_unmanaged_files_and_directories(
+    tmp_path: Path,
+) -> None:
+    folder = log_directory(tmp_path)
+    folder.mkdir()
+    history = S.TEST_OPLOG_LEGACY_TEXT * C.TEST_OPLOG_HISTORY_REPEATS
+    persistent = folder / S.LOG_FILE_NAME
+    persistent.write_text(history, encoding=S.UTF_8)
     unrelated = folder / S.TEST_REPORTING_UNMANAGED_LOG
     unrelated.write_text(S.TEST_REPORTING_MESSAGE_ONE, encoding=S.UTF_8)
     nested = folder / S.TEST_REPORTING_DIRECTORY_LOG
@@ -233,41 +444,25 @@ def test_appending_preserves_legacy_logs_unmanaged_files_and_directories(tmp_pat
     legacy = folder / S.TEST_REPORTING_OLDER_LOG
     legacy.write_text(S.TEST_REPORTING_MESSAGE_TWO, encoding=S.UTF_8)
     first = write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
-    second = write_run_log(
-        tmp_path,
-        run_receipt(),
-        trigger=S.INPUT_FILE,
-        inputs={},
-        secrets=(),
-        report_lines=(),
-    )
-    prune_logs(tmp_path, keep=second)
-    assert first.exists()
-    assert latest_log(tmp_path) == second
+    second = write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
+    text = persistent.read_text(encoding=S.UTF_8)
+    assert first == second == persistent == latest_log(tmp_path)
+    assert text.startswith(history)
+    assert text.count(S.OPLOG_START_TOKEN) == text.count(S.OPLOG_END_TOKEN) == C.TWO
     assert unrelated.read_text(encoding=S.UTF_8) == S.TEST_REPORTING_MESSAGE_ONE
     assert legacy.read_text(encoding=S.UTF_8) == S.TEST_REPORTING_MESSAGE_TWO
     assert nested.is_dir()
-
-
-def test_failed_replacement_preserves_previous_log(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    first = write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
-    original = first.read_bytes()
-    with monkeypatch.context() as patch:
-        patch.setattr(
-            Path,
-            S.TEST_REPORTING_OPEN,
-            Mock(side_effect=PermissionError(S.TEST_REPORTING_IO_FAILURE)),
+    assert sorted(path.name for path in folder.iterdir()) == sorted(
+        (
+            S.LOG_FILE_NAME,
+            S.TEST_REPORTING_UNMANAGED_LOG,
+            S.TEST_REPORTING_DIRECTORY_LOG,
+            S.TEST_REPORTING_OLDER_LOG,
         )
-        with pytest.raises(PermissionError, match=S.TEST_REPORTING_IO_FAILURE):
-            write_failure_log(tmp_path, S.TEST_REPORTING_MESSAGE_TWO, secrets=())
-    assert first.read_bytes() == original
+    )
 
 
-def test_latest_log_uses_write_order_not_start_time_or_lexical_run_id(
-    tmp_path: Path,
-) -> None:
+def test_latest_log_uses_write_order_not_start_time_or_lexical_run_id(tmp_path: Path) -> None:
     folder = log_directory(tmp_path)
     folder.mkdir()
     older = folder / S.TEST_REPORTING_OLDER_LOG
@@ -286,335 +481,3 @@ def test_missing_and_empty_log_directories_are_not_created_by_status(tmp_path: P
     assert not log_directory(tmp_path).exists()
     log_directory(tmp_path).mkdir()
     assert latest_log(tmp_path) is C.NONE
-
-
-def test_log_io_errors_propagate_instead_of_silently_discarding_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        Path,
-        S.TEST_REPORTING_OPEN,
-        Mock(side_effect=PermissionError(S.TEST_REPORTING_IO_FAILURE)),
-    )
-    with pytest.raises(PermissionError, match=S.TEST_REPORTING_IO_FAILURE):
-        write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
-    with pytest.raises(PermissionError, match=S.TEST_REPORTING_IO_FAILURE):
-        write_run_log(
-            tmp_path,
-            run_receipt(),
-            trigger=S.INPUT_FILE,
-            inputs={},
-            secrets=(),
-            report_lines=run_lines(run_receipt(), issue_limit=C.NONE),
-        )
-    assert list(log_directory(tmp_path).iterdir()) == []
-
-
-def test_context_flushes_progress_before_final_receipt_and_finishes_only_once(
-    tmp_path: Path,
-) -> None:
-    receipt = run_receipt()
-    with OperationalLog(tmp_path, trigger=S.INPUT_FILE) as log:
-        assert log.path.name == S.LOG_FILE_NAME
-        assert S.LOG_TEST_START_TOKEN in log.path.read_text(encoding=S.UTF_8)
-        log.event(S.LOG_TEST_PROGRESS)
-        incremental = log.path.read_text(encoding=S.UTF_8)
-        assert S.LOG_TEST_PROGRESS in incremental
-        assert S.LOG_TEST_END_TOKEN not in incremental
-        log.finish(receipt, inputs={}, report_lines=(S.TEST_REPORTING_MESSAGE_ONE,))
-        complete = log.path.read_bytes()
-        log.finish(receipt, inputs={}, report_lines=(S.TEST_REPORTING_MESSAGE_TWO,))
-        log.fail(S.TEST_REPORTING_FAILURE)
-    assert log.path.read_bytes() == complete
-    assert log.path.read_text(encoding=S.UTF_8).count(S.LOG_TEST_END_TOKEN) == C.ONE
-    with pytest.raises(RuntimeError, match=S.LOG_ALREADY_FINISHED):
-        log.event(S.LOG_TEST_PROGRESS)
-
-
-def test_context_redacts_provider_urls_headers_and_exception_text_on_every_write(
-    tmp_path: Path,
-) -> None:
-    with (
-        pytest.raises(ValueError),
-        OperationalLog(
-            tmp_path, trigger=S.INPUT_FILE, secrets=iter(C.TEST_REPORTING_SECRETS)
-        ) as log,
-    ):
-        log.event(S.TEST_REPORTING_SECRET_MESSAGE)
-        log.event(S.LOG_TEST_PROVIDER_MESSAGE)
-        raise ValueError(S.LOG_TEST_PROVIDER_MESSAGE)
-    text = log.path.read_text(encoding=S.UTF_8)
-    assert all(value not in text for value in C.LOG_TEST_PRIVATE_VALUES)
-    assert all(value not in text for value in C.TEST_REPORTING_REDACTED_VALUES)
-    assert text.count(S.LOG_TEST_END_TOKEN) == C.ONE
-    assert S.RUNLOG_FAILED_TITLE in text
-
-
-def test_interrupted_and_unfinished_runs_preserve_previous_history(tmp_path: Path) -> None:
-    path = write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
-    original = path.read_bytes()
-    with pytest.raises(KeyboardInterrupt), OperationalLog(tmp_path, trigger=S.INPUT_FILE) as log:
-        log.event(S.LOG_TEST_PROGRESS)
-        raise KeyboardInterrupt
-    with OperationalLog(tmp_path, trigger=S.INPUT_FILE):
-        pass
-    text = path.read_text(encoding=S.UTF_8)
-    assert path.read_bytes().startswith(original)
-    assert S.LOG_TEST_PROGRESS in text
-    assert S.LOG_TEST_INTERRUPT_TYPE in text
-    assert S.LOG_INTERRUPTED in text
-    assert text.count(S.LOG_TEST_START_TOKEN) == C.THREE
-    assert text.count(S.LOG_TEST_END_TOKEN) == C.THREE
-
-
-def test_repeated_issue_messages_are_grouped_in_final_report(tmp_path: Path) -> None:
-    issue = Issue(code=S.TEST_REPORTING_ISSUE_ONE, message=S.TEST_REPORTING_MESSAGE_ONE)
-    receipt = run_receipt(
-        sources=(
-            SourceReceipt(
-                source=Source.GOODREADS,
-                state=SyncState.PARTIAL,
-                issues=(issue, issue, issue),
-            ),
-        )
-    )
-    path = write_run_log(
-        tmp_path,
-        receipt,
-        trigger=S.INPUT_FILE,
-        inputs={},
-        secrets=(),
-        report_lines=run_lines(receipt, issue_limit=C.NONE),
-    )
-    text = path.read_text(encoding=S.UTF_8)
-    assert (
-        S.REPORT_REPEATED_ISSUE_LINE.format(code=issue.code, message=issue.message, count=C.THREE)
-        in text
-    )
-    assert (
-        S.LOG_ISSUE_COUNT.format(
-            scope=S.GOODREADS + S.SLASH + S.LIBRARY, code=issue.code, count=C.THREE
-        )
-        in text
-    )
-    assert text.count(S.LOG_ISSUE_EXAMPLE.format(message=issue.message)) == C.ONE
-
-
-def test_final_issue_totals_include_codes_omitted_from_display_and_delivery(
-    tmp_path: Path,
-) -> None:
-    first = Issue(code=S.TEST_REPORTING_ISSUE_ONE, message=S.TEST_REPORTING_MESSAGE_ONE)
-    second = Issue(code=S.TEST_REPORTING_ISSUE_ONE, message=S.TEST_REPORTING_MESSAGE_TWO)
-    third = Issue(code=S.TEST_REPORTING_ISSUE_ONE, message=S.TEST_REPORTING_MESSAGE_THREE)
-    secret = Issue(code=S.TEST_REPORTING_ISSUE_TWO, message=S.LOG_TEST_PROVIDER_MESSAGE)
-    long = Issue(
-        code=S.TEST_REPORTING_ISSUE_THREE,
-        message=S.LOG_TEST_PROGRESS * C.LOG_ISSUE_MESSAGE_LENGTH,
-    )
-    receipt = run_receipt(
-        sources=(
-            SourceReceipt(
-                source=Source.GOODREADS,
-                state=SyncState.PARTIAL,
-                collection=S.READ,
-                issues=(first, first, second, third, secret),
-            ),
-        ),
-        metadata=(
-            MetadataReceipt(
-                provider=Source.GOOGLE_BOOKS,
-                state=SyncState.PARTIAL,
-                issues=(secret, secret),
-            ),
-        ),
-    )
-    receipt = receipt.model_copy(
-        update={
-            S.AN_ANALYTICS: AnalyticsReceipt(
-                state=SyncState.PARTIAL, issues=(secret, secret, secret, secret)
-            )
-        }
-    )
-    with OperationalLog(tmp_path, trigger=S.INPUT_FILE) as log:
-        log.finish(
-            receipt,
-            inputs={},
-            report_lines=run_lines(receipt, issue_limit=C.ZERO),
-            delivery_issues=(secret, secret, secret, long),
-        )
-    text = log.path.read_text(encoding=S.UTF_8)
-    assert (
-        S.LOG_ISSUE_COUNT.format(
-            scope=S.GOODREADS + S.SLASH + S.READ, code=first.code, count=C.FOUR
-        )
-        in text
-    )
-    assert (
-        S.LOG_ISSUE_COUNT.format(
-            scope=S.GOODREADS + S.SLASH + S.READ, code=secret.code, count=C.ONE
-        )
-        in text
-    )
-    assert S.LOG_ISSUE_COUNT.format(scope=S.GOOGLE_BOOKS, code=secret.code, count=C.TWO) in text
-    assert (
-        S.LOG_ISSUE_COUNT.format(scope=S.LOG_DELIVERY_SCOPE, code=secret.code, count=C.THREE)
-        in text
-    )
-    assert (
-        S.LOG_ISSUE_COUNT.format(scope=S.LOG_ANALYTICS_SCOPE, code=secret.code, count=C.FOUR)
-        in text
-    )
-    assert S.TEST_REPORTING_MESSAGE_ONE in text
-    assert S.TEST_REPORTING_MESSAGE_TWO in text
-    assert S.TEST_REPORTING_MESSAGE_THREE not in text
-    assert all(value not in text for value in C.LOG_TEST_PRIVATE_VALUES)
-    assert S.LOG_ISSUE_TRUNCATED in text
-
-
-@pytest.mark.parametrize(S.LOG_TEST_METHOD_PARAMETER, (S.LOG_TEST_WRITE, S.LOG_TEST_FLUSH))
-def test_write_and_flush_failures_are_explicit_and_preserve_existing_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str
-) -> None:
-    path = write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
-    original = path.read_bytes()
-    handle = Mock()
-    getattr(handle, method).side_effect = PermissionError(S.TEST_REPORTING_IO_FAILURE)
-    context = Mock()
-    context.__enter__ = Mock(return_value=handle)
-    context.__exit__ = Mock(return_value=C.FALSE)
-    with monkeypatch.context() as patch:
-        patch.setattr(Path, S.TEST_REPORTING_OPEN, Mock(return_value=context))
-        with (
-            pytest.raises(PermissionError, match=S.TEST_REPORTING_IO_FAILURE),
-            OperationalLog(tmp_path, trigger=S.INPUT_FILE),
-        ):
-            pass
-    assert path.read_bytes() == original
-
-
-@pytest.mark.parametrize(S.CODE, tuple(C.LOG2_EXPECTED_NOTICE_CODES))
-def test_compact_receipt_counts_large_notice_groups_without_raw_examples_or_lineage(
-    tmp_path: Path, code: str
-) -> None:
-    notice = Issue(code=code, message=S.TEST_REPORTING_MESSAGE_ONE)
-    receipt = run_receipt(
-        sources=(
-            SourceReceipt(
-                source=Source.GOODREADS,
-                state=SyncState.COMPLETE,
-                collection=S.READ,
-                records=C.LOG2_TEST_LARGE_TOTAL,
-                issues=(notice,) * C.LOG2_TEST_LARGE_NOTICE_COUNT,
-            ),
-        )
-    )
-    document = _document()
-    with OperationalLog(tmp_path, trigger=S.INPUT_FILE, compact_receipts=C.TRUE) as log:
-        log.finish(
-            receipt,
-            inputs={(Source.GOODREADS, S.READ): document},
-            report_lines=(),
-        )
-    text = log.path.read_text(encoding=S.UTF_8)
-    assert (
-        S.LOG_ISSUE_COUNT.format(
-            scope=S.GOODREADS + S.SLASH + S.READ,
-            code=notice.code,
-            count=C.LOG2_TEST_LARGE_NOTICE_COUNT,
-        )
-        in text
-    )
-    assert S.TEST_REPORTING_MESSAGE_ONE not in text
-    assert S.LOG2_NOTICE_EXPLANATION in text
-    assert document.sha256 not in text
-    assert S.RUNLOG_FILES_HEADING not in text
-    assert S.LOG2_RECEIPT.format(run_id=receipt.run_id, state=receipt.state.value) in text
-    assert len(text.splitlines()) < C.LOG2_PROGRESS_BUCKETS
-
-
-def test_compact_receipt_preserves_explicit_report_iterator_and_previous_history(
-    tmp_path: Path,
-) -> None:
-    path = write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())
-    original = path.read_bytes()
-    with OperationalLog(tmp_path, trigger=S.INPUT_FILE, compact_receipts=C.TRUE) as log:
-        log.finish(
-            run_receipt(),
-            inputs={},
-            report_lines=iter((S.TEST_REPORTING_MESSAGE_ONE, S.TEST_REPORTING_MESSAGE_TWO)),
-        )
-    text = path.read_text(encoding=S.UTF_8)
-    assert path.read_bytes().startswith(original)
-    assert S.NEWLINE.join((S.TEST_REPORTING_MESSAGE_ONE, S.TEST_REPORTING_MESSAGE_TWO)) in text
-    assert S.LOG2_TEST_UTC_DUPLICATE not in text
-    assert text.count(S.LOG_TEST_START_TOKEN) == text.count(S.LOG_TEST_END_TOKEN) == C.TWO
-
-
-def test_compact_partial_run_explains_provider_gaps_and_retained_products(
-    tmp_path: Path,
-) -> None:
-    issue = Issue(
-        code=S.IMPORT_CSV_ERROR,
-        message=S.LOG2_TEST_PRIVATE_PATH_MESSAGE,
-    )
-    provider_issue = Issue(
-        code=S.OAUTH_AUTHORIZATION_REQUIRED_CODE,
-        message=S.OAUTH_AUTHORIZATION_REQUIRED,
-    )
-    receipt = run_receipt(
-        metadata=(
-            MetadataReceipt(
-                provider=Source.GOOGLE_BOOKS,
-                state=SyncState.NEEDS_AUTH,
-                coverage_scope=S.ENR_CORE_COVERAGE_SCOPE,
-                fallback_unresolved=C.THREE,
-                skipped_by_strategy=C.TWO,
-                issues=(provider_issue,),
-            ),
-        ),
-    ).model_copy(
-        update={
-            S.STATE: SyncState.PARTIAL,
-            S.PROD_PRODUCTS: ProductReceipt(state=SyncState.FAILED, issues=(issue,)),
-        }
-    )
-    with OperationalLog(tmp_path, trigger=S.INPUT_FILE, compact_receipts=C.TRUE) as log:
-        log.finish(receipt, inputs={}, report_lines=())
-    text = log.path.read_text(encoding=S.UTF_8)
-    assert S.LOG2_CORE.format(unresolved=C.THREE, skipped=C.TWO) in text
-    assert S.LOG2_PRODUCTS_RETAINED.format(state=S.FAILED) in text
-    assert S.OAUTH_AUTHORIZATION_REQUIRED in text
-    assert S.LOG2_TEST_ACTION in text
-    assert S.LOG2_TEST_PRIVATE_PATH_MESSAGE not in text
-    assert (
-        S.LOG_ISSUE_COUNT.format(scope=S.LOG_DELIVERY_SCOPE, code=issue.code, count=C.ONE) in text
-    )
-    assert text.splitlines()[-C.ONE].endswith(S.LOG2_TEST_PARTIAL_END)
-
-
-def test_issue_counts_merge_repeated_receipts_for_the_same_scope(tmp_path: Path) -> None:
-    issue = Issue(code=S.TEST_REPORTING_ISSUE_ONE, message=S.TEST_REPORTING_MESSAGE_ONE)
-    source = SourceReceipt(source=Source.GOODREADS, state=SyncState.PARTIAL, issues=(issue, issue))
-    with OperationalLog(tmp_path, trigger=S.INPUT_FILE, compact_receipts=C.TRUE) as log:
-        log.finish(run_receipt(sources=(source, source)), inputs={}, report_lines=())
-    text = log.path.read_text(encoding=S.UTF_8)
-    assert (
-        text.count(
-            S.LOG_ISSUE_COUNT.format(
-                scope=S.GOODREADS + S.SLASH + S.LIBRARY, code=issue.code, count=C.FOUR
-            )
-        )
-        == C.ONE
-    )
-    assert text.count(S.LOG_ISSUE_EXAMPLE.format(message=issue.message)) == C.ONE
-
-
-@pytest.mark.parametrize(S.LOG2_TEST_LARGE_TOTAL, (C.ZERO, C.ONE))
-def test_operational_log_rejects_file_and_directory_symlinks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, total: int
-) -> None:
-    folder = log_directory(tmp_path)
-    blocked = folder if total == C.ZERO else folder / S.LOG_FILE_NAME
-    monkeypatch.setattr(Path, S.LOG2_TEST_SYMLINK, lambda path: path == blocked)
-    with pytest.raises(OSError, match=S.LOG_SYMLINK_ERROR):
-        write_failure_log(tmp_path, S.TEST_REPORTING_FAILURE, secrets=())

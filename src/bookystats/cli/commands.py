@@ -6,9 +6,8 @@ import os
 import sqlite3
 import sys
 from collections.abc import Callable, Mapping, MutableMapping
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from pathlib import Path
-from time import monotonic
 from typing import TYPE_CHECKING, TextIO
 
 from pydantic import JsonValue, ValidationError
@@ -16,13 +15,13 @@ from pydantic import JsonValue, ValidationError
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.adapters.http import HttpClient
+from bookystats.application.outcome import Outcome, RunProbe, explain_outcome, readable_deadlines
 from bookystats.application.sync import SourceReceipt, SyncReceipt, SyncService
 from bookystats.application.verification import verify_run
 from bookystats.cli.report import run_lines, status_lines
 from bookystats.domain.errors import AlreadyRunning, BookyError, ConfigurationError
 from bookystats.domain.interfaces import MetadataProvider, SourceConnector
 from bookystats.domain.models import (
-    CollectionProgress,
     Issue,
     Source,
     SyncState,
@@ -40,7 +39,8 @@ from bookystats.runtime.config import (
 from bookystats.runtime.layout import database_path, google_credentials_path
 from bookystats.runtime.locking import SyncLock
 from bookystats.runtime.redaction import redact
-from bookystats.runtime.runlog import OperationalLog, latest_log, write_failure_log
+from bookystats.runtime.runlog import OperationalLog, RunLogError, latest_log, write_failure_log
+from bookystats.runtime.runsummary import read_summary
 from bookystats.runtime.scheduling import require_activation, schedule_status
 
 if TYPE_CHECKING:
@@ -142,6 +142,7 @@ def _build_service(
     archive: RawStore | None = C.NONE,
     files: Mapping[tuple[Source, str], Path | None] | None = C.NONE,
     on_event: Callable[[str], None] | None = C.NONE,
+    probe: RunProbe | None = C.NONE,
 ) -> SyncService:
     from bookystats.adapters.exports.csv_import import ExportConnector, FileExportConnector
     from bookystats.adapters.metadata.google_books import GoogleBooksProvider
@@ -231,6 +232,8 @@ def _build_service(
             )
         else:
             stack.callback(cache.close)
+            if probe is not C.NONE:
+                probe.attach(cache)
 
     def google_provider() -> MetadataProvider | Issue:
         access_token = token
@@ -304,20 +307,7 @@ def _build_service(
         if on_event is not C.NONE:
             on_event(message)
 
-    collection_progress: dict[tuple[Source, str], float] = {}
     metadata_buckets: dict[tuple[Source, int], int] = {}
-
-    def progress(event: CollectionProgress) -> None:
-        key = (event.source, event.collection)
-        now = monotonic()
-        previous = collection_progress.get(key)
-        if previous is C.NONE or now - previous >= C.LOG2_PROGRESS_SECONDS:
-            collection_progress[key] = now
-            notify(
-                S.CLI_BUILD_SERVICE_PROGRESS_TEMPLATE.format(
-                    v0=event.source.value, v1=event.collection, v2=event.pages_seen
-                )
-            )
 
     def source_complete(receipt: SourceReceipt) -> None:
         notify(
@@ -387,7 +377,6 @@ def _build_service(
         settings,
         connectors,
         providers,
-        on_progress=progress,
         provider_issues=provider_issues,
         provider_factories=provider_factories,
         collection_connectors=collection_connectors,
@@ -399,17 +388,33 @@ def _build_service(
     )
 
 
-def _print_receipt(receipt: SyncReceipt, output: TextIO, *, as_json: bool) -> None:
+def _print_receipt(
+    receipt: SyncReceipt,
+    output: TextIO,
+    *,
+    as_json: bool,
+    outcome: Outcome | None = C.NONE,
+    summary: TextIO | None = C.NONE,
+) -> None:
+    # With --json the receipt is the only thing on `output`; the human summary uses `summary`.
+    human = output if not as_json else summary
     if as_json:
         print(
             json.dumps(receipt.model_dump(mode=S.JSON), indent=C.TWO, ensure_ascii=C.TRUE),
             file=output,
         )
+    else:
+        for line in run_lines(receipt, issue_limit=C.FIVE):
+            print(line, file=output)
+    if human is C.NONE:
         return
-    for line in run_lines(receipt, issue_limit=C.FIVE):
-        print(line, file=output)
+    if outcome is not C.NONE:
+        if not as_json:
+            print(file=human)
+        for line in outcome.lines:
+            print(line, file=human)
     if receipt.log_file is not C.NONE:
-        print(S.REPORT_RUN_LOG_LINE.format(path=receipt.log_file), file=output)
+        print(S.REPORT_RUN_LOG_LINE.format(path=receipt.log_file), file=human)
 
 
 def _file_size(path: Path) -> int | None:
@@ -463,6 +468,8 @@ def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
     report[S.LIBRARY_DATABASE] = str(library_path) if library_path.exists() else C.NONE
     report[S.LIBRARY_BYTES] = _file_size(library_path)
     report[S.LATEST_LOG] = str(newest_log) if newest_log is not C.NONE else C.NONE
+    saved = read_summary(directory)
+    report[S.RUNSUM_KEY] = saved.model_dump(mode=S.JSON) if saved is not C.NONE else C.NONE
     report[S.CSV_CONFIGURATION_PATH] = str(configuration_path(directory))
     configured = {account.source for account in settings.accounts}
     report[S.CSV_INPUTS] = [
@@ -544,15 +551,65 @@ def _archive_inputs(
     return archive, inputs
 
 
-def _record_failure(directory: Path, command: str, message: str) -> None:
+def _record_failure(
+    directory: Path,
+    command: str,
+    message: str,
+    *,
+    state: str = S.FAILED,
+    exit_code: int = C.ONE,
+) -> None:
     if command != S.SYNC:
         return
     try:
-        path = write_failure_log(directory, message, secrets=_secrets())
-    except OSError:
-        print(S.CLI_LOG_WRITE_WARNING, file=sys.stderr)
+        path = write_failure_log(
+            directory, message, secrets=_secrets(), state=state, exit_code=exit_code
+        )
+    except RunLogError as exc:
+        print(S.OPLOG_FAILURE_NOT_LOGGED.format(reason=str(exc)), file=sys.stderr)
         return
     print(S.REPORT_RUN_LOG_LINE.format(path=path), file=sys.stderr)
+
+
+def _run_log_pointer(log: OperationalLog | None) -> None:
+    if log is not C.NONE:
+        print(S.REPORT_RUN_LOG_LINE.format(path=log.path), file=sys.stderr)
+
+
+def _warn(text: str) -> None:
+    print(text, file=sys.stderr, flush=C.TRUE)
+
+
+def _finish_run(
+    log: OperationalLog, probe: RunProbe, receipt: SyncReceipt
+) -> tuple[SyncReceipt, Outcome]:
+    # Retry gates and request counts are read once, while the metadata cache is still open.
+    gates = probe.gates()
+    network = probe.network_requests()
+    succeeded = _succeeded(receipt)
+
+    def explain(error: str | None) -> Outcome:
+        return explain_outcome(
+            receipt,
+            exit_code=C.ZERO if succeeded and error is C.NONE else C.THREE,
+            now=log.now(),
+            gates=gates,
+            network_requests=network,
+            duration_seconds=log.elapsed(),
+            log_error=error,
+        )
+
+    outcome = log.finish(receipt, explain)
+    return receipt.model_copy(update={S.LOG_FILE: str(log.path)}), outcome
+
+
+def _harden_streams() -> None:
+    # Unencodable text (for example a title on a legacy console) must not crash a finished run.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, S.OPLOG_RECONFIGURE, C.NONE)
+        if reconfigure is not C.NONE:
+            with suppress(OSError, ValueError):
+                reconfigure(errors=S.OPLOG_BACKSLASHREPLACE)
 
 
 def main(argv: list[str] | None = C.NONE) -> int:
@@ -576,6 +633,7 @@ def main(argv: list[str] | None = C.NONE) -> int:
     if args.command == S.FETCH and args.scheduled:
         arguments.error(S.FETCH_SCHEDULED_CONFLICT)
     directory = data_directory(args.data_dir)
+    _harden_streams()
     active_log: OperationalLog | None = C.NONE
     try:
         settings = load_settings(directory)
@@ -597,12 +655,13 @@ def main(argv: list[str] | None = C.NONE) -> int:
             return C.ZERO
         with SyncLock(directory) as sync_lock, ExitStack() as stack:
             trigger = _trigger(args)
+            probe = RunProbe()
             active_log = stack.enter_context(
                 OperationalLog(
                     directory,
                     trigger=trigger,
                     secrets=(*_secrets(), str(directory)),
-                    compact_receipts=C.TRUE,
+                    warn=_warn,
                 )
             )
             if sync_lock.migrated_files:
@@ -635,30 +694,36 @@ def main(argv: list[str] | None = C.NONE) -> int:
                 archive=archive,
                 files=files if not file_input else C.NONE,
                 on_event=active_log.event,
+                probe=probe,
             )
+            probe.begin()
             receipt = service.run(interactive=interactive, trigger=trigger)
             if archive is not C.NONE:
                 verification = verify_run(
                     receipt, archive=archive, library=service.store, inputs=inputs, supplied=files
                 )
                 receipt = receipt.model_copy(update={S.VERIFICATION: verification})
-            path = active_log.finish(
-                receipt,
-                inputs=inputs,
-                report_lines=(),
-                delivery_issues=receipt.products.issues if receipt.products is not C.NONE else (),
+            receipt, outcome = _finish_run(active_log, probe, receipt)
+            _print_receipt(
+                receipt, sys.stdout, as_json=args.json, outcome=outcome, summary=sys.stderr
             )
-            receipt = receipt.model_copy(update={S.LOG_FILE: str(path)})
-            _print_receipt(receipt, sys.stdout, as_json=args.json)
-            return C.ZERO if _succeeded(receipt) else C.THREE
+            return outcome.exit_code
     except AlreadyRunning as exc:
         print(str(exc), file=sys.stderr)
         return C.FOUR
+    except RunLogError as exc:
+        print(
+            S.OPLOG_START_FAILED.format(reason=str(exc)) + S.SPACE + S.OPLOG_SYNC_NOT_STARTED,
+            file=sys.stderr,
+        )
+        return C.ONE
     except BookyError as exc:
-        message = redact(str(exc), _secrets())
+        message = readable_deadlines(redact(str(exc), _secrets()))
         print(message, file=sys.stderr)
         if active_log is C.NONE:
             _record_failure(directory, args.command, message)
+        else:
+            _run_log_pointer(active_log)
         return C.ONE
     except (sqlite3.Error, OSError, ValidationError) as exc:
         print(S.CLI_MAIN_A_LOCAL_DATA_CONFIGURATION_OR_RECORD_VALIDATION, file=sys.stderr)
@@ -666,6 +731,8 @@ def main(argv: list[str] | None = C.NONE) -> int:
             _record_failure(
                 directory, args.command, S.RUNLOG_FAILURE_TYPE.format(type=type(exc).__name__)
             )
+        else:
+            _run_log_pointer(active_log)
         return C.ONE
     except (KeyboardInterrupt, EOFError):
         print(S.CLI_MAIN_SYNC_INTERRUPTED_NO_INCOMPLETE_SOURCE_SNAPSHOT_IS, file=sys.stderr)
@@ -674,5 +741,9 @@ def main(argv: list[str] | None = C.NONE) -> int:
                 directory,
                 args.command,
                 S.CLI_MAIN_SYNC_INTERRUPTED_NO_INCOMPLETE_SOURCE_SNAPSHOT_IS,
+                state=S.INTERRUPTED,
+                exit_code=C.CLI_MAIN,
             )
+        else:
+            _run_log_pointer(active_log)
         return C.CLI_MAIN

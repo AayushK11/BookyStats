@@ -11,7 +11,7 @@ import pytest
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.adapters.http import HttpClient
-from bookystats.application.sync import SyncReceipt
+from bookystats.application.sync import SyncReceipt, SyncService
 from bookystats.cli.commands import main
 from bookystats.domain.analytics import AnalyticsSettings
 from bookystats.domain.interfaces import HttpResponse
@@ -21,7 +21,11 @@ from bookystats.persistence.library import Database
 from bookystats.persistence.raw import RawStore
 from bookystats.runtime.config import FileSettings, MetadataSettings, Settings, save_settings
 from bookystats.runtime.layout import database_path
+from bookystats.runtime.locking import SyncLock
+from bookystats.runtime.runlog import log_directory
+from bookystats.runtime.runsummary import read_summary, summary_path
 from tests.support.exports import csv_body
+from tests.support.outcomes import inject_append_fault
 from tests.support.paths import fixture_path
 from tests.support.sources import accounts
 
@@ -407,3 +411,157 @@ def test_unconfigured_files_do_not_replay_archived_csvs(
         for item in receipt.sources
     )
     assert not receipt.account_sync_complete
+
+
+def _log_text(directory: Path) -> str:
+    return (log_directory(directory) / S.LOG_FILE_NAME).read_text(encoding=S.UTF_8)
+
+
+def _last_end_line(directory: Path) -> str:
+    return next(
+        line
+        for line in reversed(_log_text(directory).splitlines())
+        if line.startswith(S.OPLOG_END_TOKEN)
+    )
+
+
+def test_json_sync_keeps_stdout_machine_readable_and_appends_one_private_log(
+    tmp_path: Path, configured_files: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(_arguments(tmp_path)) == C.ZERO
+    captured = capsys.readouterr()
+    receipt = SyncReceipt.model_validate_json(captured.out)
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    log = log_directory(tmp_path) / S.LOG_FILE_NAME
+    first = log.read_bytes()
+    expected = [*saved.lines, S.REPORT_RUN_LOG_LINE.format(path=log)]
+    assert captured.err.splitlines()[-len(expected) :] == expected
+    assert all(line in first.decode(S.UTF_8) for line in saved.lines)
+    assert str(tmp_path) not in first.decode(S.UTF_8)
+    assert (saved.outcome, saved.exit_code, saved.run_id) == (S.COMPLETE, C.ZERO, receipt.run_id)
+    fields = json.loads(summary_path(tmp_path).read_text(encoding=S.UTF_8))
+    assert set(fields) == C.TEST_OPLOG_SUMMARY_FIELDS
+    assert main(_arguments(tmp_path)) == C.ZERO
+    capsys.readouterr()
+    appended = log.read_bytes()
+    assert appended.startswith(first)
+    assert appended.count(S.OPLOG_START_TOKEN.encode()) == C.TWO
+    assert appended.count(S.OPLOG_END_TOKEN.encode()) == C.TWO
+
+
+def test_status_shows_the_last_attempt_offline_and_never_changes_the_log_or_summary(
+    tmp_path: Path, configured_files: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(_arguments(tmp_path)) == C.ZERO
+    saved = read_summary(tmp_path)
+    capsys.readouterr()
+    assert saved is not C.NONE
+    watched = (log_directory(tmp_path) / S.LOG_FILE_NAME, summary_path(tmp_path))
+
+    def snapshot() -> list[tuple[bytes, int]]:
+        return [(path.read_bytes(), path.stat().st_mtime_ns) for path in watched]
+
+    before = snapshot()
+    logs_before = sorted(path.name for path in log_directory(tmp_path).iterdir())
+    status_arguments = [S.STATUS, S.CLI_PARSER_DATA_DIR, str(tmp_path)]
+    assert main(status_arguments) == C.ZERO
+    shown = capsys.readouterr().out
+    assert S.TEST_OPLOG_ATTEMPT_PREFIX in shown
+    assert all(S.RUNSUM_TEXT_LINE.format(text=line) in shown for line in saved.lines)
+    assert main([*status_arguments, S.CLI_PARSER_JSON]) == C.ZERO
+    report = json.loads(capsys.readouterr().out)
+    assert report[S.RUNSUM_KEY][S.RUNSUM_LINES_KEY] == list(saved.lines)
+    assert snapshot() == before
+    assert sorted(path.name for path in log_directory(tmp_path).iterdir()) == logs_before
+
+
+def test_partial_sync_names_the_failed_source_and_next_action_in_log_and_summary(
+    tmp_path: Path, configured_files: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(_arguments(tmp_path)) == C.ZERO
+    capsys.readouterr()
+    (tmp_path / S.TEST_BROWSER_EXPORT_READ_NAME).unlink()
+    assert main(_arguments(tmp_path)) == C.THREE
+    captured = capsys.readouterr()
+    SyncReceipt.model_validate_json(captured.out)
+    names = S.OUTCOME_SOURCE_NAME.format(
+        source=Source.GOODREADS.value, collection=S.READ, state=SyncState.FAILED.value
+    )
+    why = S.OUTCOME_CAUSE_LINE.format(
+        text=S.OUTCOME_SOURCES.format(count=C.ONE, total=C.THREE, names=names)
+    )
+    action = S.OUTCOME_NEXT_LINE.format(action=S.OUTCOME_ACTION_SOURCES)
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    assert (saved.outcome, saved.exit_code) == (S.PARTIAL, C.THREE)
+    assert why in saved.lines
+    assert action in saved.lines
+    assert why in captured.err
+    assert S.TEST_OPLOG_PARTIAL_END in _last_end_line(tmp_path)
+    assert why in _log_text(tmp_path)
+
+
+def test_unopenable_run_log_stops_the_sync_before_any_input_is_archived(
+    tmp_path: Path, configured_files: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_directory(tmp_path).write_text(S.EMPTY, encoding=S.UTF_8)
+    assert main(_arguments(tmp_path)) == C.ONE
+    captured = capsys.readouterr()
+    assert captured.out == S.EMPTY
+    assert S.OPLOG_SYNC_NOT_STARTED in captured.err
+    assert str(tmp_path) not in captured.err
+    assert not database_path(tmp_path, S.CLI_RAW_DATABASE).exists()
+
+
+def test_failing_log_writes_are_warned_once_and_turn_success_into_exit_three(
+    tmp_path: Path,
+    configured_files: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    inject_append_fault(monkeypatch, lambda call: call >= C.TWO)
+    assert main(_arguments(tmp_path)) == C.THREE
+    captured = capsys.readouterr()
+    reason = S.TEST_OPLOG_DISK_FULL
+    SyncReceipt.model_validate_json(captured.out)
+    assert captured.err.count(S.OPLOG_WARNING.format(reason=reason)) == C.ONE
+    assert (
+        S.OUTCOME_CAUSE_LINE.format(text=S.OUTCOME_LOG_INCOMPLETE.format(reason=reason))
+        in captured.err
+    )
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    assert saved.exit_code == C.THREE
+
+
+def test_interrupted_sync_exits_130_and_records_the_interruption(
+    tmp_path: Path,
+    configured_files: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def interrupted(*arguments: object, **options: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(SyncService, S.TEST_OPLOG_RUN_ATTRIBUTE, interrupted)
+    assert main(_arguments(tmp_path)) == C.CLI_MAIN
+    captured = capsys.readouterr()
+    log = log_directory(tmp_path) / S.LOG_FILE_NAME
+    saved = read_summary(tmp_path)
+    assert saved is not C.NONE
+    assert (saved.outcome, saved.exit_code) == (S.INTERRUPTED, C.CLI_MAIN)
+    assert S.TEST_OPLOG_INTERRUPTED_END in _last_end_line(tmp_path)
+    assert S.REPORT_RUN_LOG_LINE.format(path=log) in captured.err
+    assert captured.out == S.EMPTY
+
+
+def test_a_concurrent_sync_exits_four_without_creating_a_run_log(
+    tmp_path: Path, configured_files: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with SyncLock(tmp_path):
+        assert main(_arguments(tmp_path)) == C.FOUR
+    captured = capsys.readouterr()
+    assert captured.out == S.EMPTY
+    assert captured.err
+    assert not log_directory(tmp_path).exists()
