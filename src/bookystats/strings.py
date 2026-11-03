@@ -5728,3 +5728,820 @@ EVIDENCE_TIER_DECLARED: Final = "declared"
 EVIDENCE_TIER_SINGLE_SOURCE: Final = "single_source"
 EVIDENCE_TIER_CORROBORATED: Final = "corroborated"
 EVIDENCE_TIER_CONFLICTING: Final = "conflicting"
+
+# RPT: reader report model, copy, layout and bundle identity.
+RPT_KIND: Final = "kind"
+RPT_KIND_PROSE: Final = "prose"
+RPT_KIND_TILES: Final = "tiles"
+RPT_KIND_FACTS: Final = "facts"
+RPT_KIND_BARS: Final = "bars"
+RPT_KIND_QUOTES: Final = "quotes"
+RPT_KIND_BOOKS: Final = "books"
+RPT_KIND_COMPARE: Final = "compare"
+RPT_KIND_COVERAGE: Final = "coverage"
+RPT_KIND_CALLOUT: Final = "callout"
+RPT_TONE_INK: Final = "ink"
+RPT_TONE_TEAL: Final = "teal"
+RPT_TONE_AMBER: Final = "amber"
+RPT_TONE_SLATE: Final = "slate"
+RPT_TONE_GREEN: Final = "green"
+RPT_TONE_CORAL: Final = "coral"
+RPT_TONE_GREY: Final = "grey"
+RPT_STYLE_HORIZONTAL: Final = "horizontal"
+RPT_STYLE_DIVERGING: Final = "diverging"
+RPT_STYLE_VERTICAL: Final = "vertical"
+RPT_DUPLICATE_CHAPTER: Final = "Reader report chapter keys must be unique."
+RPT_NFC: Final = "NFC"
+RPT_COUNT: Final = "{value:,}"
+RPT_NOUN: Final = "{value} {noun}"
+RPT_BOOK: Final = "book"
+RPT_BOOKS: Final = "books"
+RPT_PAGE: Final = "page"
+RPT_PAGES: Final = "pages"
+RPT_STAR: Final = "star"
+RPT_STARS: Final = "stars"
+RPT_WORK: Final = "work"
+RPT_WORKS: Final = "works"
+RPT_COMPARISON: Final = "comparison"
+RPT_COMPARISONS: Final = "comparisons"
+RPT_FIXED: Final = "{value:.{places}f}"
+RPT_DOT: Final = "."
+RPT_ZERO: Final = "0"
+RPT_NEGATIVE_ZERO: Final = "-0"
+RPT_PLUS: Final = "+"
+RPT_MINUS: Final = "\u2013"
+RPT_UNKNOWN: Final = "unknown"
+RPT_PERCENT: Final = "{value}%"
+RPT_PERCENT_UNDER_ONE: Final = "<1%"
+RPT_OF_SHARE: Final = "{part} of {whole} ({share})"
+RPT_AND: Final = "{head} and {tail}"
+RPT_MONTH_YEAR: Final = "{month} {year}"
+RPT_DAY_MONTH_YEAR: Final = "{day} {month} {year}"
+RPT_UNKNOWN_DATE: Final = "an unknown date"
+RPT_ELLIPSIS: Final = "\u2026"
+RPT_UNKNOWN_AUTHOR: Final = "author unknown"
+RPT_HASH_JOIN: Final = "{salt}|{key}"
+RPT_WORD_EDGE: Final = r"(?<!\w){cue}(?!\w)"
+RPT_WORD_JOINERS: Final = "'\u2019-"
+RPT_TRIM_CHARACTERS: Final = " ,;:-\u2013\u2014"
+RPT_SENTENCE_TERMINATORS: Final = (".", "!", "?")
+RPT_WWW: Final = "www."
+RPT_SLASH: Final = "/"
+RPT_HTTPS: Final = "https"
+RPT_JSON_SUFFIX: Final = ".json"
+RPT_GOODREADS_HOST: Final = "goodreads.com"
+RPT_OPEN_LIBRARY_HOST: Final = "openlibrary.org"
+RPT_GOOGLE_API_HOST: Final = "googleapis.com"
+RPT_GOOGLE_BOOKS_HOST: Final = "books.google.com"
+RPT_GOOGLE_BOOKS_PATH: Final = "/books"
+RPT_GOOGLE_ID_KEY: Final = "id"
+RPT_LINK_LABEL: Final = "{host}{path}"
+RPT_LINK_LABEL_QUERY: Final = "{host}{path}?id={volume}"
+RPT_URL: Final = "https://{host}{path}"
+RPT_URL_QUERY: Final = "https://{host}{path}?id={volume}"
+RPT_GOODREADS_PATH_PATTERN: Final = r"/book/show/\d+"
+RPT_OPEN_LIBRARY_PATH_PATTERN: Final = r"/(?:works/OL\d+W|books/OL\d+M)(?:\.json)?"
+RPT_GOOGLE_API_PATH_PATTERN: Final = r"/books/v1/volumes/([A-Za-z0-9_-]{1,64})"
+RPT_GOOGLE_ID_PATTERN: Final = r"[A-Za-z0-9_-]{1,64}"
+RPT_SERIES_SUFFIX_PATTERN: Final = r"\s*\([^()]*#\s*\d+(?:\.\d+)?[^()]*\)\s*$"
+RPT_JANUARY: Final = "January"
+RPT_FEBRUARY: Final = "February"
+RPT_MARCH: Final = "March"
+RPT_APRIL: Final = "April"
+RPT_MAY: Final = "May"
+RPT_JUNE: Final = "June"
+RPT_JULY: Final = "July"
+RPT_AUGUST: Final = "August"
+RPT_SEPTEMBER: Final = "September"
+RPT_OCTOBER: Final = "October"
+RPT_NOVEMBER: Final = "November"
+RPT_DECEMBER: Final = "December"
+RPT_BUNDLE_FILE: Final = "reader-report.json"
+RPT_UNTITLED: Final = "Untitled book"
+RPT_RATING: Final = "rating"
+RPT_RATINGS: Final = "ratings"
+RPT_UNDERSCORE: Final = "_"
+RPT_ONE: Final = "1"
+RPT_DAY: Final = "day"
+RPT_DAYS: Final = "days"
+RPT_MONTH: Final = "month"
+RPT_MONTHS: Final = "months"
+RPT_YEAR: Final = "year"
+RPT_YEARS: Final = "years"
+RPT_QUOTED: Final = "\u201c{text}\u201d"
+RPT_AXIS_BOOKS: Final = "books"
+RPT_AXIS_SHARE: Final = "share of described books"
+RPT_AXIS_STARS: Final = "average rating, in stars"
+RPT_AXIS_DIFFERENCE: Final = "stars above or below your overall average"
+RPT_AXIS_POINTS: Final = "percentage points, to-read minus read"
+RPT_KEY_LINKED: Final = "provider_linked_works"
+RPT_KEY_ANCHORED: Final = "identity_anchor_works"
+RPT_KEY_COMPARABLE: Final = "cross_provider_comparable_works"
+RPT_KEY_CONSISTENT: Final = "cross_provider_consistent_works"
+RPT_KEY_VERIFIED: Final = "independently_verified_works"
+RPT_CHAPTER_EMPTY: Final = "empty"
+RPT_CHAPTER_GLANCE: Final = "glance"
+RPT_CHAPTER_FACTS: Final = "facts"
+RPT_CHAPTER_SHAPE: Final = "shape"
+RPT_CHAPTER_GENRES: Final = "genres"
+RPT_CHAPTER_RATINGS: Final = "ratings"
+RPT_CHAPTER_FAVORITES: Final = "favorites"
+RPT_CHAPTER_AUTHORS: Final = "authors"
+RPT_CHAPTER_POINTERS: Final = "pointers"
+RPT_CHAPTER_APPETITES: Final = "appetites"
+RPT_CHAPTER_TIME: Final = "time"
+RPT_CHAPTER_COMMUNITY: Final = "community"
+RPT_CHAPTER_WATCHLIST: Final = "watchlist"
+RPT_CHAPTER_SHORTLIST: Final = "shortlist"
+RPT_CHAPTER_COVERAGE: Final = "coverage"
+RPT_SALT_FAVORITES: Final = "favorites"
+
+RPT_COVER_EYEBROW: Final = "BookyStats \u00b7 Reader report"
+RPT_COVER_TITLE: Final = "Your reading life"
+RPT_COVER_SUBTITLE: Final = (
+    "What you read, what you loved and what is waiting \u2014 and how sure each page is of itself."
+)
+RPT_COVER_EMPTY: Final = "A report is ready, but this snapshot has no books in it yet."
+RPT_COVER_AS_OF: Final = "Library snapshot of {date}"
+RPT_HERO_READ: Final = "Books read"
+RPT_HERO_READ_DETAIL: Final = "on your Read shelf"
+RPT_HERO_RATED: Final = "Rated by you"
+RPT_HERO_RATED_DETAIL: Final = "{share} of your read books"
+RPT_HERO_PAGES: Final = "Pages"
+RPT_HERO_PAGES_DETAIL: Final = "known lengths only, {books}"
+RPT_HERO_AUTHORS: Final = "Authors"
+RPT_HERO_AUTHORS_DETAIL: Final = "across {books}"
+RPT_HERO_WATCH: Final = "Waiting"
+RPT_HERO_WATCH_DETAIL: Final = "books on your to-read shelf"
+RPT_LEGEND_LOVED: Final = "Rated {threshold}+"
+RPT_LEGEND_LOWER: Final = "Rated below {threshold}"
+RPT_LEGEND_UNRATED: Final = "Not rated"
+RPT_SKYLINE_CAPTION: Final = (
+    "One bar for every book you have read, in the order you added it to your library "
+    "(books without an add date come last). Taller means more pages; a short hollow "
+    "stub means the length is unknown."
+)
+
+RPT_EMPTY_TITLE: Final = "Nothing to report yet"
+RPT_EMPTY_KICKER: Final = "An empty snapshot"
+RPT_EMPTY_BODY: Final = (
+    "This snapshot holds no read or to-read books, so there is nothing to chart. "
+    "Nothing was invented to fill the space; run a sync with your files and this report "
+    "will fill in."
+)
+RPT_GLANCE_TITLE: Final = "At a glance"
+RPT_GLANCE_KICKER: Final = "Your library in numbers"
+RPT_GLANCE_INTRO: Final = (
+    "The headline numbers first. Each tile says how many books it rests on, "
+    "and anything unknown stays unknown."
+)
+RPT_TILE_READ: Final = "Books read"
+RPT_TILE_READ_DETAIL: Final = "on your Read shelf"
+RPT_TILE_RATED: Final = "Rated"
+RPT_TILE_RATED_DETAIL: Final = "{share} of read books"
+RPT_TILE_NO_RATINGS: Final = "no personal ratings yet"
+RPT_TILE_AVERAGE: Final = "Your average"
+RPT_OUT_OF_FIVE: Final = "{value} / 5"
+RPT_TILE_AVERAGE_DETAIL: Final = "median {median}"
+RPT_TILE_LOVED: Final = "Rated {threshold}+"
+RPT_TILE_LOVED_DETAIL: Final = "{part} of {total} rated books"
+RPT_TILE_LENGTH: Final = "Typical length"
+RPT_TILE_LENGTH_DETAIL: Final = "median of {books}"
+RPT_TILE_PAGES: Final = "Pages"
+RPT_TILE_PAGES_DETAIL: Final = "from {books} with a known length"
+RPT_TILE_AUTHORS: Final = "Authors"
+RPT_TILE_AUTHORS_DETAIL: Final = "across {books} with a known author"
+RPT_TILE_GENRES: Final = "Genres"
+RPT_TILE_GENRES_DETAIL: Final = "across {books} with a known genre"
+RPT_YEAR_SPAN: Final = "{low}\u2013{high}"
+RPT_TILE_ERAS: Final = "First published"
+RPT_TILE_ERAS_DETAIL: Final = "{books} with a plausible year"
+RPT_TILE_WATCH: Final = "To-read"
+RPT_TILE_WATCH_DETAIL: Final = "{familiar} by authors you have read"
+RPT_TILE_COMPARED: Final = "Compared with Goodreads"
+RPT_TILE_COMPARED_DETAIL: Final = "books with a public average"
+RPT_TILE_DATED: Final = "Finish dates known"
+RPT_TILE_DATED_DETAIL: Final = "of {read} read books"
+
+RPT_FACTS_TITLE: Final = "Your reading, in superlatives"
+RPT_FACTS_KICKER: Final = "A few fun facts"
+RPT_FACTS_INTRO: Final = (
+    "The extremes and the favourites on your shelves. Ties are named, "
+    "and anything unknown stays unknown."
+)
+RPT_FACT_LONGEST: Final = "Longest read"
+RPT_FACT_SHORTEST: Final = "Shortest read"
+RPT_FACT_PAGES: Final = "{title} by {byline} \u2014 {pages}{tie}."
+RPT_TIED: Final = ", tied with {others}"
+RPT_OTHER_BOOK: Final = "other book"
+RPT_OTHER_BOOKS: Final = "other books"
+RPT_FACT_OLDEST: Final = "Oldest book"
+RPT_FACT_NEWEST: Final = "Newest book"
+RPT_FACT_YEAR: Final = "{title} by {byline} \u2014 first published {year}{tie}."
+RPT_FACT_LOVED: Final = "Loved books"
+RPT_FACT_LOVED_BODY: Final = "Rated {bar} stars or more: {share}."
+RPT_FACT_AUTHOR: Final = "Most-read author"
+RPT_FACT_GENRE: Final = "Most-read genre"
+RPT_AUTHOR: Final = "author"
+RPT_AUTHORS: Final = "authors"
+RPT_GENRE: Final = "genre"
+RPT_GENRES: Final = "genres"
+RPT_LEAD_ONE: Final = "{name} is your most-read {noun}, with {count}."
+RPT_LEAD_FEW: Final = "{names} are tied as your most-read {nouns}, with {count} each."
+RPT_LEAD_MANY: Final = "{total} {nouns} are tied for the lead, with {count} each."
+RPT_GENRE_COVERAGE: Final = "Genre is known for {known} of {read} read books."
+RPT_FACT_BUSIEST: Final = "Busiest finishing year"
+RPT_FACT_BUSIEST_BODY: Final = (
+    "{years}: {books} finished, among the {dated} with a usable finish date."
+)
+RPT_SO_FAR: Final = "That year is still in progress."
+RPT_FACT_SERIES: Final = "In a series"
+RPT_FACT_SERIES_BODY: Final = "Series backed by catalog evidence: {series}, covering {books}."
+RPT_FACT_WATCH: Final = "Waiting on your list"
+RPT_FACT_WATCH_BODY: Final = (
+    "{share} of the to-read books with a known author are by authors you have already read."
+)
+RPT_FACT_WATCH_UNKNOWN: Final = "Not counted: {unknown} with no known author."
+
+RPT_SHAPE_TITLE: Final = "The shape of your shelf"
+RPT_SHAPE_KICKER: Final = "Length and era"
+RPT_SHAPE_INTRO: Final = (
+    "How long your books run and when they were first published. Edition years and "
+    "first-publication years are kept apart, and unknown values stay unknown."
+)
+RPT_LENGTH_HEADING: Final = "How long are your books?"
+RPT_LENGTH_SHORT: Final = "Under {limit} pages"
+RPT_LENGTH_MEDIUM: Final = "{low}\u2013{high} pages"
+RPT_LENGTH_LONG: Final = "{limit} pages or more"
+RPT_LENGTH_UNKNOWN: Final = "Length unknown"
+RPT_UNKNOWN_CAPTION: Final = "unknown, not guessed"
+RPT_LENGTH_NOTE: Final = (
+    "Bands use the selected edition's page count. An average rating appears only for bands "
+    "with at least {minimum} rated books."
+)
+RPT_QUARTILE_HEADING: Final = "Typical length"
+RPT_TILE_Q1: Final = "Shortest quarter ends at"
+RPT_TILE_MEDIAN: Final = "Median length"
+RPT_TILE_Q3: Final = "Longest quarter starts at"
+RPT_QUARTILE_NOTE: Final = "Quartiles of the selected editions' page counts."
+RPT_IMPLAUSIBLE_PAGES: Final = "Left out for page counts outside {low}\u2013{high} pages: {books}."
+RPT_LONGEST_HEADING: Final = "Your longest reads"
+RPT_DECADE_HEADING: Final = "Decades of first publication"
+RPT_DECADE_NOTE: Final = "{known} of {read} read books have a plausible first-publication year."
+RPT_DECADE_EXCLUDED: Final = (
+    "{books} with a first-publication year before {low} or in the future are left out."
+)
+RPT_BEFORE: Final = "Before {year}"
+RPT_DECADE: Final = "{decade}s"
+
+RPT_GENRES_TITLE: Final = "Genres on your shelf"
+RPT_GENRES_KICKER: Final = "What you read most"
+RPT_GENRES_INTRO: Final = (
+    "Genres are normalized catalog labels, not your own tags, and one book can carry several."
+)
+RPT_GENRE_HEADING: Final = "Your genres"
+RPT_GENRE_UNKNOWN: Final = "Genre unknown"
+RPT_GENRE_NOTE: Final = (
+    "Genre is known for {known} of {read} read books. A book with several genres counts in "
+    "each, so the bars can add up to more than the total. An average rating appears only "
+    "for genres with at least {minimum} rated books."
+)
+RPT_GENRE_MORE: Final = "Showing the top {shown} of {total} genres."
+RPT_AVERAGE_CAPTION: Final = "average {average} \u00b7 {rated} rated"
+RPT_TOO_FEW_RATED: Final = "{rated} rated, too few for an average"
+
+RPT_RATINGS_TITLE: Final = "How you rate"
+RPT_RATINGS_KICKER: Final = "Your stars, in full"
+RPT_RATINGS_INTRO: Final = "Your own ratings only \u2014 no Goodreads averages mix in here."
+RPT_HISTOGRAM_HEADING: Final = "How you hand out stars"
+RPT_HISTOGRAM_NOTE: Final = "Based on {rated} with one clear personal rating."
+RPT_FACT_MOST_USED: Final = "Most-used rating"
+RPT_MOST_USED_ONE: Final = "Your most-used rating is {rating} (given to {books})."
+RPT_MOST_USED_TIED: Final = "Your most-used ratings are tied: {ratings} (each given to {books})."
+RPT_FACT_UNRATED: Final = "Not rated"
+RPT_UNRATED_BODY: Final = (
+    "Without a personal rating: {books}. A missing rating is never treated as zero stars."
+)
+RPT_UNRATED_CONFLICT: Final = (
+    "Left unrated rather than guessed, because rating sources disagreed: {books}."
+)
+
+RPT_FAVORITES_TITLE: Final = "Your {rating}-star shelf"
+RPT_FAVORITES_KICKER: Final = "The books you rated highest"
+RPT_FAVORITES_INTRO: Final = (
+    "Every book here carries the highest rating you have given, {rating}, grouped by "
+    "author. The ratings are your own."
+)
+RPT_FAVORITES_SAMPLE: Final = (
+    "A repeatable sample of {shown} of the {total} you rated {rating}; the picks are not ranked."
+)
+RPT_FAVORITES_ALL: Final = "{total} you rated {rating}, all shown."
+RPT_AUTHOR_HEADING: Final = "{author} ({books})"
+RPT_SINGLES_HEADING: Final = "Single books"
+RPT_UNKNOWN_AUTHOR_GROUP: Final = "Author unknown"
+
+RPT_AUTHORS_TITLE: Final = "Authors and series"
+RPT_AUTHORS_KICKER: Final = "Who you keep coming back to"
+RPT_AUTHORS_INTRO: Final = (
+    "Authors you have read more than once, and series where a public catalog backs the label."
+)
+RPT_AUTHORS_HEADING: Final = "Authors you return to"
+RPT_AUTHORS_NOTE: Final = "Authors with at least {minimum} read books."
+RPT_SERIES_HEADING: Final = "Series on your shelf"
+RPT_SERIES_NOTE: Final = (
+    "Each series lists the positions you have read; that is not a claim you finished it."
+)
+RPT_SERIES_UNVERIFIED: Final = "Left out: {books} whose series label no public catalog backs up."
+RPT_SERIES_POSITIONS: Final = "read {positions}"
+RPT_SERIES_NO_POSITION: Final = "position unknown"
+RPT_POSITION: Final = "#{number}"
+
+RPT_POINTERS_TITLE: Final = "Pointers, not promises"
+RPT_POINTERS_KICKER: Final = "What goes with higher and lower ratings"
+RPT_POINTERS_INTRO: Final = (
+    "Some kinds of books have earned more of your stars than others. These patterns come from "
+    "your own ratings only, they are exploratory, and a pattern is not a rule."
+)
+RPT_POINTER_GENRES: Final = "Genres you rate higher or lower"
+RPT_POINTER_AUTHORS: Final = "Authors you rate higher or lower"
+RPT_POINTER_LENGTHS: Final = "Lengths you rate higher or lower"
+RPT_POINTER_CAPTION: Final = "{rated} rated"
+RPT_POINTER_NOTE: Final = (
+    "Each bar is the group's adjusted average minus your overall average of {baseline}, "
+    "pulled toward it when a group is small. Only groups with at least {minimum} rated books "
+    "appear."
+)
+RPT_VALIDATION_HEADING: Final = "How well do these pointers hold up?"
+RPT_VALIDATION_SMALL: Final = "Too few rated books to test whether these pointers predict anything."
+RPT_VALIDATION_NO_TRAINING: Final = (
+    "No usable training set was left after holding books out, so nothing was tested."
+)
+RPT_VALIDATION_NO_SIGNAL: Final = (
+    "The training books carried no usable signal, so nothing was tested."
+)
+RPT_VALIDATION_RESULT: Final = (
+    "Holding out whole authors and series and re-guessing {books}, the pointers missed by "
+    "{predictor} on average; always guessing your typical rating missed by {baseline}. "
+    "{verdict}"
+)
+RPT_VALIDATION_BETTER: Final = "On this test the pointers did better than that plain baseline."
+RPT_VALIDATION_NOT_BETTER: Final = "On this test the pointers did not beat that plain baseline."
+RPT_VALIDATION_RANGE: Final = (
+    "Re-sampling the held-out groups moved the gain over that baseline between {low} and "
+    "{high} stars (positive means the pointers helped)."
+)
+RPT_VALIDATION_SCOPE: Final = (
+    "This only tests your own past ratings. It is not evidence that a future recommendation "
+    "would be right."
+)
+
+RPT_APPETITES_TITLE: Final = "What your books promise"
+RPT_APPETITES_KICKER: Final = "Appetites in the catalog descriptions"
+RPT_APPETITES_INTRO: Final = (
+    "These pages read the public descriptions of the books you have read and count rule-based "
+    "mentions of six appetites: wonder, surprise, intensity, meaning, connection and clarity. "
+    "They describe the books, not you."
+)
+RPT_APPETITE_HEADING: Final = "Appetites mentioned in your books\u2019 descriptions"
+RPT_MENTION_CAPTION: Final = "{books} of {known} described books"
+RPT_APPETITE_NOTE: Final = (
+    "Counted from the catalog descriptions of {known} of your {read} read books. A mention is "
+    "a rule-based phrase match, not a statement about how you felt."
+)
+RPT_APPETITE_HIDDEN: Final = (
+    "Families mentioned by fewer than {minimum} books are not shown (hidden: {count})."
+)
+RPT_ENJOYMENT_HEADING: Final = "How your ratings lean by appetite"
+RPT_ENJOYMENT_NOTE: Final = (
+    "Each bar is the average rating of books that mention an appetite, pulled toward the "
+    "analysis baseline when the group is small, minus that baseline. Nothing here shows that "
+    "an appetite caused a rating."
+)
+RPT_QUOTES_HEADING: Final = "In their own words"
+RPT_QUOTES_NOTE: Final = (
+    "Each quote is catalog wording, with the matching word in bold. A match shows what a "
+    "description mentions, not how you felt about the book."
+)
+RPT_THEMES_HEADING: Final = "Recurring themes in the descriptions"
+RPT_THEMES_NOTE: Final = (
+    "Rule-based mentions again: a theme counts when a description uses its wording, so the "
+    "bars show how often descriptions mention it, not how much it mattered to you."
+)
+
+RPT_TIME_TITLE: Final = "Your reading calendar"
+RPT_TIME_KICKER: Final = "When books were finished and when they were added"
+RPT_TIME_INTRO: Final = (
+    "Two different clocks appear here: when you finished books and when you added them to "
+    "your library. They are not the same thing, so they are kept apart."
+)
+RPT_FINISHED_HEADING: Final = "Books finished each year"
+RPT_FINISHED_NOTE: Final = (
+    "Counts the {dated} of {read} read books that have a usable finish date. Books without "
+    "one are not placed on this chart."
+)
+RPT_PRECISION_NOTE: Final = "Date precision: {precision}."
+RPT_PRECISION_PART: Final = "{books} {kind}"
+RPT_PRECISION_DAY: Final = "dated to the day"
+RPT_PRECISION_MONTH: Final = "dated to the month"
+RPT_PRECISION_YEAR: Final = "dated to the year"
+RPT_YEAR_SO_FAR: Final = "{year} (so far)"
+RPT_YEAR_SO_FAR_NOTE: Final = "The current year is still in progress."
+RPT_TODAY_HEADING: Final = "Today\u2019s ratings, grouped by finish year"
+RPT_TODAY_NOTE: Final = (
+    "These are your current ratings grouped by the year you finished each book, not what "
+    "you thought at the time. Years with fewer than {minimum} rated books are left out."
+)
+RPT_ADDED_HEADING: Final = "Books added to your library each year"
+RPT_ADDED_NOTE: Final = (
+    "Counts {books} read books by the date they were added to the library, which is not "
+    "when you read them."
+)
+RPT_ADDED_UNKNOWN: Final = "{books} have no usable add date and are not shown."
+
+RPT_COMMUNITY_TITLE: Final = "You and the crowd"
+RPT_COMMUNITY_KICKER: Final = "Goodreads community comparison"
+RPT_COMMUNITY_INTRO: Final = (
+    "Here your own star ratings meet the public Goodreads averages. It is a separate lens: "
+    "the crowd is not a measure of your taste."
+)
+RPT_COMMUNITY_COMPARED: Final = "Books compared"
+RPT_COMMUNITY_HIGHER: Final = "You rated higher"
+RPT_COMMUNITY_LOWER: Final = "You rated lower"
+RPT_COMMUNITY_SAME: Final = "About the same"
+RPT_COMMUNITY_GAP: Final = "Average gap"
+RPT_COMMUNITY_GAP_DETAIL: Final = "your rating minus the Goodreads average, in stars"
+RPT_COMMUNITY_SAMPLE_NOTE: Final = (
+    "Listed only when Goodreads has at least {minimum} ratings for the book. "
+    "Left out for a smaller or unknown crowd: {left}."
+)
+RPT_COMMUNITY_ABOVE_HEADING: Final = "Where you rated above the crowd"
+RPT_COMMUNITY_BELOW_HEADING: Final = "Where you rated below the crowd"
+RPT_COMMUNITY_CALLOUT_HEADING: Final = "Keep this page separate from your taste"
+RPT_COMMUNITY_CALLOUT: Final = (
+    "Goodreads averages describe what other readers thought. They play no part in the "
+    "preference pages or the shortlist, and a gap here says nothing about who is right."
+)
+
+RPT_WATCHLIST_TITLE: Final = "The waiting list"
+RPT_WATCHLIST_KICKER: Final = "What is on your to-read shelf"
+RPT_WATCHLIST_INTRO: Final = (
+    "A descriptive look at the books waiting for you. Nothing on this page ranks them or "
+    "predicts what you will like."
+)
+RPT_WATCH_SIZE: Final = "On your list"
+RPT_WATCH_SIZE_DETAIL: Final = "books on the to-read shelf"
+RPT_WATCH_FAMILIAR: Final = "By authors you have read"
+RPT_WATCH_NEW: Final = "By new authors"
+RPT_WATCH_SHARE_DETAIL: Final = "{share} of books with a known author"
+RPT_WATCH_UNKNOWN: Final = "Author unknown"
+RPT_WATCH_UNKNOWN_DETAIL: Final = "left out of the shares"
+RPT_WATCH_TILES_NOTE: Final = (
+    "Familiar means the author already appears among the books you have read."
+)
+RPT_WAIT_MEDIAN: Final = "Typical wait"
+RPT_WAIT_LONGEST: Final = "Longest wait"
+RPT_WAIT_DETAIL: Final = "from {books} with an exact add date"
+RPT_WATCH_COMPOSITION_HEADING: Final = "How your list differs from your shelf"
+RPT_WATCH_COMPOSITION_NOTE: Final = (
+    "Genre share on the to-read list minus the read shelf, where {watch} to-read and {read} "
+    "read books have a known genre; a multi-genre book splits its weight. A genre needs at "
+    "least {minimum} supporting books."
+)
+RPT_WATCH_COMPOSITION_THIN: Final = (
+    "Genres are known for only {watch} to-read and {read} read books, below the {minimum} "
+    "needed on each side, so no genre comparison is shown."
+)
+RPT_POINTS: Final = "{value} pts"
+RPT_COMPOSITION_CAPTION: Final = "to-read {watch} \u00b7 read {read}"
+RPT_WAIT_HEADING: Final = "Longest on the list"
+RPT_WAIT_ITEM: Final = "added {added} \u00b7 waiting {span}"
+RPT_WAIT_NOTE: Final = (
+    "Only books with an exact add date are ranked here; the wait runs to the snapshot date."
+)
+RPT_WATCH_ADDED_HEADING: Final = "When books joined your list"
+RPT_WATCH_ADDED_NOTE: Final = "{books} to-read books by the year they were added; not read yet."
+
+RPT_SHORTLIST_TITLE: Final = "A shortlist to start from"
+RPT_SHORTLIST_KICKER: Final = "From your waiting list"
+RPT_SHORTLIST_INTRO: Final = (
+    "These are the waiting books whose features line up best with books you have rated. "
+    "Treat it as a place to begin, not a verdict."
+)
+RPT_SHORTLIST_HEADING: Final = "Your shortlist"
+RPT_SHORTLIST_NOTE: Final = (
+    "The top {shown} from the ordering, by position only; no scores are printed."
+)
+RPT_SHORTLIST_NONE: Final = (
+    "No to-read book could be ordered from the evidence in this snapshot, so there is no shortlist."
+)
+RPT_SHORTLIST_CAVEAT_HEADING: Final = "How to read this list"
+RPT_SHORTLIST_CAVEAT: Final = (
+    "This is an ordering heuristic built from your own past ratings. It is not a probability "
+    "that you will enjoy a book, neighbours can be nearly tied, and unknown details are not "
+    "held against a book."
+)
+RPT_SHORTLIST_COUNTS: Final = (
+    "Across your list, books that could be ordered: {ranked}; books that could not be "
+    "ordered: {unrankable}; books set aside: {excluded}."
+)
+RPT_SHORTLIST_MISSING: Final = (
+    "Unknown for some of these books (number of books): {parts}. "
+    "Unknown is not held against a book."
+)
+RPT_MISSING_PART: Final = "{what} ({books})"
+RPT_LEAN_ABOVE: Final = "above"
+RPT_LEAN_NEAR: Final = "near"
+RPT_LEAN_BELOW: Final = "below"
+RPT_REASON_AUTHOR: Final = "{label} (author): {books} rated, landing {lean} your usual rating."
+RPT_REASON_GENRE: Final = "{label} (genre): {books} rated, landing {lean} your usual rating."
+RPT_REASON_APPETITE: Final = "{label} (appetite): {books} rated, landing {lean} your usual rating."
+RPT_REASON_OTHER: Final = "{label}: {books} rated, landing {lean} your usual rating."
+RPT_REASON_MORE: Final = "More signals: {count}."
+RPT_SHARED_FEATURE: Final = "feature"
+RPT_SHARED_FEATURES: Final = "features"
+RPT_WORTH_CHECKING: Final = "Also shares {features} with books you rated below {bar} stars."
+RPT_EXAMPLE: Final = "Shares a feature with {title}, which you rated {rating} of 5."
+RPT_THIN_EVIDENCE: Final = (
+    "Thin evidence: every signal behind this pick rests on fewer than {books} rated books."
+)
+RPT_ON_LIST_SINCE: Final = "On your list since {added}"
+RPT_MISSING_PUBLICATION: Final = "original publication year"
+RPT_MISSING_EDITION: Final = "edition year"
+RPT_MISSING_GENRE: Final = "genre"
+RPT_MISSING_APPETITE: Final = "shared appetite label"
+RPT_MISSING_SERIES: Final = "series backed by a public catalog"
+
+RPT_COVERAGE_TITLE: Final = "How solid is the data?"
+RPT_COVERAGE_KICKER: Final = "Coverage, not accuracy"
+RPT_COVERAGE_INTRO: Final = (
+    "Before you trust any page above, here is how much of each detail is actually known. "
+    "This measures what is filled in, never whether it is right."
+)
+RPT_COVERAGE_HEADING: Final = "How much of each detail is known"
+RPT_COVERAGE_NOTE: Final = (
+    "Each bar shows how many books have the detail filled in. Known is not the same as "
+    "correct, and edition language is kept apart from the translations known for the work."
+)
+RPT_FIELD_DESCRIPTION: Final = "Description"
+RPT_FIELD_GENRES: Final = "Genres"
+RPT_FIELD_SERIES: Final = "Series"
+RPT_FIELD_LANGUAGE: Final = "Edition language"
+RPT_FIELD_TRANSLATIONS: Final = "Translations known"
+RPT_FIELD_PAGES: Final = "Page count"
+RPT_FIELD_EDITION_DATE: Final = "Edition publication date"
+RPT_FIELD_FIRST_YEAR: Final = "First publication year"
+RPT_FIELD_RATING: Final = "Personal rating"
+RPT_IDENTITY_HEADING: Final = "Matching books to catalogs"
+RPT_IDENTITY: Final = (
+    "Linked to a public catalog record: {linked} of {works}. Carrying a validated ISBN "
+    "anchor: {anchored}."
+)
+RPT_IDENTITY_COMPARED: Final = (
+    "Of the {comparable} that could be compared across catalogs, {consistent} showed no "
+    "discrepancy."
+)
+RPT_IDENTITY_NO_COMPARISON: Final = "No work could be compared across catalogs."
+RPT_IDENTITY_VERIFIED: Final = "Independently verified: {verified}."
+RPT_NOT_MEASURED: Final = "not measured"
+RPT_FLAGGED_HEADING: Final = "Flagged for a closer look"
+RPT_FLAGGED_INTRO: Final = (
+    "Automated checks flagged these details. They are prompts to look, not confirmed errors."
+)
+RPT_FLAGGED_LINE: Final = "{books}: {message}"
+RPT_FLAG_DISCREPANCY: Final = (
+    "catalogs disagree on a title, author or first-publication year (often just edition naming)"
+)
+RPT_FLAG_UNBACKED: Final = "a chosen detail has no matching evidence in its own scope"
+RPT_FLAG_UNTRUSTED: Final = "a chosen detail comes from a source not recognized as authoritative"
+RPT_FLAG_CONFLICT: Final = "your personal ratings disagree, so none was used"
+RPT_FLAG_YEAR_ORDER: Final = "the first-publication year is later than the edition year"
+RPT_FLAG_ORIGIN: Final = "a catalog record does not point back to the identity it was chosen for"
+RPT_FLAG_CONTAMINATION: Final = "a catalog record carried reader-specific fields it should not have"
+RPT_FLAG_BROWSER_LABELS: Final = (
+    "genre or series labels come from a browser capture and are unverified"
+)
+
+RPT_FINE_SOURCES: Final = (
+    "Your shelves, reading status and personal ratings come from the files you supplied "
+    "(Goodreads, and StoryGraph for ratings). Descriptions, genres, series and page counts "
+    "come from optional public catalogs where they were found."
+)
+RPT_FINE_SNAPSHOT: Final = (
+    "This describes one saved snapshot. A complete file import is not proof that every book "
+    "in your accounts was captured."
+)
+RPT_FINE_RATINGS: Final = (
+    "Only your own ratings drive the preference pages and the shortlist. Goodreads averages "
+    "appear only on the community page, and books with conflicting personal ratings are left "
+    "unrated rather than guessed."
+)
+RPT_FINE_SHAPE: Final = (
+    "Page counts are for the selected edition. Page counts outside {pages_low}\u2013"
+    "{pages_high} and first-publication years before {year_low} or in the future are treated "
+    "as unknown. Edition years and first-publication years are different facts."
+)
+RPT_FINE_LABELS: Final = (
+    "Genre and series labels are catalog or browser observations, not verified classifications."
+)
+RPT_FINE_APPETITES: Final = (
+    "Appetite and theme mentions are rule-based matches in public descriptions. They describe "
+    "the books, not your personality, and they do not assign you a colour or type."
+)
+RPT_FINE_TIME: Final = (
+    "Finish dates are used only where a usable date exists, at the precision shown. Current "
+    "ratings grouped by finish year are not the ratings you gave at the time, and the add "
+    "date is when a book joined your library, not when you read it."
+)
+RPT_FINE_POINTERS: Final = (
+    "Rating pointers and the held-out check are exploratory. They use your own past ratings "
+    "only and do not establish how accurate any recommendation would be."
+)
+RPT_FINE_COMMUNITY: Final = (
+    "Community comparisons use public Goodreads averages, which change over time and "
+    "reflect other readers, not you."
+)
+RPT_FINE_SHORTLIST: Final = (
+    "The shortlist is an ordering heuristic from your own ratings and shared features. It is "
+    "not a probability of enjoyment; ties and thin evidence are flagged where they apply."
+)
+RPT_FINE_COVERAGE: Final = (
+    "Coverage counts values that are filled in. It says nothing about whether they are "
+    "correct, and independent verification was not measured."
+)
+
+# RPT: renderer palette, table commands and print copy.
+RPT_HEX_INK: Final = "#1B1F23"
+RPT_HEX_MUTED: Final = "#4F5864"
+RPT_HEX_TEAL: Final = "#0B6E6E"
+RPT_HEX_AMBER: Final = "#B45309"
+RPT_HEX_SLATE: Final = "#3D5A80"
+RPT_HEX_GREEN: Final = "#2E7D32"
+RPT_HEX_CORAL: Final = "#C0392B"
+RPT_HEX_GREY: Final = "#6B7280"
+RPT_HEX_WHITE: Final = "#FFFFFF"
+RPT_HEX_BAND: Final = "#0A5F5F"
+RPT_HEX_TRACK: Final = "#E3E6EA"
+RPT_HEX_RULE: Final = "#D5D9DE"
+RPT_HEX_TINT_INK: Final = "#F4F5F6"
+RPT_HEX_TINT_TEAL: Final = "#E6F2F2"
+RPT_HEX_TINT_AMBER: Final = "#FFF4DC"
+RPT_HEX_TINT_SLATE: Final = "#E9EEF5"
+RPT_HEX_TINT_GREEN: Final = "#E8F4E9"
+RPT_HEX_TINT_CORAL: Final = "#FBE9E7"
+RPT_HEX_TINT_GREY: Final = "#F1F2F4"
+RPT_TS_BACKGROUND: Final = "BACKGROUND"
+RPT_TS_VALIGN: Final = "VALIGN"
+RPT_TS_TOP: Final = "TOP"
+RPT_TS_MIDDLE: Final = "MIDDLE"
+RPT_TS_LEFT_PADDING: Final = "LEFTPADDING"
+RPT_TS_RIGHT_PADDING: Final = "RIGHTPADDING"
+RPT_TS_TOP_PADDING: Final = "TOPPADDING"
+RPT_TS_BOTTOM_PADDING: Final = "BOTTOMPADDING"
+RPT_TS_LINE_BELOW: Final = "LINEBELOW"
+RPT_TS_LINE_BEFORE: Final = "LINEBEFORE"
+RPT_TS_SPAN: Final = "SPAN"
+RPT_TS_LEFT: Final = "LEFT"
+RPT_TEMPLATE_COVER: Final = "cover"
+RPT_TEMPLATE_BODY: Final = "body"
+RPT_BULLET: Final = "\u2022"
+RPT_DOT_SEPARATOR: Final = " \u00b7 "
+RPT_EM_DASH: Final = "\u2014"
+RPT_HOST_DOT: Final = "."
+RPT_BOLD: Final = "<b>{text}</b>"
+RPT_SMALL: Final = '<font color="{color}" size="{size}">{text}</font>'
+RPT_LINK_ANCHOR: Final = '<a href="{url}" color="{color}"><u>{label}</u></a>'
+RPT_CUE_PATTERN: Final = r"(?<!\w){cue}(?!\w)"
+RPT_SPARSE_TAG: Final = "small sample"
+RPT_SCALE_CAPTION: Final = "Scale: {axis}."
+RPT_COVERAGE_CELL: Final = "{known:,} of {total:,}"
+RPT_COVERAGE_EMPTY: Final = "no books"
+RPT_COVERAGE_READ: Final = "Read shelf"
+RPT_COVERAGE_WATCH: Final = "To-read shelf"
+RPT_COMPARE_VALUES: Final = "You <b>{personal}</b>{dot}Goodreads <b>{community}</b>"
+RPT_COMPARE_GAP: Final = "{delta}{dot}{sample}"
+RPT_LEGEND_YOU: Final = "Your rating"
+RPT_LEGEND_CROWD: Final = "Goodreads average"
+RPT_TOC_TITLE: Final = "In this report"
+RPT_TOC_KICKER: Final = "Contents"
+RPT_KEY_HEADING: Final = "How to read the charts"
+RPT_KEY_INTRO: Final = (
+    "The same few marks appear throughout, so you can tell how much weight a chart can carry."
+)
+RPT_KEY_SOLID: Final = "A solid bar is counted from values the books actually have."
+RPT_KEY_SPARSE: Final = (
+    "A pale dashed bar rests on a small sample. Read it as a hint, not as a finding."
+)
+RPT_KEY_UNKNOWN: Final = "A dashed empty box means unknown. It is never drawn as zero."
+RPT_KEY_COMPARE: Final = (
+    "A circle is your own rating and a square is the public Goodreads average. "
+    "The two are kept apart from your taste."
+)
+RPT_ABOUT_TITLE: Final = "About this report"
+RPT_ABOUT_KICKER: Final = "Sources, limits and fine print"
+RPT_ABOUT_INTRO: Final = "What these pages are built from, and where their limits are."
+RPT_TECHNICAL_HEAD: Final = "Technical notes"
+RPT_TECHNICAL_INTRO: Final = (
+    "These notes repeat the analysis wording unchanged, so nothing is softened or dropped."
+)
+RPT_DETAILS_HEAD: Final = "Report details"
+RPT_DETAILS: Final = (
+    "Report model {model}, layout {layout}. Analysis report {report}. Manifest {digest}."
+)
+RPT_DETAILS_UNSAVED: Final = "not stored"
+RPT_UNTAGGED: Final = (
+    "This PDF has selectable text, a heading outline and bookmarks. "
+    "It is not a tagged accessibility document."
+)
+RPT_FALLBACK_NOTE: Final = (
+    "{count} characters are not in the main font, so they appear in a fallback font or as a code."
+)
+RPT_PAGE_NUMBER: Final = "Page {page}"
+RPT_FOOTER: Final = "{eyebrow} \u00b7 {as_of}"
+RPT_PDF_KEYWORDS: Final = "reading, library, ratings"
+RPT_PDF_LANGUAGE: Final = "en-GB"
+RPT_COLUMN_SPARSE_NOTE: Final = "Dashed columns rest on a small sample."
+RPT_COLUMN_UNKNOWN_NOTE: Final = "An empty dashed box is unknown, not zero."
+RPT_BUNDLE_LAYOUT_NAME: Final = "report-{report_id}-layout-{layout}"
+RPT_TEST_SEPARATOR: Final = "|"
+RPT_TEST_AS_OF: Final = "2025-06-14T09:30:00+00:00"
+RPT_TEST_ACCOUNT: Final = "synthetic-account"
+RPT_TEST_HASH: Final = "synthetic-hash"
+RPT_TEST_KEY: Final = "synthetic-key"
+RPT_TEST_DATE: Final = "{year}-{month:02d}-{day:02d}"
+RPT_TEST_PRIVATE_URL: Final = "https://example.test/private/{work_id}"
+RPT_TEST_PUBLIC_URL: Final = "https://www.goodreads.com/book/show/{work_id}"
+RPT_TEST_REPEAT_TITLE: Final = "{title} ({round})"
+RPT_TEST_WAIT_TITLE: Final = "Waiting Shelf Volume {index}: {title}"
+RPT_TEST_NEW_AUTHOR: Final = "New Author {index}"
+RPT_TEST_GENRE_LIST: Final = (
+    "Fantasy|Science fiction|Historical fiction|Mystery|Literary fiction|"
+    "Nonfiction|Horror|Romance|Graphic novels|Poetry"
+)
+RPT_TEST_TITLE_LIST: Final = (
+    "The Glass Orchard|A Lantern for the Drowned|Salt and Cinder|Seven Rivers Under Paris|"
+    "The Cartographer's Daughter|"
+    "Night Trains to Nowhere in Particular and Other Stories of Late Arrivals|"
+    "Moth Season|Hollow Crown, Quiet Sea|东京夜行|Dandelion Engines|रात की रानी|"
+    "The Last Honest Clockmaker|Bright Ruin|What the Tide Remembers|Paper Wolves|"
+    "An Atlas of Small Mercies|Murakami ō — café · Привет · λ"
+)
+RPT_TEST_AUTHOR_LIST: Final = (
+    "Ursula Vale|Tomás Ibarra-Lindqvist|Mei Okonkwo|Jonas Albrecht|Priya Raman|"
+    "Elena Fontaine|Hiroshi Tanabe|Sana Whitlock|Bram Kowalski|Ada Nwosu|Leif Sørensen|"
+    "Odile Marchetti|Yusuf Demir|Ines Caballero|Noor Haddad|Felix Brandt"
+)
+RPT_TEST_MACHINE_LIST: Final = "kind|tone|style|key|url|as_of|manifest_digest|calculation_version"
+RPT_TEST_ARTIFACT_PATTERN: Final = (
+    r"\d\.\d*0\b|\b(?:None|nan|inf|null)\b|\.json\b|[{}]|\s\s|^\s|\s$|\d{4}-\d{2}"
+    r"|(?<![\d,.])1 (?:books|pages|days|months|years|authors|ratings|stars|comparisons|works"
+    r"|titles|genres)\b"
+    r"|(?<![\d,.])(?!1\b)\d[\d,]* (?:book|page|day|month|year|author|rating|star|comparison)\b"
+)
+RPT_TEST_PADDED_PATTERN: Final = r"\.\d*0$"
+RPT_TEST_BOOKS_FIELD: Final = "books"
+RPT_TEST_VALUE: Final = "value"
+RPT_TEST_URL: Final = "url"
+RPT_TEST_CHANGE_ARGS: Final = "field,value"
+RPT_TEST_MIDWORD: Final = "agical world of drag"
+RPT_TEST_CUE: Final = "world"
+RPT_TEST_WHOLE: Final = "world of"
+RPT_TEST_WORD: Final = "wandering"
+RPT_TEST_SAFE_URL_LIST: Final = (
+    "https://www.goodreads.com/book/show/1234|https://openlibrary.org/works/OL45W.json|"
+    "https://www.googleapis.com/books/v1/volumes/abcDEF123456"
+)
+RPT_TEST_UNSAFE_URL_LIST: Final = (
+    "http://www.goodreads.com/book/show/1234|https://evil.test/book/show/1234|"
+    "https://notgoodreads.com/book/show/1234|https://user@www.goodreads.com/book/show/1234|"
+    "javascript:alert(1)|file:///c:/secret.pdf"
+)
+RPT_TEST_GLYPH_CHAPTER: Final = "glyphs"
+RPT_TEST_GLYPH_TITLE: Final = "Odd characters"
+RPT_TEST_GLYPH_TEXT: Final = "Shelved under \U0001f4da with care."
+RPT_TEST_GLYPH_CODE: Final = "[U+1F4DA]"
+RPT_TEST_CHAPTERS_FIELD: Final = "chapters"
+RPT_TEST_LANG: Final = "/Lang"
+RPT_TEST_ID_FIELD: Final = "analysis_report_id"
+RPT_TEST_DIGEST_FIELD: Final = "manifest_digest"
+RPT_TEST_DIGEST_CHAR: Final = "f"
+RPT_TEST_LAYOUT_FIELD: Final = "layout_version"
+RPT_TEST_SIZE_ARGS: Final = "read,watch"
+RPT_TEST_PAIR_ARGS: Final = "foreground,background"
+RPT_TEST_NEGATIVE_ZERO: Final = "-0"
+RPT_TEST_PARTIAL_CUE: Final = "drag"
+RPT_TEST_API_HOST: Final = "googleapis"
+RPT_TEST_PORT_URL: Final = "https://www.goodreads.com:8443/book/show/1234"
+RPT_TEST_PORT_MARK: Final = ":8443"
+RPT_TEST_EMOJI: Final = "\U0001f4da"
+RPT_TEST_KEYWORDS_KEY: Final = "/Keywords"
+RPT_TEST_ROOT: Final = "/Root"
+RPT_TEST_BASE_FONT: Final = "/BaseFont"
+RPT_TEST_STANDARD_FONT: Final = "Helvetica"
+RPT_TEST_TITLE_KEY: Final = "title"
+RPT_TEST_PAGE_KEY: Final = "page"
+RPT_TEST_FALLBACK_MARK: Final = "[U+"
+RPT_TEST_TOC_LINE_PATTERN: Final = r"^(?P<title>.+?)\.{3,}(?P<page>\d+)$"
+RPT_TEST_IMPLAUSIBLE_PAGES: Final = "9,999"
+RPT_TEST_IMPLAUSIBLE_YEAR: Final = "2999"
+RPT_TEST_POINTER_HASH_FIELD: Final = "manifest_sha256"
+RPT_TEST_MISUSE_ARGS: Final = "layout,included"

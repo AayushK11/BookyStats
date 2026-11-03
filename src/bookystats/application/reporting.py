@@ -10,6 +10,7 @@ from pydantic import BaseModel, JsonValue
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.adapters.reports.pdf import render_pdf
+from bookystats.application.reader_report import build_reader_report
 from bookystats.domain.analytics import AnalysisInput, AnalyticsReport
 
 
@@ -51,6 +52,7 @@ def render_library_report(
     quality_json = _report_json(quality)
     _validate_report(recommendation_json, data, analysis)
     _validate_report(quality_json, data, analysis)
+    reader_report = build_reader_report(data, analysis, recommendation_json, quality_json)
     destination.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
     staging = destination.with_name(
         S.PDF_STAGING_NAME.format(name=destination.name, token=uuid4().hex)
@@ -59,7 +61,7 @@ def render_library_report(
     try:
         with staging.open(S.PDF_EXCLUSIVE_BINARY) as stream:
             created = C.TRUE
-            pages = render_pdf(data, analysis, recommendation_json, quality_json, stream)
+            pages = render_pdf(reader_report, stream)
             stream.flush()
             os.fsync(stream.fileno())
         payload = staging.read_bytes()

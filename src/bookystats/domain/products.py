@@ -24,7 +24,8 @@ class ProductReceipt(Model):
 
 
 class BundleManifest(Model):
-    schema_version: int = Field(default=C.ONE, ge=C.ONE, le=C.ONE)
+    schema_version: int = Field(default=C.ONE, ge=C.ONE, le=C.TWO)
+    layout_version: int = Field(default=C.ONE, ge=C.ONE)
     analytics_report_id: int = Field(ge=C.ONE)
     analysis_manifest: AnalysisManifest
     files: dict[str, str]
@@ -32,6 +33,7 @@ class BundleManifest(Model):
 
 
 class BundlePointer(Model):
-    schema_version: int = Field(default=C.ONE, ge=C.ONE, le=C.ONE)
+    schema_version: int = Field(default=C.ONE, ge=C.ONE, le=C.TWO)
+    layout_version: int = Field(default=C.ONE, ge=C.ONE)
     analytics_report_id: int = Field(ge=C.ONE)
     manifest_sha256: str

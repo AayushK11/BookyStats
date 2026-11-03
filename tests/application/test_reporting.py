@@ -11,8 +11,6 @@ from pypdf import PdfReader
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.application import reporting
-from bookystats.application.metadata_quality import build_metadata_quality
-from bookystats.application.statistics import build_taste, build_watchlist
 from bookystats.domain.analytics import (
     AnalysisBook,
     AnalysisComponent,
@@ -21,7 +19,8 @@ from bookystats.domain.analytics import (
     AnalyticsReport,
 )
 from bookystats.domain.models import ReadingStatus
-from bookystats.domain.recommendations import build_recommendations
+from bookystats.domain.reader_report import ReaderReport, manifest_digest
+from tests.support.reader_library import library
 
 
 def _inputs() -> tuple[AnalysisInput, AnalyticsReport, dict[str, JsonValue]]:
@@ -62,25 +61,22 @@ def _inputs() -> tuple[AnalysisInput, AnalyticsReport, dict[str, JsonValue]]:
     return data, analysis, report
 
 
-def test_real_pdf_contains_unicode_and_all_sections(tmp_path: Path) -> None:
+def _flat(text: str) -> str:
+    return S.EMPTY.join(text.split())
+
+
+def test_real_pdf_is_numbered_outlined_and_verified(tmp_path: Path) -> None:
     data, analysis, report = _inputs()
     destination = tmp_path / S.PDF_TEST_FILENAME
     artifact = reporting.render_library_report(data, analysis, report, report, destination)
     reader = PdfReader(destination)
-    text = S.NEWLINE.join(page.extract_text() for page in reader.pages)
     assert artifact.path == destination
-    assert artifact.page_count == len(reader.pages)
+    assert artifact.page_count == len(reader.pages) > C.ONE
     assert artifact.sha256 == hashlib.sha256(destination.read_bytes()).hexdigest()
-    assert artifact.page_count >= C.PDF_TEST_MIN_PAGES
-    assert S.PDF_TEST_UNICODE in text.replace(S.NEWLINE, S.SPACE)
-    assert S.PDF_NO_SHORTLIST in text
-    assert S.RD_SECTION_APPETITES in S.SPACE.join(text.split())
-    assert S.RD_TIME_NOTE in S.SPACE.join(text.split())
     assert reader.outline
-    assert len(reader.pages) <= C.RD_PAGE_BUDGET
     assert not list(tmp_path.glob(S.PDF_TEST_STAGING_PATTERN))
-    for page in reader.pages:
-        assert S.PDF_PAGE.format(page=reader.pages.index(page) + C.ONE) in page.extract_text()
+    for number, page in enumerate(reader.pages[C.ONE :], start=C.TWO):
+        assert _flat(S.RPT_PAGE_NUMBER.format(page=number)) in _flat(page.extract_text())
 
 
 def test_pdf_failure_keeps_previous_artifact_and_cleans_stage(
@@ -90,13 +86,7 @@ def test_pdf_failure_keeps_previous_artifact_and_cleans_stage(
     destination = tmp_path / S.PDF_TEST_FILENAME
     destination.write_bytes(S.PDF_TEST_PREVIOUS)
 
-    def fail(
-        data: AnalysisInput,
-        analysis: AnalyticsReport,
-        recommendations: dict[str, JsonValue],
-        quality: dict[str, JsonValue],
-        stream: BinaryIO,
-    ) -> int:
+    def fail(reader_report: ReaderReport, stream: BinaryIO) -> int:
         stream.write(S.PDF_MAGIC)
         raise RuntimeError(S.PDF_TEST_FAILURE)
 
@@ -127,22 +117,22 @@ def test_successful_render_atomically_replaces_previous_pdf(tmp_path: Path) -> N
     assert artifact.page_count == len(PdfReader(destination).pages)
 
 
-def test_native_analytics_recommendations_and_quality_contracts_render(tmp_path: Path) -> None:
-    data, analysis, _ = _inputs()
-    settings = data.manifest.settings
-    taste = build_taste(data, settings, key=S.PDF_TEST_HASH)
-    watchlist = build_watchlist(data, settings, taste, key=S.PDF_TEST_HASH)
-    analysis = analysis.model_copy(update={S.AN_TASTE: taste, S.AN_WATCHLIST: watchlist})
-    recommendations = build_recommendations(data, analysis)
-    quality = build_metadata_quality(data, analysis, {})
+def test_rendered_report_names_the_exact_saved_inputs_and_stays_within_bounds(
+    tmp_path: Path,
+) -> None:
+    lib = library(*C.RPT_TEST_SMALL)
     artifact = reporting.render_library_report(
-        data, analysis, recommendations, quality, tmp_path / S.PDF_TEST_FILENAME
+        lib.data, lib.analysis, lib.recommendations, lib.quality, tmp_path / S.PDF_TEST_FILENAME
     )
-    text = S.NEWLINE.join(page.extract_text() for page in PdfReader(artifact.path).pages)
-    assert S.PDF_TEST_UNICODE in text.replace(S.NEWLINE, S.SPACE)
-    assert S.RD_SECTION_COVERAGE in text
-    assert S.RD_SOURCES_NOTE in S.SPACE.join(text.split())
-    assert S.PDF_PROVIDER_STATUS not in text
+    details = S.RPT_DETAILS.format(
+        model=C.RPT_MODEL_VERSION,
+        layout=C.RPT_LAYOUT_VERSION,
+        report=lib.analysis.report_id,
+        digest=manifest_digest(lib.analysis.manifest)[: C.RPT_DIGEST_SHOWN],
+    )
+    text = S.EMPTY.join(_flat(page.extract_text()) for page in PdfReader(artifact.path).pages)
+    assert _flat(details) in text
+    assert C.RPT_TEST_EMPTY_PAGES_MAX < artifact.page_count <= C.RPT_TEST_SMALL_PAGES_MAX
 
 
 def test_atomic_replace_failure_preserves_previous_pdf(

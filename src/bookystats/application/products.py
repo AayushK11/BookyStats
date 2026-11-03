@@ -8,6 +8,7 @@ from pydantic import JsonValue
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.application.metadata_quality import build_metadata_quality
+from bookystats.application.reader_report import build_reader_report
 from bookystats.domain.analytics import (
     AnalysisInput,
     AnalyticsReceipt,
@@ -70,7 +71,7 @@ class ProductsService:
         if data.manifest != analysis.manifest:
             raise ProductGenerationError(S.PROD_INPUT_MISMATCH)
         data = data.model_copy(update={S.AN_CALC_AS_OF_FIELD: analysis.as_of})
-        existing = self.bundles.for_report(analysis)
+        existing = self.bundles.for_report(analysis, layout_version=C.RPT_LAYOUT_VERSION)
         if existing is not C.NONE:
             return existing
         recommendations = self.recommend(data, analysis)
@@ -81,6 +82,7 @@ class ProductsService:
         ):
             raise ProductGenerationError(S.PROD_INPUT_MISMATCH)
         quality = build_metadata_quality(data, analysis, self.provider_status())
+        reader_report = build_reader_report(data, analysis, recommendations, quality)
         summary = ProductReceipt(
             state=SyncState.COMPLETE,
             analytics_report_id=analysis.report_id,
@@ -96,4 +98,6 @@ class ProductsService:
             metadata_quality=quality.model_dump_json(indent=C.TWO),
             summary=summary,
             render_pdf=lambda path: self.render_pdf(data, analysis, recommendations, quality, path),
+            reader_report=reader_report.model_dump_json(indent=C.TWO),
+            layout_version=C.RPT_LAYOUT_VERSION,
         )

@@ -3,12 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pypdf import PdfReader
 
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.application.analytics import AnalyticsService
 from bookystats.application.products import ProductGenerationError, ProductsService
 from bookystats.application.recommendations import RecommendationService
+from bookystats.application.reporting import render_library_report
 from bookystats.application.sync import SyncService
 from bookystats.domain.analytics import (
     AnalysisInput,
@@ -19,6 +21,7 @@ from bookystats.domain.analytics import (
 from bookystats.domain.metadata_quality import MetadataQualityReport
 from bookystats.domain.models import Account, ReadingStatus, SyncState
 from bookystats.domain.products import ProductReceipt
+from bookystats.domain.reader_report import ReaderReport, manifest_digest
 from bookystats.domain.recommendations import RecommendationReport
 from bookystats.persistence.analytics import AnalyticsStore
 from bookystats.persistence.products import ReportBundleStore
@@ -26,6 +29,7 @@ from bookystats.persistence.recommendations import RecommendationStore
 from bookystats.runtime.config import MetadataSettings, Settings
 from tests.application.test_analytics import _InputReader
 from tests.application.test_statistics import _book, _data
+from tests.support.reader_library import library
 from tests.support.sources import FixtureConnector, MemoryStorage, accounts, complete_snapshot
 
 
@@ -87,6 +91,68 @@ def test_products_share_pinned_input_and_reuse_verified_published_bundle(tmp_pat
             products.run((), AnalyticsSettings(), analytics)
         assert ReportBundleStore(tmp_path).latest(current=saved) == result
         assert len(rendered) == C.ONE
+
+
+def test_layout_bundle_is_published_beside_legacy_bundle_and_reused(tmp_path: Path) -> None:
+    lib = library(*C.RPT_TEST_SMALL)
+    reader = _InputReader(lib.data)
+    renders: list[Path] = []
+
+    def render(
+        current: AnalysisInput,
+        analysis: AnalyticsReport,
+        recommendations: RecommendationReport,
+        quality: MetadataQualityReport,
+        destination: Path,
+    ) -> object:
+        renders.append(destination)
+        return render_library_report(current, analysis, recommendations, quality, destination)
+
+    store = ReportBundleStore(tmp_path)
+    path = tmp_path / S.AN_DATABASE
+    with AnalyticsStore(path) as analyses, RecommendationStore(path) as recommendations:
+        analytics = AnalyticsService(reader, analyses).run((), AnalyticsSettings())
+        saved = analyses.latest()
+        assert saved is not C.NONE
+        legacy = store.publish(
+            saved,
+            recommendations=S.PROD_TEST_JSON,
+            metadata_quality=S.PROD_TEST_JSON,
+            summary=ProductReceipt(state=SyncState.COMPLETE, analytics_report_id=saved.report_id),
+            render_pdf=lambda target: target.write_bytes(S.PROD_TEST_PDF),
+        )
+        products = ProductsService(
+            reader,
+            analyses,
+            store,
+            recommend=RecommendationService(recommendations).run,
+            provider_status=dict,
+            render_pdf=render,
+        )
+        result = products.run((), AnalyticsSettings(), analytics)
+        assert result.output_directory is not C.NONE
+        assert result.pdf_file is not C.NONE
+        assert result.output_directory != legacy.output_directory
+        assert len(renders) == C.ONE
+        assert store.latest() == result
+        typed = ReaderReport.model_validate_json(
+            (Path(result.output_directory) / S.RPT_BUNDLE_FILE).read_bytes()
+        )
+        assert typed.analysis_report_id == saved.report_id
+        assert typed.manifest_digest == manifest_digest(saved.manifest)
+        details = S.RPT_DETAILS.format(
+            model=typed.model_version,
+            layout=C.RPT_LAYOUT_VERSION,
+            report=saved.report_id,
+            digest=typed.manifest_digest[: C.RPT_DIGEST_SHOWN],
+        )
+        printed = S.EMPTY.join(
+            S.EMPTY.join(page.extract_text().split()) for page in PdfReader(result.pdf_file).pages
+        )
+        assert S.EMPTY.join(details.split()) in printed
+        assert products.run((), AnalyticsSettings(), analytics) == result
+        assert len(renders) == C.ONE
+        assert store.for_report(saved) == legacy
 
 
 def test_stale_analytics_receipt_cannot_publish_newer_report(tmp_path: Path) -> None:

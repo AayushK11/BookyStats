@@ -70,7 +70,9 @@ class AnalyticsReportReader(Protocol):
 
 
 class ReportBundleRepository(Protocol):
-    def for_report(self, report: AnalyticsReport) -> ProductReceipt | None:
+    def for_report(
+        self, report: AnalyticsReport, layout_version: int = C.ONE
+    ) -> ProductReceipt | None:
         pass
 
     def publish(
@@ -81,6 +83,8 @@ class ReportBundleRepository(Protocol):
         metadata_quality: str,
         summary: ProductReceipt,
         render_pdf: Callable[[Path], object],
+        reader_report: str | None = C.NONE,
+        layout_version: int = C.ONE,
     ) -> ProductReceipt:
         pass
 
