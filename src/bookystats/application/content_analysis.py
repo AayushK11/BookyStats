@@ -9,12 +9,14 @@ from pydantic import JsonValue
 
 from bookystats import constants as C
 from bookystats import strings as S
+from bookystats.application.statistics import build_catalog_appetite_analysis
 from bookystats.domain.analytics import (
     AnalysisBook,
     AnalysisEvidence,
     AnalysisInput,
     AnalyticsSettings,
     Capability,
+    CatalogAppetiteLabel,
     Finding,
 )
 from bookystats.domain.models import FieldState, ReadingStatus
@@ -253,4 +255,20 @@ def build_content_analysis(
             )
             findings.append(finding)
             capabilities.append(capability)
+    labels = tuple(
+        CatalogAppetiteLabel(
+            work_id=description.book.work_id,
+            dimension=dimension,
+            rule_version=S.CONTENT_ANALYSIS_VERSION,
+            proof=proof,
+        )
+        for description in descriptions.values()
+        for dimension, pattern in C.CONTENT_ANALYSIS_HUNGER_RULES
+        if (proof := _proof(description, pattern)) is not C.NONE
+    )
+    appetite_findings, appetite_capabilities = build_catalog_appetite_analysis(
+        data, settings, labels, tuple(sorted(descriptions))
+    )
+    findings.extend(appetite_findings)
+    capabilities.extend(appetite_capabilities)
     return tuple(findings), tuple(capabilities)

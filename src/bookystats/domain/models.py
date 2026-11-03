@@ -105,6 +105,27 @@ class ReadingEvent(Model):
         return self
 
 
+class SupplementalCompletionDate(Model):
+    source: Literal[Source.STORYGRAPH] = Source.STORYGRAPH
+    source_id: str = Field(min_length=C.ONE)
+    finished: PartialDate | None = C.NONE
+    observation: Observation
+
+    @C.AFTER_MODEL_VALIDATOR
+    def consistent_evidence(self) -> SupplementalCompletionDate:
+        if (
+            self.observation.field != S.DTX_SUPPLEMENTAL_COMPLETION_DATE
+            or self.observation.scope != S.READER
+            or (
+                self.observation.state == FieldState.PRESENT
+                and (self.finished is C.NONE or self.observation.value != self.finished.value)
+            )
+            or (self.observation.state != FieldState.PRESENT and self.finished is not C.NONE)
+        ):
+            raise ValueError(S.DTX_INVALID_SUPPLEMENTAL_MODEL)
+        return self
+
+
 class BookRecord(Model):
     source: Source
     source_id: str = Field(min_length=C.ONE)
@@ -122,8 +143,18 @@ class BookRecord(Model):
     shelf_position: int | None = Field(default=C.NONE, ge=C.ZERO)
     observations: tuple[Observation, ...] = ()
     reading_events: tuple[ReadingEvent, ...] = ()
+    supplemental_completion_dates: tuple[SupplementalCompletionDate, ...] = ()
     detail_checked_at: str | None = C.NONE
     raw_fields: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @C.AFTER_MODEL_VALIDATOR
+    def supplemental_source_matches(self) -> BookRecord:
+        if any(
+            self.source != item.source or self.source_id != item.source_id
+            for item in self.supplemental_completion_dates
+        ):
+            raise ValueError(S.DTX_INVALID_SUPPLEMENTAL_MODEL)
+        return self
 
     def ratings_only(self) -> BookRecord:
         return BookRecord(
@@ -134,8 +165,9 @@ class BookRecord(Model):
             url=self.url,
             isbns=self.isbns,
             collections=self.collections,
+            supplemental_completion_dates=self.supplemental_completion_dates,
             observations=tuple(
-                item for item in self.observations if item.field in C.RATING_IDENTITY_FIELDS
+                item for item in self.observations if item.field in C.DTX_PERSONAL_FIELDS
             ),
             raw_fields=self.raw_fields,
         )

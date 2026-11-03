@@ -5,9 +5,10 @@ import json
 import os
 import sqlite3
 import sys
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from contextlib import ExitStack
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, TextIO
 
 from pydantic import JsonValue, ValidationError
@@ -17,7 +18,7 @@ from bookystats import strings as S
 from bookystats.adapters.http import HttpClient
 from bookystats.application.sync import SourceReceipt, SyncReceipt, SyncService
 from bookystats.application.verification import verify_run
-from bookystats.cli.report import run_lines, source_lines, status_lines
+from bookystats.cli.report import run_lines, status_lines
 from bookystats.domain.errors import AlreadyRunning, BookyError, ConfigurationError
 from bookystats.domain.interfaces import MetadataProvider, SourceConnector
 from bookystats.domain.models import (
@@ -36,12 +37,14 @@ from bookystats.runtime.config import (
     load_settings,
     save_settings,
 )
+from bookystats.runtime.layout import database_path, google_credentials_path
 from bookystats.runtime.locking import SyncLock
 from bookystats.runtime.redaction import redact
-from bookystats.runtime.runlog import latest_log, write_failure_log, write_run_log
+from bookystats.runtime.runlog import OperationalLog, latest_log, write_failure_log
 from bookystats.runtime.scheduling import require_activation, schedule_status
 
 if TYPE_CHECKING:
+    from bookystats.domain.analytics import AnalyticsReport
     from bookystats.persistence.raw import RawDocument, RawStore
 
 
@@ -105,7 +108,7 @@ def _write_fetch_helper(directory: Path, settings: Settings, *, as_json: bool) -
     )
     if account is C.NONE:
         raise ConfigurationError(S.FETCH_ACCOUNT_REQUIRED)
-    path = directory / S.FETCH_HELPER_FILE
+    path = directory / S.LAYOUT_RUNTIME / S.FETCH_HELPER_FILE
     atomic_write(path, render_goodreads_helper(account))
     report = {
         S.COMMAND: S.FETCH,
@@ -138,6 +141,7 @@ def _build_service(
     inputs: MutableMapping[tuple[Source, str], RawDocument] | None = C.NONE,
     archive: RawStore | None = C.NONE,
     files: Mapping[tuple[Source, str], Path | None] | None = C.NONE,
+    on_event: Callable[[str], None] | None = C.NONE,
 ) -> SyncService:
     from bookystats.adapters.exports.csv_import import ExportConnector, FileExportConnector
     from bookystats.adapters.metadata.google_books import GoogleBooksProvider
@@ -146,7 +150,7 @@ def _build_service(
     from bookystats.persistence.library import Database
     from bookystats.persistence.raw import RecordingFetcher
 
-    store = Database(directory / S.LIBRARY_SQLITE3)
+    store = Database(database_path(directory, S.LIBRARY_SQLITE3))
     store.initialize()
     stack.callback(store.close)
     connectors: dict[Source, SourceConnector] = {}
@@ -159,7 +163,7 @@ def _build_service(
         if archive is C.NONE:
             from bookystats.persistence.raw import RawStore
 
-            archive = RawStore(directory / S.CLI_RAW_DATABASE)
+            archive = RawStore(database_path(directory, S.CLI_RAW_DATABASE))
             stack.callback(archive.close)
         selected = files if files is not C.NONE else settings.files.paths(directory)
         configured = {account.source for account in settings.accounts}
@@ -180,9 +184,16 @@ def _build_service(
         }
     providers: dict[Source, MetadataProvider] = {}
     provider_issues: dict[Source, Issue] = {}
+    provider_factories: dict[Source, Callable[[], MetadataProvider | Issue]] = {}
     key = os.environ.get(S.GOOGLE_BOOKS_API_KEY, S.EMPTY).strip()
     token: str | None = C.NONE
-    if settings.metadata.google_books and not key:
+    deferred_google = (
+        settings.metadata.google_books
+        and settings.metadata.open_library
+        and settings.metadata.strategy == S.ENR_STRATEGY_OPEN_LIBRARY_FIRST
+        and not key
+    )
+    if settings.metadata.google_books and not key and not deferred_google:
         from bookystats.adapters.google_oauth import AuthorizationRequired, ensure_access_token
 
         try:
@@ -202,7 +213,10 @@ def _build_service(
     needed = [
         source
         for source, configured in (
-            (Source.GOOGLE_BOOKS, settings.metadata.google_books and bool(key or token)),
+            (
+                Source.GOOGLE_BOOKS,
+                settings.metadata.google_books and (bool(key or token) or deferred_google),
+            ),
             (Source.OPEN_LIBRARY, settings.metadata.open_library),
         )
         if configured
@@ -210,14 +224,30 @@ def _build_service(
     cache: MetadataCache | None = C.NONE
     if needed:
         try:
-            cache = MetadataCache(directory / S.METADATA_SQLITE3)
+            cache = MetadataCache(database_path(directory, S.METADATA_SQLITE3))
         except MetadataCacheError as exc:
             provider_issues.update(
                 {source: Issue(code=S.METADATA_CACHE_ERROR, message=str(exc)) for source in needed}
             )
         else:
             stack.callback(cache.close)
-    if settings.metadata.google_books and (key or token) and cache is not C.NONE:
+
+    def google_provider() -> MetadataProvider | Issue:
+        access_token = token
+        if deferred_google:
+            from bookystats.adapters.google_oauth import AuthorizationRequired, ensure_access_token
+
+            try:
+                access_token = ensure_access_token(directory, interactive=interactive)
+            except AuthorizationRequired as exc:
+                return Issue(code=S.OAUTH_AUTHORIZATION_REQUIRED_CODE, message=str(exc))
+            except ConfigurationError as exc:
+                return Issue(code=S.OAUTH_ISSUE_CODE, message=str(exc))
+            if access_token is C.NONE:
+                return Issue(
+                    code=S.OAUTH_AUTHORIZATION_REQUIRED_CODE,
+                    message=S.OAUTH_AUTHORIZATION_REQUIRED,
+                )
         google_http = stack.enter_context(
             HttpClient(
                 allowed_hosts=(S.WWW_GOOGLEAPIS_COM,),
@@ -228,14 +258,24 @@ def _build_service(
                 provider=Source.GOOGLE_BOOKS,
             )
         )
-        providers[Source.GOOGLE_BOOKS] = GoogleBooksProvider(
+        return GoogleBooksProvider(
             RecordingFetcher(google_http, archive, source=Source.GOOGLE_BOOKS)
             if archive is not C.NONE
             else google_http,
             api_key=key,
-            access_token=token,
+            access_token=access_token,
             cache=cache,
         )
+
+    if settings.metadata.google_books and cache is not C.NONE:
+        if deferred_google:
+            provider_factories[Source.GOOGLE_BOOKS] = google_provider
+        elif key or token:
+            initialized = google_provider()
+            if isinstance(initialized, Issue):
+                provider_issues[Source.GOOGLE_BOOKS] = initialized
+            else:
+                providers[Source.GOOGLE_BOOKS] = initialized
     if settings.metadata.open_library and cache is not C.NONE:
         user_agent = S.CLI_BUILD_SERVICE_USER_AGENT_BOOKYSTATS
         if settings.metadata.contact:
@@ -259,41 +299,88 @@ def _build_service(
             work_details=C.TRUE,
         )
 
+    def notify(message: str) -> None:
+        print(redact(message, _secrets()), file=sys.stderr, flush=C.TRUE)
+        if on_event is not C.NONE:
+            on_event(message)
+
+    collection_progress: dict[tuple[Source, str], float] = {}
+    metadata_buckets: dict[tuple[Source, int], int] = {}
+
     def progress(event: CollectionProgress) -> None:
-        if event.pages_seen == C.ONE or event.pages_seen % C.TEN == C.ZERO:
-            print(
+        key = (event.source, event.collection)
+        now = monotonic()
+        previous = collection_progress.get(key)
+        if previous is C.NONE or now - previous >= C.LOG2_PROGRESS_SECONDS:
+            collection_progress[key] = now
+            notify(
                 S.CLI_BUILD_SERVICE_PROGRESS_TEMPLATE.format(
                     v0=event.source.value, v1=event.collection, v2=event.pages_seen
-                ),
-                file=sys.stderr,
-                flush=C.TRUE,
+                )
             )
 
     def source_complete(receipt: SourceReceipt) -> None:
-        for line in source_lines(receipt, issue_limit=C.FIVE):
-            print(redact(line, _secrets()), file=sys.stderr, flush=C.TRUE)
+        notify(
+            (
+                S.LOG2_SOURCE if receipt.state == SyncState.COMPLETE else S.LOG2_SOURCE_RETAINED
+            ).format(
+                source=receipt.source.value,
+                collection=receipt.collection,
+                state=receipt.state.value,
+                records=receipt.records,
+            )
+        )
 
     def metadata_progress(source: Source, completed: int, total: int) -> None:
-        if completed in (C.ZERO, C.ONE, total) or completed % C.TEN == C.ZERO:
-            print(
-                S.CLI_METADATA_PROGRESS.format(
+        bucket = (
+            min(C.LOG2_PROGRESS_BUCKETS, completed * C.LOG2_PROGRESS_BUCKETS // total)
+            if total > C.ZERO
+            else C.ZERO
+        )
+        key = (source, total)
+        previous = metadata_buckets.get(key)
+        if previous is C.NONE or bucket > previous:
+            metadata_buckets[key] = bucket
+            notify(
+                S.LOG2_METADATA_PROGRESS.format(
                     source=source.value,
                     completed=completed,
                     total=total,
-                    timeout=settings.http_timeout_seconds,
-                ),
-                file=sys.stderr,
-                flush=C.TRUE,
+                    percent=completed * C.LOG2_PROGRESS_PERCENT // total if total else C.ZERO,
+                )
             )
 
     from bookystats.application.analytics import AnalyticsService
+    from bookystats.application.products import ProductsService
+    from bookystats.application.recommendations import RecommendationService
+    from bookystats.application.reporting import render_library_report
     from bookystats.persistence.analytics import AnalyticsStore
+    from bookystats.persistence.products import ReportBundleStore
+    from bookystats.persistence.recommendations import RecommendationStore
 
     analytics: AnalyticsService | None = C.NONE
+    products: ProductsService | None = C.NONE
     if settings.analytics.enabled:
-        analysis_store = AnalyticsStore(directory / S.AN_DATABASE)
+        analysis_store = AnalyticsStore(database_path(directory, S.AN_DATABASE))
         stack.callback(analysis_store.close)
         analytics = AnalyticsService(store, analysis_store)
+        recommendations = RecommendationStore(database_path(directory, S.AN_DATABASE))
+        stack.callback(recommendations.close)
+
+        def provider_status() -> Mapping[str, JsonValue]:
+            value = store.status().get(S.METADATA)
+            if not isinstance(value, dict):
+                raise ConfigurationError(S.PROD_INVALID_PROVIDER_STATUS)
+            return value
+
+        products = ProductsService(
+            store,
+            analysis_store,
+            ReportBundleStore(directory),
+            recommend=RecommendationService(recommendations).run,
+            provider_status=provider_status,
+            render_pdf=render_library_report,
+        )
 
     return SyncService(
         store,
@@ -302,10 +389,13 @@ def _build_service(
         providers,
         on_progress=progress,
         provider_issues=provider_issues,
+        provider_factories=provider_factories,
         collection_connectors=collection_connectors,
         on_source_complete=source_complete,
         on_metadata_progress=metadata_progress,
         analytics=analytics,
+        products=products,
+        on_event=on_event,
     )
 
 
@@ -330,7 +420,7 @@ def _file_size(path: Path) -> int | None:
 
 
 def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
-    path = directory / S.LIBRARY_SQLITE3
+    path = database_path(directory, S.LIBRARY_SQLITE3)
     if not path.exists():
         report: dict[str, JsonValue] = {
             S.LIBRARY: {},
@@ -343,24 +433,30 @@ def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
 
         store = Database(path)
         try:
-            store.initialize()
+            store.initialize(require_existing=C.TRUE)
             report = store.status()
         finally:
             store.close()
     report[S.DATA_DIRECTORY] = str(directory)
-    analysis_path = directory / S.AN_DATABASE
+    analysis_path = database_path(directory, S.AN_DATABASE)
+    latest: AnalyticsReport | None = C.NONE
     if analysis_path.is_file():
         from bookystats.persistence.analytics import AnalyticsStore
 
-        with AnalyticsStore(analysis_path) as analysis_store:
+        with AnalyticsStore(analysis_path, require_existing=C.TRUE) as analysis_store:
             latest = analysis_store.latest()
         report[S.AN_ANALYTICS] = latest.model_dump(mode=S.JSON) if latest is not C.NONE else C.NONE
+    from bookystats.persistence.products import ReportBundleStore
+
+    products = ReportBundleStore(directory).latest(current=latest)
+    if products is not C.NONE:
+        report[S.PROD_PRODUCTS] = products.model_dump(mode=S.JSON)
     report[S.CONFIGURED_SOURCES] = [account.source.value for account in settings.accounts]
     report[S.SCHEDULE] = schedule_status(directory, settings)
     report[S.GOOGLE_BOOKS_KEY_CONFIGURED] = bool(os.environ.get(S.GOOGLE_BOOKS_API_KEY))
-    report[S.GOOGLE_BOOKS_OAUTH_SAVED] = (directory / S.OAUTH_FILE).is_file()
-    raw_path = directory / S.CLI_RAW_DATABASE
-    library_path = directory / S.LIBRARY_SQLITE3
+    report[S.GOOGLE_BOOKS_OAUTH_SAVED] = google_credentials_path(directory).is_file()
+    raw_path = database_path(directory, S.CLI_RAW_DATABASE)
+    library_path = database_path(directory, S.LIBRARY_SQLITE3)
     newest_log = latest_log(directory)
     report[S.CLI_RAW_ARCHIVE] = str(raw_path) if raw_path.exists() else C.NONE
     report[S.RAW_ARCHIVE_BYTES] = _file_size(raw_path)
@@ -416,7 +512,7 @@ def _archive_inputs(
 ) -> tuple[RawStore, dict[tuple[Source, str], RawDocument]]:
     from bookystats.persistence.raw import RawStore
 
-    archive = RawStore(directory / S.CLI_RAW_DATABASE)
+    archive = RawStore(database_path(directory, S.CLI_RAW_DATABASE))
     stack.callback(archive.close)
     configured = {account.source for account in settings.accounts}
     if any(path is not C.NONE and source not in configured for (source, _), path in files.items()):
@@ -446,28 +542,6 @@ def _archive_inputs(
     if not inputs:
         raise ConfigurationError(S.CLI_NO_RAW_INPUT)
     return archive, inputs
-
-
-def _record_log(
-    directory: Path,
-    receipt: SyncReceipt,
-    *,
-    trigger: str,
-    inputs: Mapping[tuple[Source, str], RawDocument],
-) -> SyncReceipt:
-    try:
-        path = write_run_log(
-            directory,
-            receipt,
-            trigger=trigger,
-            inputs=inputs,
-            secrets=_secrets(),
-            report_lines=run_lines(receipt, issue_limit=C.NONE),
-        )
-    except OSError:
-        print(S.CLI_LOG_WRITE_WARNING, file=sys.stderr)
-        return receipt
-    return receipt.model_copy(update={S.LOG_FILE: str(path)})
 
 
 def _record_failure(directory: Path, command: str, message: str) -> None:
@@ -502,6 +576,7 @@ def main(argv: list[str] | None = C.NONE) -> int:
     if args.command == S.FETCH and args.scheduled:
         arguments.error(S.FETCH_SCHEDULED_CONFLICT)
     directory = data_directory(args.data_dir)
+    active_log: OperationalLog | None = C.NONE
     try:
         settings = load_settings(directory)
         if args.command == S.STATUS:
@@ -520,7 +595,18 @@ def main(argv: list[str] | None = C.NONE) -> int:
         if args.command == S.FETCH:
             _write_fetch_helper(directory, settings, as_json=args.json)
             return C.ZERO
-        with SyncLock(directory), ExitStack() as stack:
+        with SyncLock(directory) as sync_lock, ExitStack() as stack:
+            trigger = _trigger(args)
+            active_log = stack.enter_context(
+                OperationalLog(
+                    directory,
+                    trigger=trigger,
+                    secrets=(*_secrets(), str(directory)),
+                    compact_receipts=C.TRUE,
+                )
+            )
+            if sync_lock.migrated_files:
+                active_log.event(S.LAYOUT_MIGRATED.format(count=len(sync_lock.migrated_files)))
             if args.scheduled:
                 require_activation(directory, Path(sys.executable), settings)
             inputs: dict[tuple[Source, str], RawDocument] = {}
@@ -537,7 +623,7 @@ def main(argv: list[str] | None = C.NONE) -> int:
             else:
                 from bookystats.persistence.raw import RawStore
 
-                archive = RawStore(directory / S.CLI_RAW_DATABASE)
+                archive = RawStore(database_path(directory, S.CLI_RAW_DATABASE))
                 stack.callback(archive.close)
                 files = settings.files.paths(directory)
             service = _build_service(
@@ -548,15 +634,21 @@ def main(argv: list[str] | None = C.NONE) -> int:
                 inputs=inputs,
                 archive=archive,
                 files=files if not file_input else C.NONE,
+                on_event=active_log.event,
             )
-            trigger = _trigger(args)
             receipt = service.run(interactive=interactive, trigger=trigger)
             if archive is not C.NONE:
                 verification = verify_run(
                     receipt, archive=archive, library=service.store, inputs=inputs, supplied=files
                 )
                 receipt = receipt.model_copy(update={S.VERIFICATION: verification})
-            receipt = _record_log(directory, receipt, trigger=trigger, inputs=inputs)
+            path = active_log.finish(
+                receipt,
+                inputs=inputs,
+                report_lines=(),
+                delivery_issues=receipt.products.issues if receipt.products is not C.NONE else (),
+            )
+            receipt = receipt.model_copy(update={S.LOG_FILE: str(path)})
             _print_receipt(receipt, sys.stdout, as_json=args.json)
             return C.ZERO if _succeeded(receipt) else C.THREE
     except AlreadyRunning as exc:
@@ -565,17 +657,22 @@ def main(argv: list[str] | None = C.NONE) -> int:
     except BookyError as exc:
         message = redact(str(exc), _secrets())
         print(message, file=sys.stderr)
-        _record_failure(directory, args.command, message)
+        if active_log is C.NONE:
+            _record_failure(directory, args.command, message)
         return C.ONE
     except (sqlite3.Error, OSError, ValidationError) as exc:
         print(S.CLI_MAIN_A_LOCAL_DATA_CONFIGURATION_OR_RECORD_VALIDATION, file=sys.stderr)
-        _record_failure(
-            directory, args.command, S.RUNLOG_FAILURE_TYPE.format(type=type(exc).__name__)
-        )
+        if active_log is C.NONE:
+            _record_failure(
+                directory, args.command, S.RUNLOG_FAILURE_TYPE.format(type=type(exc).__name__)
+            )
         return C.ONE
     except (KeyboardInterrupt, EOFError):
         print(S.CLI_MAIN_SYNC_INTERRUPTED_NO_INCOMPLETE_SOURCE_SNAPSHOT_IS, file=sys.stderr)
-        _record_failure(
-            directory, args.command, S.CLI_MAIN_SYNC_INTERRUPTED_NO_INCOMPLETE_SOURCE_SNAPSHOT_IS
-        )
+        if active_log is C.NONE:
+            _record_failure(
+                directory,
+                args.command,
+                S.CLI_MAIN_SYNC_INTERRUPTED_NO_INCOMPLETE_SOURCE_SNAPSHOT_IS,
+            )
         return C.CLI_MAIN

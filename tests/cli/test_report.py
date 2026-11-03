@@ -120,6 +120,23 @@ def test_without_verification_retains_last_good_snapshot_explanation() -> None:
     assert S.REPORT_CHECKS_HEADING not in lines
 
 
+def test_fallback_receipt_does_not_present_strategy_skips_as_full_provider_coverage() -> None:
+    receipt = run_receipt(
+        metadata=(
+            MetadataReceipt(
+                provider=Source.GOOGLE_BOOKS,
+                state=SyncState.PARTIAL,
+                coverage_scope=S.ENR_CORE_COVERAGE_SCOPE,
+                skipped_by_strategy=C.TWO,
+                fallback_unresolved=C.ONE,
+            ),
+        )
+    )
+    assert S.REPORT_METADATA_CORE_SCOPE.format(skipped=C.TWO, unresolved=C.ONE) in receipt_lines(
+        receipt, issue_limit=C.NONE
+    )
+
+
 def test_repeated_issues_are_counted_per_scope_without_changing_receipt() -> None:
     first, second, third = reporting_issues()
     issues = (first, second, first, second, third)
@@ -165,6 +182,111 @@ def test_empty_status_preserves_missing_local_state() -> None:
     assert S.STATUS_LAST_RUN_LINE.format(value=S.STATUS_NONE_YET) in lines
     assert S.STATUS_NONE_LINE in lines
     assert S.STATUS_GOOGLE_KEY_LINE.format(state=S.STATUS_KEY_NOT_SET) in lines
+
+
+def test_status_summarizes_saved_analytics_without_claiming_personality() -> None:
+    lines = status_lines(
+        {
+            S.AN_ANALYTICS: {
+                S.AN_TASTE: {
+                    S.AN_FINDINGS: [
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.AN_CALC_READ_COUNT,
+                            S.VALUE: C.THREE,
+                        },
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.AN_CALC_RATED_COUNT,
+                            S.VALUE: C.TWO,
+                        },
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.ANX_COMPLETION_COHORTS,
+                            S.STATUS_ANALYTICS_SAMPLE_SIZE: C.TWO,
+                        },
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.ANX_LIBRARY_ADDITIONS.format(
+                                collection=S.READ
+                            ),
+                            S.STATUS_ANALYTICS_SAMPLE_SIZE: C.THREE,
+                        },
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.CONTENT_ANALYSIS_HUNGERS.format(
+                                collection=S.READ
+                            ),
+                            S.VALUE: {
+                                S.CONTENT_ANALYSIS_KNOWN: C.TWO,
+                                S.CONTENT_ANALYSIS_GROUPS: {
+                                    S.AN_CONNECTION: {S.CONTENT_ANALYSIS_COUNT: C.ONE}
+                                },
+                            },
+                        },
+                    ],
+                },
+                S.AN_WATCHLIST: {
+                    S.AN_FINDINGS: [
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.AN_CALC_WATCH_COUNT,
+                            S.VALUE: C.FOUR,
+                        },
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.ANX_LIBRARY_ADDITIONS.format(
+                                collection=S.TO_READ
+                            ),
+                            S.STATUS_ANALYTICS_SAMPLE_SIZE: C.FOUR,
+                        },
+                    ]
+                },
+            }
+        }
+    )
+    assert (
+        S.STATUS_ANALYTICS_COUNTS.format(read=str(C.THREE), rated=str(C.TWO), watchlist=str(C.FOUR))
+        in lines
+    )
+    assert S.STATUS_ANALYTICS_CONTENT.format(known=str(C.TWO), read=str(C.THREE)) in lines
+    assert S.STATUS_ANALYTICS_APPETITE.format(dimension=S.AN_CONNECTION, count=str(C.ONE)) in lines
+    assert S.STATUS_ANALYTICS_SCOPE in lines
+    assert S.STATUS_ANALYTICS_NO_APPETITE not in lines
+    assert S.STATUS_ANALYTICS_COMPLETIONS.format(count=str(C.TWO), read=str(C.THREE)) in lines
+    assert (
+        S.STATUS_ANALYTICS_ADDITIONS.format(
+            read_dates=str(C.THREE),
+            read=str(C.THREE),
+            watch_dates=str(C.FOUR),
+            watchlist=str(C.FOUR),
+        )
+        in lines
+    )
+
+
+def test_status_keeps_missing_analytics_counts_unknown_and_empty_groups_explicit() -> None:
+    lines = status_lines(
+        {
+            S.AN_ANALYTICS: {
+                S.AN_TASTE: {
+                    S.AN_FINDINGS: [
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.AN_CALC_READ_COUNT,
+                            S.VALUE: C.TRUE,
+                        },
+                        {
+                            S.STATUS_ANALYTICS_METRIC_ID: S.CONTENT_ANALYSIS_HUNGERS.format(
+                                collection=S.READ
+                            ),
+                            S.VALUE: {S.CONTENT_ANALYSIS_KNOWN: C.ZERO},
+                        },
+                    ]
+                }
+            }
+        }
+    )
+    assert (
+        S.STATUS_ANALYTICS_COUNTS.format(
+            read=S.STATUS_UNKNOWN, rated=S.STATUS_UNKNOWN, watchlist=S.STATUS_UNKNOWN
+        )
+        in lines
+    )
+    assert S.STATUS_ANALYTICS_CONTENT.format(known=str(C.ZERO), read=S.STATUS_UNKNOWN) in lines
+    assert S.STATUS_ANALYTICS_NO_APPETITE in lines
 
 
 def test_status_distinguishes_retained_snapshots_and_saved_oauth_from_live_success() -> None:

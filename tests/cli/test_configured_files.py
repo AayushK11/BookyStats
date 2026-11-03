@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from contextlib import closing
 from pathlib import Path
@@ -19,6 +20,7 @@ from bookystats.persistence.analytics import AnalyticsStore
 from bookystats.persistence.library import Database
 from bookystats.persistence.raw import RawStore
 from bookystats.runtime.config import FileSettings, MetadataSettings, Settings, save_settings
+from bookystats.runtime.layout import database_path
 from tests.support.exports import csv_body
 from tests.support.paths import fixture_path
 from tests.support.sources import accounts
@@ -111,13 +113,17 @@ def test_csvs_rebuild_enrichment_and_analysis_in_independent_empty_data_director
     settings = Settings(
         accounts=accounts(),
         files=FileSettings(storygraph_file=storygraph, goodreads_file=goodreads),
-        metadata=MetadataSettings(google_books=C.TRUE, open_library=C.TRUE),
+        metadata=MetadataSettings(
+            google_books=C.TRUE,
+            open_library=C.TRUE,
+            strategy=S.ENR_STRATEGY_INDEPENDENT,
+        ),
     )
     for iteration in range(C.TWO):
         directory = tmp_path / str(iteration)
         assert not directory.exists()
         save_settings(directory, settings)
-        assert all(not (directory / name).exists() for name in C.CLI_LOCAL_DATABASES)
+        assert all(not database_path(directory, name).exists() for name in C.CLI_LOCAL_DATABASES)
         calls.clear()
         assert main(_arguments(directory)) == C.ZERO
         receipt = SyncReceipt.model_validate_json(capsys.readouterr().out)
@@ -130,8 +136,8 @@ def test_csvs_rebuild_enrichment_and_analysis_in_independent_empty_data_director
         assert not receipt.analytics.watchlist_reused
         assert Source.GOOGLE_BOOKS in calls and Source.OPEN_LIBRARY in calls
         assert all(item.state == SyncState.COMPLETE for item in receipt.metadata)
-        assert all((directory / name).is_file() for name in C.CLI_LOCAL_DATABASES)
-        with closing(Database(directory / S.LIBRARY_SQLITE3)) as library:
+        assert all(database_path(directory, name).is_file() for name in C.CLI_LOCAL_DATABASES)
+        with closing(Database(database_path(directory, S.LIBRARY_SQLITE3))) as library:
             data = library.analytics_input(accounts(), AnalyticsSettings())
         assert len(data.books) == C.ONE
         book = data.books[C.ZERO]
@@ -141,12 +147,12 @@ def test_csvs_rebuild_enrichment_and_analysis_in_independent_empty_data_director
         assert len(book.features[S.LANGUAGE]) == C.ONE
         assert S.EN in book.features[S.LANGUAGE]
         assert len(book.features[S.LANGUAGES]) == C.TWO
-        with closing(RawStore(directory / S.CLI_RAW_DATABASE)) as archive:
+        with closing(RawStore(database_path(directory, S.CLI_RAW_DATABASE))) as archive:
             for source in receipt.sources:
                 assert source.raw_document_id is not C.NONE
                 original = storygraph if source.source == Source.STORYGRAPH else goodreads
                 assert archive.get(source.raw_document_id).body == original.read_bytes()
-        with AnalyticsStore(directory / S.AN_DATABASE) as reports:
+        with AnalyticsStore(database_path(directory, S.AN_DATABASE)) as reports:
             report = reports.latest()
         assert report is not C.NONE
         assert report.taste.findings
@@ -162,6 +168,88 @@ def test_csvs_rebuild_enrichment_and_analysis_in_independent_empty_data_director
         assert len(calls) == count
 
 
+def test_fallback_csv_sync_keeps_core_missingness_partial_on_unchanged_repeat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv(S.BOOKYSTATS_STORYGRAPH_PROFILE, raising=C.FALSE)
+    monkeypatch.delenv(S.BOOKYSTATS_GOODREADS_PROFILE, raising=C.FALSE)
+    monkeypatch.setenv(S.GOOGLE_BOOKS_API_KEY, S.CLI_TEST_GOOGLE_KEY)
+    storygraph = tmp_path / S.CLI_TEST_STORYGRAPH_NAME
+    goodreads = tmp_path / S.CLI_TEST_GOODREADS_NAME
+    storygraph.write_text(S.CLI_TEST_STORYGRAPH_CSV, encoding=S.UTF_8)
+    goodreads.write_text(S.CLI_TEST_GOODREADS_CSV.replace(S.TO_READ, S.READ), encoding=S.UTF_8)
+    calls: list[Source] = []
+
+    def fetch(
+        self: HttpClient,
+        url: str,
+        *,
+        params: Mapping[str, str] | None = C.NONE,
+        headers: Mapping[str, str] | None = C.NONE,
+    ) -> HttpResponse:
+        google = urlsplit(url).hostname == S.WWW_GOOGLEAPIS_COM
+        calls.append(Source.GOOGLE_BOOKS if google else Source.OPEN_LIBRARY)
+        name = (
+            S.GOOGLE_BOOKS_JSON
+            if google
+            else S.OPEN_LIBRARY_JSON
+            if url == S.OPEN_LIBRARY_ENDPOINT_HTTPS_OPENLIBRARY_ORG_SEARCH_JSON
+            else S.META_COVERAGE_WORK_FIXTURE
+        )
+        body = fixture_path(S.METADATA, name).read_bytes()
+        if name == S.META_COVERAGE_WORK_FIXTURE:
+            work = json.loads(body)
+            work.pop(S.DESCRIPTION, C.NONE)
+            body = json.dumps(work).encode(S.UTF_8)
+        if google:
+            catalog = json.loads(body)
+            for volume in catalog[S.ITEMS]:
+                volume[S.VOLUMEINFO].pop(S.DESCRIPTION, C.NONE)
+            body = json.dumps(catalog).encode(S.UTF_8)
+        return HttpResponse(
+            url=url,
+            status_code=C.HTTP_OK,
+            headers={S.CONTENT_TYPE: S.GOOGLE_BOOKS_HTTP_PAYLOAD_APPLICATION_JSON},
+            body=body,
+        )
+
+    monkeypatch.setattr(HttpClient, S.CLI_TEST_FETCH, fetch)
+    save_settings(
+        tmp_path,
+        Settings(
+            accounts=accounts(),
+            files=FileSettings(storygraph_file=storygraph, goodreads_file=goodreads),
+        ),
+    )
+    assert main(_arguments(tmp_path)) == C.THREE
+    receipt = SyncReceipt.model_validate_json(capsys.readouterr().out)
+    google = next(item for item in receipt.metadata if item.provider == Source.GOOGLE_BOOKS)
+    assert calls[C.ZERO] == Source.OPEN_LIBRARY
+    assert Source.GOOGLE_BOOKS in calls
+    assert google.state == SyncState.PARTIAL
+    assert google.coverage_scope == S.ENR_CORE_COVERAGE_SCOPE
+    assert google.fallback_fields == C.ENR_FALLBACK_FIELDS
+    assert google.fallback_unresolved > C.ZERO
+    assert receipt.verification is not C.NONE
+    assert receipt.verification.result == VerificationResult.PARTIAL
+    assert all(
+        check.result == VerificationResult.SUCCESS
+        for check in receipt.verification.checks
+        if check.name != S.METADATA
+    )
+    assert all(source.state == SyncState.COMPLETE for source in receipt.sources)
+    assert receipt.analytics is not C.NONE and receipt.analytics.state == SyncState.COMPLETE
+    count = len(calls)
+    assert main(_arguments(tmp_path)) == C.THREE
+    replay = SyncReceipt.model_validate_json(capsys.readouterr().out)
+    repeated_google = next(item for item in replay.metadata if item.provider == Source.GOOGLE_BOOKS)
+    assert repeated_google.requested == C.ZERO
+    assert repeated_google.fallback_unresolved == google.fallback_unresolved
+    assert replay.analytics is not C.NONE
+    assert replay.analytics.taste_reused and replay.analytics.watchlist_reused
+    assert len(calls) == count
+
+
 def test_plain_sync_imports_configured_files_without_source_access_and_is_idempotent(
     tmp_path: Path, configured_files: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -175,7 +263,7 @@ def test_plain_sync_imports_configured_files_without_source_access_and_is_idempo
     assert initial.analytics.state == SyncState.COMPLETE
     assert {(item.source, item.collection) for item in initial.sources} == C.AUTO_SYNC_TEST_SCOPES
     paths = configured_files.files.paths(tmp_path)
-    with closing(RawStore(tmp_path / S.CLI_RAW_DATABASE)) as archive:
+    with closing(RawStore(database_path(tmp_path, S.CLI_RAW_DATABASE))) as archive:
         for item in initial.sources:
             assert item.input_kind == S.INPUT_FILE
             assert item.raw_document_id is not C.NONE
@@ -224,9 +312,9 @@ def test_storygraph_leaving_read_scope_removes_active_rating_but_preserves_archi
     assert receipt.verification is not C.NONE
     assert receipt.verification.result == VerificationResult.SUCCESS
     assert storygraph.raw_document_id is not C.NONE
-    with closing(RawStore(tmp_path / S.CLI_RAW_DATABASE)) as archive:
+    with closing(RawStore(database_path(tmp_path, S.CLI_RAW_DATABASE))) as archive:
         assert archive.get(storygraph.raw_document_id).body == body
-    with closing(Database(tmp_path / S.LIBRARY_SQLITE3)) as library:
+    with closing(Database(database_path(tmp_path, S.LIBRARY_SQLITE3))) as library:
         data = library.analytics_input(configured_files.accounts, AnalyticsSettings())
         assert data.personal_rating_records == C.ZERO
         assert all(book.rating is C.NONE for book in data.books)
@@ -250,7 +338,7 @@ def test_bad_input_retains_its_snapshot_without_blocking_healthy_configured_file
     initial_read = next(
         item for item in initial.sources if (item.source, item.collection) == read_scope
     )
-    with closing(Database(tmp_path / S.LIBRARY_SQLITE3)) as library:
+    with closing(Database(database_path(tmp_path, S.LIBRARY_SQLITE3))) as library:
         first_status = library.status()[S.SOURCES]
     assert isinstance(first_status, list)
     read_snapshot = next(
@@ -269,7 +357,7 @@ def test_bad_input_retains_its_snapshot_without_blocking_healthy_configured_file
     assert latest.analytics is not C.NONE
     assert latest.analytics.state == SyncState.PARTIAL
     assert initial.analytics is not C.NONE
-    with AnalyticsStore(tmp_path / S.AN_DATABASE) as reports:
+    with AnalyticsStore(database_path(tmp_path, S.AN_DATABASE)) as reports:
         retained = reports.latest()
     assert retained is not C.NONE
     assert retained.report_id == initial.analytics.report_id
@@ -283,14 +371,14 @@ def test_bad_input_retains_its_snapshot_without_blocking_healthy_configured_file
         assert failed.issues[C.ZERO].code == failure
     else:
         assert failed.raw_document_id is not C.NONE
-        with closing(RawStore(tmp_path / S.CLI_RAW_DATABASE)) as archive:
+        with closing(RawStore(database_path(tmp_path, S.CLI_RAW_DATABASE))) as archive:
             assert archive.get(failed.raw_document_id).body == read.read_bytes()
     assert all(
         item.state == SyncState.COMPLETE and item.publication is not C.NONE
         for item in latest.sources
         if (item.source, item.collection) != read_scope
     )
-    with closing(Database(tmp_path / S.LIBRARY_SQLITE3)) as library:
+    with closing(Database(database_path(tmp_path, S.LIBRARY_SQLITE3))) as library:
         assert len(library.active_records()) == C.THREE
         final_status = library.status()[S.SOURCES]
     assert isinstance(final_status, list)

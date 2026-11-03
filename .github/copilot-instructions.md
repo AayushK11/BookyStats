@@ -9,8 +9,9 @@
 - Follow the four-stage architecture in `PLAN.md`: raw capture, processing and
   enrichment, cached analysis, then watchlist ranking. Plain `booky sync` processes
   exact configured CSV paths; it never fetches Goodreads/StoryGraph or starts a
-  source browser. Backend analytics is implemented after metadata; ranking,
-  automatic live source acquisition and scheduling remain future work.
+  source browser. Backend analytics follows metadata; automatic quality,
+  watchlist recommendations and PDF/JSON delivery follow successful analytics.
+  Automatic live source acquisition and scheduling remain future work.
   `fetch` only writes the Goodreads browser-console helper for explicit manual
   Read/watchlist capture. It must not make source requests, change input paths,
   launch browsers or expose credentials.
@@ -25,6 +26,13 @@
   Do not add a website, background pipeline service, or broker for these stages.
 - Use meaningful names, plain modular folders, and tests organized by module.
 - Remove obsolete code and keep `TODO.md` a current, evidence-based checklist.
+- Keep runtime databases in `data\databases`, private Google authorization in
+  `data\credentials`, and locks/generated capture helpers in `data\runtime`.
+  Reuse `runtime\layout.py`; status resolves old flat paths without migrating.
+  Sync migration runs under both current/legacy locking, validates/checkpoints
+  SQLite before moving, preserves credentials/retry state/history, rejects
+  conflicting destinations and resumes interrupted file moves. Never move or
+  delete active WAL/SHM files. Config and relative input-path semantics stay unchanged.
 - Keep personal account IDs/URLs in configuration, never package defaults.
   Nonsecret root `config.json` versions ByteMe identities (`byte_me`, Goodreads
   `79839274`) and settings for the editable checkout's default data directory.
@@ -53,11 +61,24 @@
   current snapshots and selected identity-valid metadata. Cache taste/watchlist
   separately, rebind provenance on reuse and retain last-good reports on failure.
   Store typed, hash-verified immutable caches and atomic historical reports in
-  ignored `analytics.sqlite3`; status reads saved reports offline. Do not add
-  images, a frontend, ranking or annual reviews as part of that backend work.
+  ignored `analytics.sqlite3`; status reads saved reports offline. Recommendations
+  are a separate product using the same pinned inputs. Do not add a frontend
+  or annual reviews as part of this work.
 - Reader/content analysis uses all Read books, not only rated ones. Watchlist
   analysis stays descriptive composition/missingness, not recommendations.
   Keep work first-publication and edition years separate; audit rating availability.
+- Generate recommendations, automated metadata-quality diagnostics and the PDF
+  without manual correction/selection steps. Abstain on ambiguous identity,
+  possible-Read overlap or insufficient evidence instead of forcing results.
+  Ordering heuristics are not calibrated enjoyment probabilities or proven
+  accuracy; automated quality measures consistency/coverage, not ground truth.
+- Publish the PDF and analytics/recommendation/quality JSON under one immutable,
+  hash-verified report bundle. All products use one analytics manifest/as-of;
+  update the latest pointer only after every output succeeds. Retain the last
+  good bundle on failure and report retained versus current explicitly.
+- Keep `logs\bookystats.log` append-only, redacted and incrementally flushed,
+  with stage/progress messages and complete grouped issue counts plus bounded
+  examples. Never truncate earlier sessions or delete user history during sync.
 - Selected public provider work metadata may follow confirmed catalog-work links,
   including StoryGraph-origin records. Do not copy raw reader fields or
   other-record edition facts. Keep alternative-description selection deterministic.
@@ -96,13 +117,19 @@
 ## Data integrity and safety
 
 - Goodreads owns the current to-read/watchlist and reading history, status, and
-  other personal data. StoryGraph supplies only personal ratings and identity
-  needed to match them, from explicit Read rows only. Its Read Status selects
+  other personal data. StoryGraph supplies personal ratings and identity
+  needed to match them, from explicit Read rows only. The owner also approved
+  explicit `Last Date Read` values as separately labeled supplemental evidence:
+  preserve their StoryGraph provenance and precision, use confirmed work links,
+  never override Goodreads dates or publish them as Goodreads reading events.
+  Its Read Status selects
   import scope but is not published as authoritative reading history. Archive
   every supplied row, including excluded non-Read rows. Its reviews, status,
-  dates, rereads, and other attributes
+  rereads, and other attributes
   stay raw-only; do not publish them as processed facts. Keep personal ratings
-  separate from Goodreads/provider community ratings.
+  separate from Goodreads/provider community ratings. Separately labeled
+  Goodreads comparisons are allowed, but never feed personal preferences or
+  recommendation scoring.
 - Require StoryGraph Read Status; missing, empty or unknown values fail its
   scope. Report archived file rows separately from active processed records.
 - Preserve unknown/unavailable, empty, unsupported, and failed states; do not
@@ -128,6 +155,12 @@
 - Optional Google Books/Open Library enrichment retains enabled package/local
   configuration and this user's local 10,000-book run budget. Report provider
   failures/deferrals separately; source-only acceptance proves no full enrichment.
+- Default enrichment is Open Library first; Google fills remaining selected,
+  identity-valid public-description/normalized-genre gaps. Optional fields alone
+  do not trigger fallback. Preserve explicit independent-provider mode and
+  distinguish strategy skips/core-gap scope from full provider coverage.
+  Reuse settled public responses without age-only refetching while retaining
+  query compatibility, checksum/provenance checks and per-record validation.
 - Persist provider/host retry gates and safe HTTP diagnostics across processes.
   Preserve unknown legacy diagnostics; never reset gates to force completion.
   Refine incomplete/contaminated batches without relaxing individual identity

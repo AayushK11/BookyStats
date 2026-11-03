@@ -14,7 +14,10 @@ def analytical_categories(labels: Iterable[str]) -> tuple[str, ...]:
                 for label in labels
                 if (
                     category := C.ANALYTIC_CATEGORY_ALIASES.get(
-                        S.SPACE.join(label.split()).casefold()
+                        S.ENR_CATEGORY_PATH_SEPARATOR.join(
+                            S.SPACE.join(part.split()).casefold()
+                            for part in label.replace(S.COMMA, S.SLASH).split(S.SLASH)
+                        )
                     )
                 )
                 is not C.NONE

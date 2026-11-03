@@ -22,6 +22,7 @@ from bookystats.domain.matching import (
     MatchResult,
     candidate_title_author_key,
     compare_books,
+    compare_metadata_identity,
     compare_work_identity,
     edition_identity_facts,
     select_metadata_candidate,
@@ -116,6 +117,16 @@ def _semantic_hash(book: BookRecord) -> str:
         observation.pop(S.OBSERVED_AT, C.NONE)
         observations.append(observation)
     payload[S.OBSERVATIONS] = sorted(observations, key=_json)
+    supplemental = []
+    for completion_item in book.supplemental_completion_dates:
+        completion = completion_item.model_dump(mode=S.JSON)
+        observation = completion_item.observation.model_dump(mode=S.JSON)
+        observation.pop(S.OBSERVED_AT, C.NONE)
+        completion[S.DTX_OBSERVATION] = observation
+        if completion_item.finished is not C.NONE:
+            completion[S.FINISHED] = completion_item.finished.value
+        supplemental.append(completion)
+    payload[S.DTX_SUPPLEMENTAL_COMPLETION_DATES] = sorted(supplemental, key=_json)
     payload[S.READING_EVENTS] = sorted(
         _json(_event_payload(event)) for event in _reading_occurrences(book.reading_events).values()
     )
@@ -157,11 +168,19 @@ class Database:
         self._conn: sqlite3.Connection | None = C.NONE
         self._payload_store: PayloadStore | None = C.NONE
 
-    def initialize(self) -> None:
+    def initialize(self, *, require_existing: bool = C.FALSE) -> None:
         if self._conn is not C.NONE:
             return
-        self.path.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
-        connection = sqlite3.connect(str(self.path), timeout=C.FIVE, isolation_level=C.NONE)
+        if not require_existing:
+            self.path.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
+        target = (
+            self.path.resolve().as_uri() + S.LAYOUT_SQLITE_EXISTING_QUERY
+            if require_existing
+            else str(self.path)
+        )
+        connection = sqlite3.connect(
+            target, timeout=C.FIVE, isolation_level=C.NONE, uri=require_existing
+        )
         connection.row_factory = sqlite3.Row
         try:
             connection.execute(S.STORAGE_DATABASE_INITIALIZE_PRAGMA_FOREIGN_KEYS_ON)
@@ -663,6 +682,18 @@ class Database:
                 ),
             )
             for row in self._comparison_rows(connection, record_id, book)
+        ]
+        comparisons = [
+            (
+                row,
+                (
+                    MatchResult(MatchKind.CONFLICTING, S.MTX_CATALOG_CONFLICT, match.identifiers)
+                    if match.kind == MatchKind.CONFIRMED
+                    and self._catalog_work_conflict(connection, record_id, int(row[S.ID]))
+                    else match
+                ),
+            )
+            for row, match in comparisons
         ]
         confirmed = [
             (row, match) for row, match in comparisons if match.kind == MatchKind.CONFIRMED
@@ -1197,7 +1228,7 @@ class Database:
             )
             selected_id: int | None = C.NONE
             for candidate in result.candidates:
-                comparison = compare_books(book, candidate)
+                comparison = compare_metadata_identity(book, candidate)
                 is_selected = (
                     selected is not C.NONE and candidate == selected and (selected_id is C.NONE)
                 )
@@ -1265,18 +1296,23 @@ class Database:
         )
         targets: list[BookRecord] = []
         for row in rows:
-            if not row[S.QUEUE_INVALIDATED]:
+            if row[S.RAW_JSON] is not C.NONE:
                 attempt = EnrichmentResult.model_validate_json(
                     self._payloads().load_text(row[S.RAW_JSON])
                 )
-                if not (
+                retryable = (
                     any(issue.retryable for issue in attempt.issues)
                     or attempt.state == SyncState.NEEDS_AUTH
                     or (
                         not attempt.issues
                         and attempt.state in (SyncState.FAILED, SyncState.BLOCKED)
                     )
-                ):
+                )
+                if (
+                    row[S.QUEUE_SAME_IDENTITY]
+                    and retryable
+                    and _date(row[S.AN_CHECKED_AT]) > _date(cutoff)
+                ) or (not row[S.QUEUE_INVALIDATED] and not retryable):
                     continue
             targets.append(
                 BookRecord.model_validate_json(self._payloads().load_text(row[S.LATEST_JSON]))
@@ -1332,6 +1368,34 @@ class Database:
                 (Source(source).value, account_id, source_id),
             )
         )
+
+    def metadata_for_work(
+        self, source: Source, account_id: str, source_id: str
+    ) -> tuple[MetadataCandidate, ...]:
+        candidates: list[MetadataCandidate] = []
+        for row in self._connection().execute(
+            S.ENR_SELECTED_WORK_METADATA_SQL, (Source(source).value, account_id, source_id)
+        ):
+            origin = BookRecord.model_validate_json(self._payloads().load_text(row[S.LATEST_JSON]))
+            candidate = MetadataCandidate.model_validate_json(
+                self._payloads().load_text(row[S.CANDIDATE_JSON])
+            )
+            if (
+                candidate.provider != Source.OPEN_LIBRARY
+                or candidate.provider.value != row[S.PROVIDER]
+                or select_metadata_candidate(origin, (candidate,)) is C.NONE
+            ):
+                continue
+            candidates.append(
+                candidate.model_copy(
+                    update={
+                        S.OBSERVATIONS: tuple(
+                            item for item in candidate.observations if item.scope == S.WORK
+                        )
+                    }
+                )
+            )
+        return tuple(candidates)
 
     def match_candidates(
         self, *, include_resolved: bool = C.FALSE
@@ -1395,7 +1459,68 @@ class Database:
             )
         return proofs
 
+    def _current_catalog_work_ids(
+        self, connection: sqlite3.Connection, books: dict[int, BookRecord]
+    ) -> dict[int, set[str]]:
+        provider_ids: dict[int, set[str]] = {}
+        if not books:
+            return provider_ids
+        query = S.MATCH_REPAIR_CURRENT_PROVIDER_CANDIDATES + S.MTX_CATALOG_RECORD_FILTER.format(
+            placeholders=S.COMMA.join(S.MTX_SQL_PLACEHOLDER for _ in books)
+        )
+        for row in connection.execute(query, (Source.OPEN_LIBRARY.value, *sorted(books))):
+            record_id = int(row[S.RECORD_ID])
+            metadata = MetadataCandidate.model_validate_json(
+                self._payloads().load_text(row[S.CANDIDATE_JSON])
+            )
+            if (
+                metadata.provider == Source.OPEN_LIBRARY
+                and metadata.work_id
+                and metadata.provider_id == metadata.work_id
+                and metadata.edition_id is C.NONE
+                and C.MATCH_UPGRADE_PROVIDER_WORK_PATTERN.fullmatch(metadata.work_id)
+                and metadata.url == S.OPEN_LIBRARY_WORK_URL_TEMPLATE.format(v0=metadata.work_id)
+                and (
+                    compare_books(books[record_id], metadata).kind == MatchKind.CONFIRMED
+                    or (
+                        row[S.MATCH_UPGRADE_SELECTED] == C.ONE
+                        and compare_metadata_identity(books[record_id], metadata).kind
+                        == MatchKind.CONFIRMED
+                    )
+                )
+            ):
+                provider_ids.setdefault(record_id, set()).add(metadata.work_id)
+        return provider_ids
+
+    def _catalog_work_conflict(
+        self, connection: sqlite3.Connection, record_id: int, target_id: int
+    ) -> bool:
+        books = {
+            int(row[S.ID]): BookRecord.model_validate_json(
+                self._payloads().load_text(row[S.LATEST_JSON])
+            )
+            for row in connection.execute(
+                S.MTX_ACTIVE_IDENTITY_GROUPS, (record_id, target_id, record_id, target_id)
+            )
+        }
+        provider_ids = self._current_catalog_work_ids(connection, books)
+        return len({work_id for values in provider_ids.values() for work_id in values}) > C.ONE
+
     def _audit_automatic_isbn_matches(self, connection: sqlite3.Connection) -> None:
+        active_ids = {
+            int(row[S.RECORD_ID]) for row in connection.execute(S.MATCH_UPGRADE_ACTIVE_RECORD_IDS)
+        }
+        records = {int(row[S.ID]): row for row in connection.execute(S.MATCH_UPGRADE_ALL_RECORDS)}
+        books = {
+            record_id: BookRecord.model_validate_json(
+                self._payloads().load_text(records[record_id][S.LATEST_JSON])
+            )
+            for record_id in active_ids
+        }
+        provider_ids = self._current_catalog_work_ids(connection, books)
+        group_catalogs: dict[int, set[str]] = {}
+        for record_id, catalog_ids in provider_ids.items():
+            group_catalogs.setdefault(int(records[record_id][S.WORK_ID]), set()).update(catalog_ids)
         for decision in reversed(
             connection.execute(S.MATCH_UPGRADE_DECISIONS, (S.AUTOMATIC,)).fetchall()
         ):
@@ -1422,6 +1547,24 @@ class Database:
                 BookRecord.model_validate_json(self._payloads().load_text(record[S.LATEST_JSON])),
                 BookRecord.model_validate_json(self._payloads().load_text(target[S.LATEST_JSON])),
             )
+            catalog_conflict = (
+                len(
+                    group_catalogs.get(int(decision[S.WORK_ID]), set())
+                    | provider_ids.get(record_id, set())
+                    | provider_ids.get(target_id, set())
+                )
+                > C.ONE
+            )
+            if catalog_conflict:
+                comparison = MatchResult(
+                    MatchKind.CONFLICTING, S.MTX_CATALOG_CONFLICT, comparison.identifiers
+                )
+                connection.execute(
+                    S.MTX_UPDATE_CATALOG_CONFLICT,
+                    (S.MTX_CATALOG_CONFLICT, candidate[S.ID]),
+                )
+                if candidate[S.RESOLUTION] == S.ACCEPTED:
+                    continue
             if comparison.kind == MatchKind.CONFIRMED and (
                 record[S.WORK_ID],
                 record[S.EDITION_ID],
@@ -1461,6 +1604,7 @@ class Database:
 
     def reconcile_provider_work_matches(self) -> int:
         with self._transaction() as connection:
+            self._audit_automatic_isbn_matches(connection)
             active_ids = {
                 int(row[S.RECORD_ID])
                 for row in connection.execute(S.MATCH_UPGRADE_ACTIVE_RECORD_IDS)
@@ -1636,26 +1780,7 @@ class Database:
         for record_ids in buckets.values():
             for record_id in record_ids:
                 peers.setdefault(record_id, set()).update(record_ids)
-        provider_ids: dict[int, set[str]] = {}
-        for row in connection.execute(
-            S.MATCH_REPAIR_CURRENT_PROVIDER_CANDIDATES, (Source.OPEN_LIBRARY.value,)
-        ):
-            record_id = int(row[S.RECORD_ID])
-            if record_id not in books:
-                continue
-            metadata = MetadataCandidate.model_validate_json(
-                self._payloads().load_text(row[S.CANDIDATE_JSON])
-            )
-            if (
-                metadata.provider == Source.OPEN_LIBRARY
-                and metadata.work_id
-                and metadata.provider_id == metadata.work_id
-                and metadata.edition_id is C.NONE
-                and C.MATCH_UPGRADE_PROVIDER_WORK_PATTERN.fullmatch(metadata.work_id)
-                and metadata.url == S.OPEN_LIBRARY_WORK_URL_TEMPLATE.format(v0=metadata.work_id)
-                and compare_books(books[record_id], metadata).kind == MatchKind.CONFIRMED
-            ):
-                provider_ids.setdefault(record_id, set()).add(metadata.work_id)
+        provider_ids = self._current_catalog_work_ids(connection, books)
 
         def compatible(record_id: int, target_id: int) -> bool:
             if record_id not in books or target_id not in books:
@@ -1731,16 +1856,16 @@ class Database:
         for pair in sorted(unique_pairs):
             target_id, record_id = pair
             target, record = records[target_id], records[record_id]
-            if (
-                not compatible(record_id, target_id)
-                or record[S.WORK_ID] == target[S.WORK_ID]
-                or any(
-                    len(groups[int(item[S.WORK_ID])]) != C.ONE
-                    or not self._can_reconsider_identity(
-                        connection, int(item[S.ID]), int(item[S.WORK_ID])
-                    )
-                    for item in (target, record)
+            if not compatible(record_id, target_id) or record[S.WORK_ID] == target[S.WORK_ID]:
+                continue
+            recoverable = self._recoverable_bibliography_pair(connection, pair, records)
+            if any(
+                len(groups[int(item[S.WORK_ID])]) != C.ONE
+                or not (
+                    self._can_reconsider_identity(connection, int(item[S.ID]), int(item[S.WORK_ID]))
+                    or recoverable
                 )
+                for item in (target, record)
             ):
                 continue
             prior = (int(record[S.WORK_ID]), int(record[S.EDITION_ID]))
@@ -1783,6 +1908,47 @@ class Database:
         for record_id in active_ids:
             self._refresh_match_state(connection, record_id)
         return linked
+
+    @staticmethod
+    def _recoverable_bibliography_pair(
+        connection: sqlite3.Connection,
+        pair: tuple[int, ...],
+        records: dict[int, sqlite3.Row],
+    ) -> bool:
+        decisions = connection.execute(
+            S.MATCH_REPAIR_RECOVERY_DECISIONS, (*pair, *pair, *pair)
+        ).fetchall()
+        if not decisions:
+            return C.FALSE
+        identities: JsonValue = [
+            {S.RECORD_ID: item, S.IDENTITY_HASH: str(records[item][S.IDENTITY_HASH])}
+            for item in pair
+        ]
+        originals = {
+            int(decision[S.ID])
+            for decision in decisions
+            if decision[S.KIND] == S.MATCH_REPAIR_WORK_AUTOMATIC
+        }
+        if not originals:
+            return C.FALSE
+        for decision in decisions:
+            if {int(decision[S.RECORD_ID]), int(decision[S.TARGET_RECORD_ID])} != set(pair):
+                return C.FALSE
+            evidence = _parsed_json(decision[S.MATCH_UPGRADE_EVIDENCE_JSON])
+            if not isinstance(evidence, dict):
+                return C.FALSE
+            if decision[S.KIND] == S.MATCH_REPAIR_WORK_AUTOMATIC:
+                if evidence.get(S.MATCH_REPAIR_IDENTITY_PROOFS) != identities:
+                    return C.FALSE
+            elif decision[S.KIND] == S.STORAGE_INVALIDATED_AUTOMATIC_MATCH:
+                if (
+                    evidence.get(S.REVERTS) not in originals
+                    or evidence.get(S.REASON) != S.MATCH_REPAIR_WORK_LOST
+                ):
+                    return C.FALSE
+            else:
+                return C.FALSE
+        return C.TRUE
 
     def _save_bibliography_work_candidate(
         self, connection: sqlite3.Connection, record: sqlite3.Row, target: sqlite3.Row

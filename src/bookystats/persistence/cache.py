@@ -91,13 +91,36 @@ class MetadataCache:
             ) from C.NONE
         return (provider.value, digest)
 
-    def get(self, provider: Source, key: str) -> dict[str, JsonValue] | None:
+    def get(
+        self, provider: Source, key: str, *, allow_expired: bool = C.FALSE
+    ) -> dict[str, JsonValue] | None:
+        return self._get(self._key(provider, key), allow_expired=allow_expired)
+
+    def catalog_entries(self, provider: Source) -> tuple[dict[str, JsonValue], ...]:
+        self._key(provider, S.ENR_CATALOG_KEY)
+        try:
+            keys: list[tuple[str]] = (
+                self._db().execute(S.ENR_CATALOG_KEYS, (provider.value,)).fetchall()
+            )
+        except sqlite3.Error:
+            raise MetadataCacheError(
+                S.CACHE_METADATACACHE_GET_METADATA_CACHE_COULD_NOT_BE_READ_SAFELY
+            ) from C.NONE
+        return tuple(
+            payload
+            for (key,) in keys
+            if (payload := self._get((provider.value, key), allow_expired=C.TRUE)) is not C.NONE
+        )
+
+    def _get(
+        self, identity: tuple[str, str], *, allow_expired: bool
+    ) -> dict[str, JsonValue] | None:
         try:
             row: tuple[object, object, object] | None = (
                 self._db()
                 .execute(
                     S.METADATACACHE_GET_ROW_SELECT_PAYLOAD_AT_CHECKSUM_FROM_METADATA,
-                    self._key(provider, key),
+                    identity,
                 )
                 .fetchone()
             )
@@ -130,7 +153,7 @@ class MetadataCache:
             raise MetadataCacheError(
                 S.CACHE_METADATACACHE_GET_METADATA_CACHE_CONTAINS_INVALID_CATALOG_DATA
             )
-        if expires_at <= _utc_timestamp():
+        if not allow_expired and expires_at <= _utc_timestamp():
             return C.NONE
         return cast(dict[str, JsonValue], decoded)
 

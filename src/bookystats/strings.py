@@ -458,6 +458,43 @@ IDENTIFIERS_NORMALIZE_ISBN_D: Final = "97[89]\\d{10}"
 NFKC: Final = "NFKC"
 IDENTIFIERS_NORMALIZED_TEXT_W_S: Final = "[^\\w\\s]"
 SYNC_LOCK: Final = "sync.lock"
+LAYOUT_DATABASES: Final = "databases"
+LAYOUT_CREDENTIALS: Final = "credentials"
+LAYOUT_RUNTIME: Final = "runtime"
+LAYOUT_CONFLICT: Final = (
+    "Both legacy and organized locations contain {filename}; no file was overwritten."
+)
+LAYOUT_INVALID_FILE: Final = (
+    "Cannot organize {filename}: expected a regular local file, not a directory or symbolic link."
+)
+LAYOUT_DATABASE_BUSY: Final = (
+    "Cannot organize {filename} while another connection has active journal state. "
+    "No database was moved; retry after that connection closes."
+)
+LAYOUT_DATABASE_INVALID: Final = (
+    "Cannot organize {filename}: SQLite integrity validation failed. Existing files are retained."
+)
+LAYOUT_INVALID_NAME: Final = "Unsupported runtime database filename."
+LAYOUT_MIGRATED: Final = (
+    "Organized {count} legacy runtime files into databases/credentials; "
+    "contents and history retained."
+)
+LAYOUT_CHECKPOINT: Final = "PRAGMA wal_checkpoint(TRUNCATE)"
+LAYOUT_SQLITE_EXISTING_QUERY: Final = "?mode=rw"
+LAYOUT_INTEGRITY: Final = "PRAGMA integrity_check"
+LAYOUT_SQLITE_OK: Final = "ok"
+LAYOUT_WAL_SUFFIX: Final = "-wal"
+LAYOUT_SHM_SUFFIX: Final = "-shm"
+LAYOUT_JOURNAL_SUFFIX: Final = "-journal"
+LAYOUT_TEST_CREATE: Final = "CREATE TABLE retained (value INTEGER NOT NULL)"
+LAYOUT_TEST_INSERT: Final = "INSERT INTO retained VALUES (?)"
+LAYOUT_TEST_SELECT: Final = "SELECT value FROM retained"
+LAYOUT_TEST_WAL: Final = "PRAGMA journal_mode=WAL"
+LAYOUT_TEST_NO_CHECKPOINT: Final = "PRAGMA wal_autocheckpoint=0"
+LAYOUT_TEST_BEGIN_READ: Final = "BEGIN"
+LAYOUT_TEST_FAILURE: Final = "Injected migration interruption."
+LAYOUT_TEST_RENAME: Final = "rename"
+LAYOUT_TEST_CREDENTIALS: Final = b"synthetic-private-credential-fixture\n"
 SYNCLOCK_ENTER_HANDLE_A_B: Final = "a+b"
 LOCKING_SYNCLOCK_ENTER_BYTES: Final = b"\x00"
 LOCKING_SYNCLOCK_ENTER_ANOTHER_BOOKYSTATS_SYNC_IS_RUNNING_FOR_THIS: Final = (
@@ -2019,7 +2056,7 @@ ObservationScope = Literal["reader", "work", "edition"]
 DatePrecision = Literal["year", "month", "day"]
 
 IMPORT_TITLE: Final = "Title"
-IMPORT_PROCESSING_VERSION: Final = "csv-v5-storygraph-read-scope"
+IMPORT_PROCESSING_VERSION: Final = "csv-v6-storygraph-supplemental-completion"
 IMPORT_AUTHOR: Final = "Author"
 IMPORT_AUTHORS: Final = "Authors"
 IMPORT_BOOK_ID: Final = "Book Id"
@@ -2444,9 +2481,13 @@ REPORT_PUBLICATION_LINE: Final = (
 )
 REPORT_ISSUE_LINE: Final = "    {code}: {message}"
 REPORT_REPEATED_ISSUE_LINE: Final = "    {code}: {message} ({count} occurrences)"
-REPORT_MORE_ISSUES_LINE: Final = "    {count} more issues are listed in the run log."
+REPORT_MORE_ISSUES_LINE: Final = "    {count} additional issues (grouped in the run log)."
 REPORT_METADATA_LINE: Final = (
     "  {provider}: {state}; {processed} lookups completed, {deferred} deferred"
+)
+REPORT_METADATA_CORE_SCOPE: Final = (
+    "    Core-gap fallback: {skipped} source records skipped by strategy; "
+    "{unresolved} still lack core coverage. This is not full provider coverage."
 )
 REPORT_CHECKS_HEADING: Final = "Checks"
 REPORT_CHECK_LINE: Final = "  {marker:<9} {source} {name}: {detail}"
@@ -2596,8 +2637,10 @@ IMPORT_BROWSER_SCOPE_MESSAGE: Final = (
 IMPORT_STORYGRAPH_SCOPE_NOTICE: Final = "storygraph_ratings_only"
 IMPORT_STORYGRAPH_SCOPE_MESSAGE: Final = (
     "Only explicitly Read StoryGraph rows supply personal ratings and matching identity. "
-    "Read status selects the import scope but is not published as reading history; all other "
-    "source fields, including reviews and reading dates, remain raw-only."
+    "Read status selects the import scope but is not published as reading history. "
+    "Explicit Last Date Read supplies separately attributed supplemental completion dates "
+    "through confirmed work links, never replacing Goodreads history. All other source "
+    "fields, including reviews and other reading dates, remain raw-only."
 )
 STORYGRAPH_READ_SCOPE_INVALID_CODE: Final = "storygraph_read_scope_unknown"
 STORYGRAPH_READ_SCOPE_INVALID_MESSAGE: Final = (
@@ -3037,7 +3080,7 @@ AN_INPUT_METADATA: Final = (
 AN_UNKNOWN_DIMENSION: Final = "Unknown reading-appetite dimension."
 AN_INVALID_PREFERENCES: Final = "Declared preferences need known dimensions and values from 0 to 1."
 AN_WORK_ID: Final = "work:{work_id}"
-AN_CALCULATION_VERSION: Final = "analytics-v6-conservative-genres"
+AN_CALCULATION_VERSION: Final = "analytics-v7-reader-first-storygraph-ratings"
 AN_SUPPORTED: Final = "supported"
 AN_SUBSET: Final = "subset"
 AN_NEEDS_ENRICHMENT: Final = "needs_enrichment"
@@ -3076,6 +3119,89 @@ AN_RECEIPT_LINE: Final = (
 )
 AN_REUSE_LINE: Final = "  Reused calculations: taste={taste}, watchlist={watchlist}."
 AN_STATUS_LINE: Final = "Analytics: report {report_id}, saved {created_at}."
+STATUS_ANALYTICS_METRIC_ID: Final = "metric_id"
+STATUS_ANALYTICS_SAMPLE_SIZE: Final = "sample_size"
+STATUS_ANALYTICS_COUNTS: Final = (
+    "  Read works: {read}; personal-rating linked: {rated}; watchlist works: {watchlist}."
+)
+STATUS_ANALYTICS_COUNT: Final = "{count:,}"
+STATUS_ANALYTICS_CONTENT: Final = (
+    "  Catalog-content appetite mentions: {known}/{read} Read works have usable descriptions."
+)
+STATUS_ANALYTICS_APPETITE: Final = "    {dimension}: {count} works with supported text mentions."
+STATUS_ANALYTICS_NO_APPETITE: Final = "    No appetite mention group meets the evidence threshold."
+STATUS_ANALYTICS_SCOPE: Final = (
+    "  Content mentions are not personality traits or official Read Your Color scores. "
+    "Use status --json for quotes, capabilities and limitations."
+)
+STATUS_ANALYTICS_COMPLETIONS: Final = (
+    "  Selected completion-date evidence: {count}/{read} Read works "
+    "(Goodreads first; StoryGraph supplemental)."
+)
+STATUS_ANALYTICS_ADDITIONS: Final = (
+    "  Library-addition dates: {read_dates}/{read} Read; {watch_dates}/{watchlist} watchlist. "
+    "Addition dates are not reading dates."
+)
+PROD_PRODUCTS: Final = "products"
+PROD_FAILED_CODE: Final = "products_failed"
+PROD_FAILED_MESSAGE: Final = (
+    "Report generation failed ({error_type}); the previous bundle is retained."
+)
+PROD_SKIPPED_CODE: Final = "products_skipped"
+PROD_SKIPPED_MESSAGE: Final = (
+    "Recommendations, quality and PDF were not published because current analytics "
+    "did not complete. "
+    "The last complete report bundle remains available."
+)
+PROD_RUN_STARTED: Final = "Run {run_id} started."
+PROD_STAGE_SOURCES: Final = "Stage: importing configured CSV snapshots."
+PROD_STAGE_METADATA: Final = "Stage: {provider} metadata enrichment."
+PROD_STAGE_RECONCILE: Final = "Stage: reconciling confirmed catalog identities."
+PROD_STAGE_ANALYTICS: Final = "Stage: calculating or reusing reading analytics."
+PROD_STAGE_PRODUCTS: Final = "Stage: metadata quality, watchlist recommendations and PDF report."
+PROD_STAGE_RESULT: Final = "Stage {stage}: {state}."
+PROD_STAGE_FINISHED: Final = "Run {run_id} finished: {state}."
+PROD_ANALYTICS_STAGE: Final = "analytics"
+PROD_REPORTS_FOLDER: Final = "reports"
+PROD_BUNDLE_NAME: Final = "report-{report_id}"
+PROD_PENDING_PREFIX: Final = ".pending-report-"
+PROD_LATEST_FILE: Final = "latest.json"
+PROD_MANIFEST_FILE: Final = "manifest.json"
+PROD_ANALYTICS_FILE: Final = "analytics.json"
+PROD_RECOMMENDATIONS_FILE: Final = "recommendations.json"
+PROD_QUALITY_FILE: Final = "metadata-quality.json"
+PROD_PDF_FILE: Final = "library.pdf"
+PROD_BUNDLE: Final = "bundle"
+PROD_FILES: Final = "files"
+PROD_HASHES: Final = "hashes"
+PROD_RECEIPT: Final = "receipt"
+PROD_INPUT_MISMATCH: Final = "Product generation requires the exact saved analytics input manifest."
+PROD_INVALID_BUNDLE: Final = (
+    "The saved report bundle is incomplete, inconsistent or fails integrity checks."
+)
+PROD_REPORT_LINE: Final = (
+    "Reports #{report_id}: {state}; {ranked} ranked, {shortlisted} shortlisted, "
+    "{unrankable} without enough evidence, {excluded} excluded."
+)
+PROD_PDF_LINE: Final = "  Library PDF: {path}"
+PROD_QUALITY_LINE: Final = "  Metadata quality: {path}"
+PROD_RECOMMENDATIONS_LINE: Final = "  Watchlist recommendations: {path}"
+PROD_RETAINED_LINE: Final = (
+    "  Retained report bundle; newer analytics have not been published to PDF."
+)
+PROD_OUTPUT_DIRECTORY: Final = "output_directory"
+PROD_PDF_PATH: Final = "pdf_file"
+PROD_QUALITY_PATH: Final = "metadata_quality_file"
+PROD_RECOMMENDATIONS_PATH: Final = "recommendations_file"
+PROD_MANIFEST_PATH: Final = "manifest_file"
+PROD_TEST_JSON: Final = "{}"
+PROD_TEST_PDF: Final = b"%PDF-1.7\nSynthetic bundle persistence fixture.\n"
+PROD_TEST_CORRUPT: Final = b"corrupt"
+PROD_TEST_FAILURE: Final = "Injected report output failure."
+PROD_TEST_FILENAME: Final = "filename"
+PROD_TEST_ATOMIC_WRITE: Final = "atomic_write"
+PROD_INVALID_PROVIDER_STATUS: Final = "Saved provider diagnostics have an invalid structure."
+PROD_TEST_SOURCE_FAILURE: Final = "source_failure"
 AN_CREATED_AT: Final = "created_at"
 AN_SOURCE_IDS: Final = "source_ids"
 AN_FINDINGS: Final = "findings"
@@ -3693,7 +3819,7 @@ AN_STORE_TEST_BAD_PAYLOAD: Final = (
 )
 AN_STORE_TEST_BAD_BINDING: Final = "UPDATE analysis_reports SET taste_key = watchlist_key"
 AN_STORE_TEST_BAD_SCHEMA: Final = "CREATE TABLE unexpected (value TEXT)"
-AN_STORE_TEST_FUTURE_VERSION: Final = "PRAGMA user_version = 3"
+AN_STORE_TEST_FUTURE_VERSION: Final = "PRAGMA user_version = 4"
 AN_STORE_TEST_WRONG_APP: Final = "PRAGMA application_id = 12"
 AN_STORE_TEST_FAIL_INSERT: Final = (
     "CREATE TRIGGER reject_report BEFORE INSERT ON analysis_reports "
@@ -3806,7 +3932,7 @@ MATCH_REPAIR_CANDIDATE_ACTIVE_ORDER: Final = (
     "ORDER BY c.id"
 )
 MATCH_REPAIR_CURRENT_PROVIDER_CANDIDATES: Final = (
-    "SELECT a.record_id, c.candidate_json FROM enrichment_attempts a "
+    "SELECT a.record_id, c.candidate_json, c.selected FROM enrichment_attempts a "
     "JOIN source_records r ON r.id = a.record_id "
     "JOIN enrichment_candidates c ON c.attempt_id = a.id "
     "WHERE a.provider = ? AND a.identity_hash = r.identity_hash "
@@ -3847,6 +3973,20 @@ MATCH_REPAIR_VOLUME_REASON: Final = (
     "edition identifiers remain distinct"
 )
 MATCH_REPAIR_POLICY_CORROBORATED: Final = "identity-work-v2-corroboration"
+MTX_CATALOG_CONFLICT: Final = (
+    "Current identity-validated catalog work identities conflict; automatic ISBN linkage "
+    "cannot establish a shared work or edition"
+)
+MTX_CATALOG_RECORD_FILTER: Final = " AND a.record_id IN ({placeholders})"
+MTX_SQL_PLACEHOLDER: Final = "?"
+MTX_ACTIVE_IDENTITY_GROUPS: Final = (
+    "SELECT r.* FROM source_records r WHERE r.id IN (?, ?) OR "
+    "(r.work_id IN (SELECT work_id FROM source_records WHERE id IN (?, ?)) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = r.id))"
+)
+MTX_UPDATE_CATALOG_CONFLICT: Final = (
+    "UPDATE match_candidates SET kind = 'conflicting', reason = ? WHERE id = ?"
+)
 MATCH_REPAIR_TEST_COLLECTION: Final = "Matilda (Library, #1-3)"
 MATCH_REPAIR_TEST_OTHER_COLLECTION: Final = "Matilda (Library, #1-2)"
 MATCH_REPAIR_TEST_MULTI_VOLUME: Final = "Matilda (Library, #0.5, 2.5, 2.6)"
@@ -3885,6 +4025,12 @@ MATCH_UPGRADE_OTHER_WORK_MEMBER: Final = (
 MATCH_UPGRADE_PRIOR_DECISION: Final = (
     "SELECT 1 FROM match_decisions d LEFT JOIN match_candidates c ON c.id = d.candidate_id "
     "WHERE d.record_id = ? OR c.record_id = ? OR c.target_record_id = ? LIMIT 1"
+)
+MATCH_REPAIR_RECOVERY_DECISIONS: Final = (
+    "SELECT d.*, c.target_record_id FROM match_decisions d "
+    "JOIN match_candidates c ON c.id = d.candidate_id "
+    "WHERE d.record_id IN (?, ?) OR c.record_id IN (?, ?) "
+    "OR c.target_record_id IN (?, ?) ORDER BY d.id"
 )
 MATCH_UPGRADE_TEST_TITLE: Final = "A Game of Thrones"
 MATCH_UPGRADE_TEST_SERIES_TITLE: Final = "A Game of Thrones (A Song of Ice and Fire, #1)"
@@ -4269,7 +4415,283 @@ DR_TEST_TAMPER_RETRY: Final = (
 MQ_IDENTITY_PARAMETERS: Final = "field,original_value,changed_value"
 
 # Exact analytical genre-family vocabulary; provider observations remain unchanged.
-ANALYTIC_CATEGORY_VERSION: Final = "genre-families-v1"
+ANALYTIC_CATEGORY_VERSION: Final = "genre-families-v2-catalog-paths"
+ENR_CATALOG_KEYS: Final = (
+    "SELECT cache_key FROM metadata_cache WHERE provider = ? ORDER BY cache_key"
+)
+ENR_CATALOG_KEY: Final = "local-catalog"
+ENR_CATEGORY_PATH_SEPARATOR: Final = " / "
+ENR_CATEGORY_FICTION_GENERAL: Final = "fiction / general"
+ENR_CATEGORY_CHILDRENS_FICTION: Final = "children's fiction"
+ENR_CATEGORY_JUVENILE_FICTION: Final = "juvenile fiction"
+ENR_CATEGORY_YOUNG_ADULT_FICTION: Final = "young adult fiction"
+ENR_CATEGORY_LOVE_STORIES: Final = "love stories"
+ENR_CATEGORY_CONTEMPORARY_ROMANCE: Final = "fiction / romance / contemporary"
+ENR_CATEGORY_HISTORICAL_GENERAL: Final = "fiction / historical / general"
+ENR_CATEGORY_LITERARY_GENERAL: Final = "fiction / literary / general"
+ENR_CATEGORY_TEST_PATH: Final = "Fiction, Fantasy, General"
+ENR_CATEGORY_TEST_FALSE_PATH: Final = "Fiction, Imaginary Category, General"
+ENR_TEST_SERIES_TITLE: Final = "Matilda (School, #1)"
+ENR_DETAIL_DEFERRED: Final = "metadata_detail_deferred"
+ENR_DETAIL_DEFERRED_MESSAGE: Final = (
+    "Additional work details were deferred after the bounded catalog request allowance. "
+    "Validated cached fields are retained; a later eligible sync can continue."
+)
+QUEUE_SAME_IDENTITY: Final = "queue_same_identity"
+RD_METRIC: Final = "read.reader_summary"
+COMMA_SPACE: Final = ", "
+RD_WATCH_GENRES_KEY: Final = "watchlist_genres"
+RD_FAMILIAR_KEY: Final = "watchlist_familiar_authors"
+RD_NEW_KEY: Final = "watchlist_new_authors"
+RD_UNKNOWN_AUTHORS_KEY: Final = "watchlist_unknown_authors"
+RD_READ_EXAMPLES: Final = "A few books from your Read shelf, whether rated or not"
+RD_BOOK_REFERENCE: Final = "{title} — {authors}"
+RD_DUPLICATE: Final = "Reader summary requires unique confirmed works."
+REC_TEST_PREVIOUS_ANALYSIS_VERSION: Final = "analytics-previous-test-version"
+RD_SHORT: Final = "Under 200 pages"
+RD_MEDIUM: Final = "200-399 pages"
+RD_LONG: Final = "400 pages or more"
+RD_GROUP_NOTE: Final = (
+    "All Read works count toward your reading profile. Rating comparisons use only your "
+    "linked, unconflicted StoryGraph ratings. Small groups are pulled toward your overall "
+    "average; a pattern needs at least {minimum} ratings. Genre and author effects can overlap."
+)
+RD_TITLE: Final = "Your reading life"
+RD_DECK: Final = "The books behind your taste. The possibilities on your shelf."
+RD_COVER_NOTE: Final = (
+    "A portrait of the library you supplied, not a personality test. Start with the patterns "
+    "that have broad support; treat the thinner parts of the picture as open questions."
+)
+RD_AS_OF: Final = "Library snapshot · {date}"
+RD_DATE_FORMAT: Final = "%d %B %Y"
+RD_CONTENTS: Final = "Inside your reading life"
+RD_COVER_COUNTS: Final = "{read:,} books read · {watch:,} waiting on your watchlist"
+RD_COVER_RATING: Final = (
+    "{rated:,} Read books have usable personal ratings from StoryGraph. "
+    "Public Goodreads ratings appear only in separately labeled comparisons."
+)
+RD_COVER_HIGHLIGHT: Final = (
+    "Your typical recorded book is {pages} pages. Your Read shelf spans {authors:,} named "
+    "authors. Neither number depends on whether you rated the books."
+)
+RD_HIGHLIGHTS: Final = "A few things that make this shelf yours"
+RD_REPEAT_CONTRAST: Final = (
+    "Most read is not always most loved. You read {most_count} books by {most_author}; "
+    "among authors with repeated ratings, {best_author} stands out "
+    "({best_average}/5 across {best_count} ratings). This comparison allows for small "
+    "samples rather than picking an author from one exceptional book."
+)
+RD_LENGTH_HIGHLIGHT: Final = (
+    "Your strongest repeated length group is {label}: {count} ratings averaging "
+    "{average}/5, against your overall {baseline}/5. That is a pattern in these books, "
+    "not proof that length caused the difference."
+)
+RD_SECTION_SHAPE: Final = "The shape of your shelf"
+RD_SECTION_GENRES: Final = "The worlds you spend time in"
+RD_SECTION_RATINGS: Final = "What you have loved"
+RD_SECTION_AUTHORS: Final = "The authors you return to"
+RD_SECTION_PREFERENCES: Final = "What tends to work for you"
+RD_SECTION_APPETITES: Final = "Your reading appetites"
+RD_SECTION_TIME: Final = "Your reading through time"
+RD_SECTION_WATCH: Final = "The possibilities ahead"
+RD_SECTION_SHORTLIST: Final = "Ten possibilities to consider"
+RD_SECTION_SHORTLIST_MORE: Final = "More from your shortlist"
+RD_SECTION_COVERAGE: Final = "How much of the picture can we see?"
+RD_SECTION_NOTES: Final = "A few things worth knowing"
+RD_SHAPE_INTRO: Final = (
+    "Your reading profile includes every completed book, not just the ones with ratings. "
+    "Book length describes editions in the supplied data; it is not a measure of reading time."
+)
+RD_LENGTH_SUMMARY: Final = (
+    "Page counts are available for {known:,} of {total:,} Read books. "
+    "The middle recorded length is {pages} pages."
+)
+RD_GENRE_INTRO: Final = (
+    "These are recognized genre families from identity-checked public catalogs. A book can "
+    "belong to several families, so the bars are overlapping book counts, not slices of a pie."
+)
+RD_GENRE_COVERAGE: Final = (
+    "We can describe genres for {known:,} of your {total:,} Read books ({percent}). "
+    "The other {missing:,} are unknown here—not books without a genre."
+)
+RD_GENRE_CAUTION: Final = (
+    "The biggest known category is not necessarily your favorite. Broad 'fiction' labels "
+    "are less informative than a specific genre. Missing catalog data can change this picture."
+)
+RD_RATINGS_INTRO: Final = (
+    "These are your current StoryGraph ratings, on a five-point scale. No Goodreads personal "
+    "ratings or public community averages are used. Unrated and conflicting works stay out "
+    "of rating calculations, but remain in your reading profile."
+)
+RD_RATING_SUMMARY: Final = (
+    "{rated:,} of {total:,} Read books are rated without conflict ({percent}). "
+    "Your average is {average}/5; the middle rating is {median}/5."
+)
+RD_FAVORITES: Final = "{count:,} books meet your {threshold}/5 high-rating threshold."
+RD_FAVORITE_EXAMPLES: Final = "A few of your highly rated books"
+RD_FAVORITES_NOTE: Final = (
+    "Examples are ordered by your rating, then title. This is a sample of your high-rated "
+    "shelf, not a claim that the first example is your single favorite."
+)
+RD_BOOK_RATING: Final = "{title} — {authors} · your rating: {rating}/5"
+RD_AUTHORS_INTRO: Final = (
+    "Returning to an author shows reading investment. Enjoyment is a separate question, "
+    "so the table keeps books read and books rated alongside your average."
+)
+RD_AUTHOR_CONCENTRATION: Final = (
+    "Your most-read named author accounts for {count:,} of {total:,} Read books. "
+    "Several books in one series or by one author are related experiences, not independent votes."
+)
+RD_PREFERENCES_INTRO: Final = (
+    "Where do your ratings run above your usual level? These comparisons are descriptive, "
+    "not forecasts. They can reflect author or series overlap as well as the named category."
+)
+RD_BASELINE: Final = "Your comparison point is {average}/5 across {rated:,} rated Read books."
+RD_SIGNAL: Final = (
+    "{label}: {count} ratings, average {average}/5; cautious comparison {adjusted}/5 "
+    "({difference} against your overall average)."
+)
+RD_NO_SIGNAL: Final = (
+    "There is not enough repeated, rated evidence to make a useful comparison here. "
+    "We would rather leave this open than turn one or two books into a preference."
+)
+RD_APPETITE_INTRO: Final = (
+    "Inspired by reading-appetite ideas: wonder, surprise, intensity, meaning, connection "
+    "and clarity. These describe what public book descriptions explicitly mention. "
+    "They are not official colors, psychological traits or a replacement for your own labels. "
+    "A group's current rating average is descriptive, not proof of preference."
+)
+RD_APPETITE_SUPPORT: Final = "{label} · explicit description evidence in {count} Read books"
+RD_APPETITE_ABSENT: Final = (
+    "{label} · not enough supported description evidence. This does not mean you dislike it."
+)
+RD_APPETITE_RATING: Final = "Your current average: {average}/5 across {count} linked ratings."
+RD_QUOTE: Final = "From {title}: “{quote}”"
+RD_PROOF_LINK: Final = "Public description source"
+RD_TIME_INTRO: Final = (
+    "This timeline uses actual supplied completion dates only. Goodreads dates take precedence; "
+    "confirmed StoryGraph completion dates can fill a gap and remain separately attributed."
+)
+RD_TIME_COVERAGE: Final = (
+    "Usable completion dates cover {known:,} of {total:,} Read books. Undated books are not "
+    "assigned a year. A short or incomplete current year is not evidence that you read less."
+)
+RD_TIME_NOTE: Final = (
+    "These counts describe the dated subset, not a complete annual reading record. Ratings "
+    "attached to older reading years are today's ratings, not historical rating snapshots. "
+    "Publication dates and library-addition dates are not completion dates."
+)
+RD_WATCH_INTRO: Final = (
+    "Your watchlist is a set of possibilities, not a task list. Familiar authors and "
+    "unfamiliar authors offer different kinds of exploration; neither is automatically better."
+)
+RD_WATCH_SUMMARY: Final = (
+    "{familiar:,} watchlist books include an author on your Read shelf; {new:,} have named "
+    "authors not on that shelf. Author information is missing for {unknown:,}."
+)
+RD_RECOMMENDATION_COUNTS: Final = (
+    "{ranked:,} watchlist books have enough evidence to order. "
+    "{unknown:,} remain without a score; {excluded:,} are excluded by eligibility checks. "
+    "Missing information is not a negative review."
+)
+RD_SHORTLIST_INTRO: Final = (
+    "A varied starting point from your own watchlist, based on your StoryGraph ratings and "
+    "shared, verified book features. The ordering is a heuristic—not a probability of enjoyment. "
+    "Only your ten-item shortlist is shown; the full ranking stays in recommendations.json."
+)
+RD_REC_TITLE: Final = "{rank:02d} · {title}"
+RD_REC_SIGNAL: Final = "Shared {feature}: {label} · {count} supporting rated books"
+RD_REC_CAUTION: Final = "Some shared features also occur in books you rated lower."
+RD_REC_MISSING: Final = (
+    "Some supporting information is still missing. A good-looking match is not a complete picture."
+)
+RD_REC_EXAMPLE: Final = "A connection on your Read shelf: {title} ({rating}/5)."
+RD_COVERAGE_INTRO: Final = (
+    "There is no single honest 'coverage score'. Different questions need different facts. "
+    "This table shows what is available, so you can judge each conclusion on its actual support."
+)
+RD_COVERAGE_VALUE: Final = "{known:,}/{total:,} · {percent}"
+RD_PERCENT: Final = "{value:.0%}"
+RD_NUMBER: Final = "{value:.2f}"
+RD_DIFFERENCE: Final = "{value:+.2f}"
+RD_COVERAGE_GAP: Final = (
+    "The weakest parts of this picture are {fields}. More API retries cannot guarantee "
+    "these facts exist or identify the edition you actually read."
+)
+RD_QUALITY_NOTICE: Final = (
+    "The automatic quality audit also found consistency issues. Full counts and explanations "
+    "are retained in metadata-quality.json; coverage alone does not establish correctness."
+)
+RD_NOTES: Final = (
+    "This report is deliberately selective. analytics.json retains all calculated results, "
+    "recommendations.json retains every ranking and abstention, and metadata-quality.json "
+    "retains detailed completeness and consistency evidence. They belong to the same saved run."
+)
+RD_SOURCES_NOTE: Final = (
+    "Goodreads supplies your Read/watchlist membership and supported reading history. "
+    "StoryGraph supplies your personal ratings and separately attributed completion dates. "
+    "Public catalogs supply identity-checked book facts. A complete CSV import does not prove "
+    "that an account export is complete."
+)
+RD_VALIDATION_NOTE: Final = (
+    "Historical prediction checks have not established reliable future enjoyment accuracy. "
+    "The shortlist is an explainable discovery aid, not a validated recommendation model."
+)
+RD_MISSING_NOTE: Final = (
+    "Unknown does not mean zero, dislike or absence. An available translation does not tell "
+    "us which language you read. Work-level first publication is not an edition's publication date."
+)
+RD_HEADER_CATEGORY: Final = "Reading pattern"
+RD_HEADER_READ: Final = "Books read"
+RD_HEADER_RATED: Final = "Books rated"
+RD_HEADER_AVERAGE: Final = "Your average /5"
+RD_HEADER_YEAR: Final = "Completion year"
+RD_HEADER_GR_DATES: Final = "Goodreads dates"
+RD_HEADER_SG_DATES: Final = "StoryGraph dates"
+RD_HEADER_FIELD: Final = "What we know"
+RD_HEADER_WATCH: Final = "Watchlist"
+RD_AUTHOR: Final = "author"
+RD_GENRE: Final = "genre"
+RD_APPETITE: Final = "reading appetite"
+RD_PUBLICATION: Final = "First-publication year"
+RD_DESCRIPTION: Final = "Public description"
+RD_GENRES: Final = "Recognized genre family"
+RD_LANGUAGE: Final = "Edition language"
+RD_PAGES: Final = "Page count"
+RD_SERIES: Final = "Verified series"
+RD_SECTION_CROWD: Final = "You and the crowd"
+RD_CROWD_INTRO: Final = (
+    "Your StoryGraph rating and the public Goodreads average answer different questions. "
+    "Their difference can reveal interesting disagreements; it does not make either side "
+    "right. These comparisons do not supply your personal ratings or drive the shortlist."
+)
+RD_CROWD_SUMMARY: Final = (
+    "{count:,} Read books have both scores. On this matched subset, your rating is "
+    "{difference} stars relative to the Goodreads average."
+)
+RD_CROWD_HIGHER: Final = "You rated these higher"
+RD_CROWD_LOWER: Final = "You rated these lower"
+RD_CROWD_ITEM: Final = (
+    "{title} · you {personal}/5 · Goodreads {community}/5 · difference {difference}"
+)
+RD_CROWD_COUNT: Final = "Public Goodreads rating count: {count:,}."
+RD_CROWD_UNKNOWN_COUNT: Final = "The public rating sample size is unavailable."
+RD_CROWD_NOTE: Final = (
+    "Public averages describe different readers, and their counts vary. The examples below "
+    "are observed differences, not statistical outliers or proof of unusually discerning taste."
+)
+RD_RATING_VOCABULARY: Final = (
+    "Your most-used rating is {rating}/5: {count:,} books ({percent} of your rated shelf). "
+    "That is useful context when a small difference between groups looks dramatic."
+)
+RD_READ_VS_WATCH: Final = "Your known Read shelf and your known watchlist"
+RD_WATCH_GENRE_NOTE: Final = (
+    "Counts overlap across genres. A category missing from the known Read subset is not "
+    "proof that you have never tried it."
+)
+RD_HEADER_COMMUNITY: Final = "Goodreads average"
+RD_HEADER_SUPPORT: Final = "Supporting ratings"
+RD_MAX_PDF_PAGES: Final = "The reader report exceeded its page budget."
 ANALYTIC_CATEGORY_FIELD: Final = "analytical_genres"
 ANALYTIC_CATEGORY_FICTION: Final = "fiction"
 ANALYTIC_CATEGORY_NONFICTION: Final = "nonfiction"
@@ -4359,7 +4781,8 @@ ANALYTIC_CATEGORY_TEST_SUBSTRING: Final = "fantasy football"
 ANALYTIC_CATEGORY_TEST_SPACING: Final = "  SCIENCE   FICTION  "
 
 QUEUE_ELIGIBLE_ATTEMPTS_SQL: Final = (
-    "SELECT r.latest_json, a.raw_json, "
+    "SELECT r.latest_json, a.raw_json, a.checked_at, "
+    "(a.identity_hash = r.identity_hash) AS queue_same_identity, "
     "(a.id IS NULL OR a.identity_hash != r.identity_hash "
     "OR a.implementation_version != ?) AS queue_invalidated "
     "FROM source_records r LEFT JOIN enrichment_attempts a ON a.id = "
@@ -4430,4 +4853,872 @@ QUEUE_STATUS_UNRESOLVED_SQL: Final = (
     "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = a.record_id) "
     "AND (a.state != ? OR NOT EXISTS "
     "(SELECT 1 FROM enrichment_candidates c WHERE c.attempt_id = a.id AND c.selected = 1))"
+)
+
+# ANX: positive-only catalog appetite evidence and associations.
+ANX_VERSION: Final = "catalog-appetite-associations-v2"
+ANX_FEATURE: Final = "catalog_appetite_mentions"
+ANX_ENJOYMENT: Final = "content.appetite.enjoyment.read.{dimension}"
+ANX_EXPOSURE: Final = "content.appetite.exposure.read"
+ANX_AVAILABILITY: Final = "content.appetite.rating_availability.read"
+ANX_VALIDATION: Final = "content.appetite.validation.author_blocked"
+ANX_VALIDATION_SIGNAL: Final = "content.appetite.validation.author_blocked_signal"
+ANX_READ_MEMBERSHIP: Final = "analytical_read_membership"
+ANX_POLICY: Final = "catalog_appetite_policy"
+ANX_POSITIVE: Final = "positive_mention_works"
+ANX_UNMATCHED: Final = "verified_descriptions_without_appetite_evidence"
+ANX_UNKNOWN: Final = "missing_or_unverified_descriptions"
+ANX_ASSOCIATION: Final = "association"
+ANX_BASELINE: Final = "positive_evidence_cohort_rating_mean"
+ANX_DIFFERENCE: Final = "shrunk_difference_from_positive_cohort"
+ANX_INDEPENDENT: Final = "rated_author_connected_components"
+ANX_NOTE: Final = (
+    "Internal English catalog-description rules supply positive content-mention evidence, "
+    "not reader appetite, personality, colors or official assessment scores. Unmatched or "
+    "unverified descriptions are unknown, never negative examples. Exposure uses all Read "
+    "works independently of ratings; multi-label shares overlap. Enjoyment associations "
+    "and baselines use only the positive-evidence rated cohort, not unmatched books. "
+    "Current ratings are observational associations, not causal effects or predictions "
+    "of future recommendations. Explicit user labels and declared preferences stay separate."
+)
+ANX_SUPPORT_NOTE: Final = (
+    "Enjoyment requires minimum rated-work support, known authors, multiple connected "
+    "author components and no dominant author; otherwise association remains unavailable."
+)
+ANX_TEST_CONNECTION: Final = "A story of friendship and belonging."
+ANX_TEST_INTENSITY: Final = "A suspenseful story with high stakes."
+ANX_TEST_UNMATCHED: Final = "A quiet journey through ordinary days."
+ANX_FEATURES: Final = "features"
+ANX_UNCERTAINTY: Final = "uncertainty"
+ANX_LIMITATIONS: Final = "limitations"
+ANX_ADDITION_DATES: Final = "library_addition_dates"
+ANX_LIBRARY_ADDITIONS: Final = "{collection}.library_addition_profile"
+ANX_COMPLETION_COHORTS: Final = "read.completion_date_cohorts"
+ANX_COHORTS: Final = "date_year_cohorts"
+ANX_DATE_PRECISIONS: Final = "date_precisions"
+ANX_AGE_SUMMARY: Final = "day_precision_library_age_days"
+ANX_FUTURE_DATES: Final = "excluded_future_dates"
+ANX_INVALID_AS_OF: Final = "as_of_date_unavailable"
+ANX_DATE_ORIGIN: Final = "completion_date_origin"
+ANX_AUTHORITATIVE_DATE: Final = "goodreads_authoritative"
+ANX_SUPPLEMENTAL_DATE: Final = "storygraph_supplemental"
+ANX_SELECTED_DATES: Final = "selected_completion_dates"
+ANX_CONFLICTING_DATES: Final = "conflicting_supplemental_completion_dates"
+ANX_CURRENT_RATINGS: Final = "current_ratings_by_completion_date_cohort"
+ANX_SUPPLEMENTAL_STATES: Final = "supplemental_observation_states"
+ANX_ADDITION_NOTE: Final = (
+    "Goodreads library-addition dates describe when a book was added to the library, "
+    "not reading dates or guaranteed entry into its current shelf. Day-precision dates "
+    "alone support library age; partial dates remain in precision/year composition. "
+    "Future dates are excluded. This is snapshot composition, not an annual review."
+)
+ANX_COMPLETION_NOTE: Final = (
+    "One distinct work contributes once, using its earliest supplied authoritative "
+    "Goodreads completion when present, preserving precision. Only without any such "
+    "completion may a consistent explicit StoryGraph completion supply a supplemental "
+    "date; conflicting supplemental values remain unavailable. This never changes "
+    "Goodreads reading events or status and does not prove first reading or complete "
+    "history. Cohort ratings are current ratings grouped by the selected completion "
+    "year, not historical ratings. Sources, precision, exclusions and evidence remain "
+    "separate; small rated cohorts have no rating summary. Stable field/event proof is "
+    "stored with the finding; current capture and immutable CSV lineage are supplied by "
+    "the report manifest and rebound source snapshot IDs, not copied capture timestamps."
+)
+ANX_TEST_EARLIER_DATE: Final = "2023-02-01"
+ANX_TEST_LATER_DATE: Final = "2024-02-01"
+ANX_TEST_AS_OF: Final = "2025-01-01T00:00:00+00:00"
+ANX_TEST_FUTURE_DATE: Final = "2026-02-01"
+ANX_SOURCE_URL: Final = "source_url"
+ANX_COMPLETION_COUNTS: Final = "source_scope_completion_date_states"
+ANX_MATCHED_DATES: Final = "matched_present_supplemental_date_records"
+ANX_PRECEDENCE: Final = "goodreads_completion_precedence_works"
+
+ENR_OPEN_LIBRARY_SEARCH_FIELDS: Final = (
+    "key,title,author_name,isbn,subject,language,number_of_pages_median,"
+    "first_publish_year,ratings_average,ratings_count,series_name,series_position"
+)
+ENR_ALLOW_EXPIRED_PARAMETER: Final = "allow_expired"
+ENR_STREAM_FAILURE_PARAMETER: Final = "cooldown"
+
+DTX_SUPPLEMENTAL_COMPLETION_DATE: Final = "supplemental_completion_date"
+DTX_SUPPLEMENTAL_COMPLETION_DATES: Final = "supplemental_completion_dates"
+DTX_INVALID_COMPLETION_CODE: Final = "storygraph_completion_date_invalid"
+DTX_INVALID_COMPLETION_MESSAGE: Final = (
+    "Export record {row}: {field} is not a supported date. The original value remains raw; "
+    "its supplemental completion date is unavailable."
+)
+DTX_INVALID_SUPPLEMENTAL_MODEL: Final = (
+    "Supplemental completion dates require matching reader-scoped StoryGraph date evidence."
+)
+DTX_SUPPLEMENTAL_LINEAGE: Final = (
+    "Supplemental StoryGraph Last Date Read; never replaces Goodreads reading history."
+)
+DTX_TEST_DATE_PARAMETERS: Final = "value,state,precision"
+DTX_TEST_DAY: Final = "2024-02-29"
+DTX_TEST_MONTH: Final = "2024-02"
+DTX_TEST_YEAR: Final = "2024"
+DTX_TEST_INVALID_DATE: Final = "2023-02-29"
+DTX_TEST_UNKNOWN_DATE: Final = "unknown"
+DTX_TEST_OTHER_DATE: Final = "2023-12-31"
+DTX_OBSERVATION: Final = "observation"
+DTX_SCOPE: Final = "scope"
+DTX_SOURCE_COMPLETION_DATES_PRESENT: Final = "storygraph.read_scope_completion_dates.present"
+DTX_SOURCE_COMPLETION_DATES_EMPTY: Final = "storygraph.read_scope_completion_dates.empty"
+DTX_SOURCE_COMPLETION_DATES_UNSUPPORTED: Final = (
+    "storygraph.read_scope_completion_dates.unsupported"
+)
+DTX_SOURCE_COMPLETION_DATES_UNAVAILABLE: Final = (
+    "storygraph.read_scope_completion_dates.unavailable"
+)
+
+type MetadataStrategy = Literal["open_library_first", "independent"]
+ENR_STRATEGY_OPEN_LIBRARY_FIRST: Final = "open_library_first"
+ENR_STRATEGY_INDEPENDENT: Final = "independent"
+ENR_STRATEGY: Final = "strategy"
+ENR_FALLBACK_SKIPPED: Final = "fallback_skipped"
+ENR_FALLBACK_FIELDS: Final = "fallback_fields"
+ENR_OBSERVATION_SCOPE: Final = "scope"
+ENR_STRATEGY_TEST_PARAMETERS: Final = "strategy,stale"
+ENR_FALLBACK_UNRESOLVED: Final = "fallback_unresolved"
+ENR_GAPS_REMAIN_CODE: Final = "fallback_fields_unresolved"
+ENR_GAPS_REMAIN_MESSAGE: Final = (
+    "{count} active source records still lack selected identity-valid public descriptions "
+    "or recognized genre families; fallback completion does not prove full provider coverage."
+)
+ENR_SKIPPED_BY_STRATEGY: Final = "skipped_by_strategy"
+ENR_COVERAGE_SCOPE: Final = "coverage_scope"
+ENR_LOOKUP_COVERAGE_SCOPE: Final = "provider_lookup_outcomes"
+ENR_CORE_COVERAGE_SCOPE: Final = "bounded_core_fields"
+ENR_SELECTED_WORK_METADATA_SQL: Final = (
+    "SELECT r.latest_json, e.provider, c.candidate_json FROM source_records t "
+    "JOIN source_records r ON r.work_id = t.work_id "
+    "JOIN enrichment_active e ON e.record_id = r.id "
+    "JOIN enrichment_attempts a ON a.id = e.attempt_id "
+    "JOIN enrichment_candidates c ON c.id = e.candidate_id "
+    "WHERE t.source = ? AND t.account_id = ? AND t.source_id = ? "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = t.id) "
+    "AND EXISTS (SELECT 1 FROM memberships m WHERE m.record_id = r.id) "
+    "AND a.identity_hash = r.identity_hash AND c.selected = 1 "
+    "ORDER BY r.id, e.provider"
+)
+ENR_SETUP_ISSUE_PARAMETER: Final = "setup_issue"
+
+PDF_INVALID_REPORT: Final = "PDF reporting requires a structured saved report."
+PDF_PIN_MISMATCH: Final = "PDF inputs must share the saved analytics manifest, report ID and as-of."
+PDF_INVALID_ARTIFACT: Final = "PDF generation did not produce a complete document."
+PDF_STAGING_NAME: Final = ".{name}.{token}.staging"
+PDF_EXCLUSIVE_BINARY: Final = "xb"
+PDF_MAGIC: Final = b"%PDF-"
+PDF_KEY_AS_OF: Final = "as_of"
+PDF_KEY_MANIFEST: Final = "manifest"
+PDF_KEY_ANALYSIS_ID: Final = "analysis_report_id"
+PDF_KEY_RANKED: Final = "ranked"
+PDF_KEY_UNRANKABLE: Final = "unrankable"
+PDF_KEY_EXCLUDED: Final = "excluded"
+PDF_KEY_SHORTLIST: Final = "shortlist"
+PDF_KEY_SCORE: Final = "ranking_score"
+PDF_KEY_SUPPORTING: Final = "supporting_books"
+PDF_KEY_IDENTITY_TIER: Final = "identity_tier"
+PDF_KEY_FEATURE_TIER: Final = "feature_tier"
+PDF_KEY_PREFERENCE_TIER: Final = "preference_tier"
+PDF_KEY_LIMITATIONS: Final = "limitations"
+PDF_KEY_COVERAGE: Final = "coverage"
+PDF_KEY_SCOPE: Final = "scope"
+PDF_KEY_POPULATION: Final = "population"
+PDF_KEY_AVAILABLE: Final = "available"
+PDF_KEY_MISSING: Final = "missing"
+PDF_KEY_STATES: Final = "states"
+PDF_KEY_IDENTITY: Final = "identity"
+PDF_KEY_DIAGNOSTICS: Final = "diagnostics"
+PDF_KEY_COUNT: Final = "count"
+PDF_KEY_PROVIDER_STATUS: Final = "provider_status"
+PDF_KEY_POLICY: Final = "policy_version"
+PDF_KEY_SCHEMA: Final = "schema_version"
+PDF_KEY_REASONS: Final = "reasons"
+PDF_KEY_MISMATCHES: Final = "mismatches"
+PDF_KEY_MISSINGNESS: Final = "missingness"
+PDF_FONT: Final = "BookyNoto"
+PDF_FONT_BOLD: Final = "BookyNotoBold"
+PDF_FONT_DEVANAGARI: Final = "BookyNotoDevanagari"
+PDF_FONT_CJK: Final = "BookyNotoCJK"
+PDF_FONT_REGULAR_FILE: Final = "NotoSans-Regular.ttf"
+PDF_FONT_BOLD_FILE: Final = "NotoSans-Bold.ttf"
+PDF_FONT_DEVANAGARI_FILE: Final = "NotoSansDevanagari-Regular.ttf"
+PDF_FONT_CJK_FILE: Final = "NotoSansSC-VF.ttf"
+PDF_FONT_SPAN: Final = '<font name="{font}">{text}</font>'
+PDF_UNSUPPORTED_GLYPH: Final = "[U+{code:04X}]"
+PDF_FONTS_FOLDER: Final = "fonts"
+PDF_STYLE_TITLE: Final = "pdf-title"
+PDF_STYLE_KICKER: Final = "pdf-kicker"
+PDF_STYLE_DECK: Final = "pdf-deck"
+PDF_STYLE_H1: Final = "pdf-section"
+PDF_STYLE_H2: Final = "pdf-heading"
+PDF_STYLE_H3: Final = "pdf-subheading"
+PDF_STYLE_BODY: Final = "pdf-body"
+PDF_STYLE_NOTE: Final = "pdf-note"
+PDF_STYLE_CELL: Final = "pdf-cell"
+PDF_STYLE_TABLE_HEAD: Final = "pdf-table-head"
+PDF_STYLE_TOC: Final = "pdf-toc"
+PDF_INK: Final = "#172B3A"
+PDF_NAVY: Final = "#183749"
+PDF_TEAL: Final = "#188B86"
+PDF_PALE: Final = "#F0F6F6"
+PDF_MUTED: Final = "#536B78"
+PDF_BACKGROUND: Final = "BACKGROUND"
+PDF_TEXT_COLOR: Final = "TEXTCOLOR"
+PDF_VALIGN: Final = "VALIGN"
+PDF_TOP: Final = "TOP"
+PDF_ROW_BACKGROUNDS: Final = "ROWBACKGROUNDS"
+PDF_LEFT_PADDING: Final = "LEFTPADDING"
+PDF_RIGHT_PADDING: Final = "RIGHTPADDING"
+PDF_TOP_PADDING: Final = "TOPPADDING"
+PDF_BOTTOM_PADDING: Final = "BOTTOMPADDING"
+PDF_LINE_BELOW: Final = "LINEBELOW"
+PDF_ALIGN_LEFT: Final = "LEFT"
+PDF_TRUNCATED: Final = " … [display abbreviated]"
+PDF_DOT: Final = "."
+PDF_LABEL_SEPARATOR: Final = " / "
+PDF_UNKNOWN: Final = "Unknown / unavailable"
+PDF_YES: Final = "Yes"
+PDF_NO: Final = "No"
+PDF_EMPTY: Final = "None observed"
+PDF_DECIMAL: Final = "{value:.3f}"
+PDF_INLINE_SEPARATOR: Final = "; "
+PDF_KEY_VALUE: Final = "{key}: {value}"
+PDF_MORE: Final = " … (+{count} entries)"
+PDF_FIELD_COUNT: Final = "{count} structured fields"
+PDF_BOOKMARK: Final = "booky-section-{index}"
+PDF_SEQUENCE: Final = "pdf-sections"
+PDF_TOC_ENTRY: Final = "TOCEntry"
+PDF_TEMPLATE: Final = "library-report"
+PDF_EYEBROW: Final = "BOOKYSTATS  /  YOUR LIBRARY, IN CONTEXT"
+PDF_TITLE: Final = "A reading life"
+PDF_SUBTITLE: Final = "Library portrait · evidence-led insights · what to read next"
+PDF_AUTHOR: Final = "BookyStats"
+PDF_AS_OF: Final = "Pinned analysis as of {value}"
+PDF_SUMMARY_READ: Final = "Read works"
+PDF_SUMMARY_WATCH: Final = "Watchlist works"
+PDF_SUMMARY_RATED: Final = "Read with ratings"
+PDF_SUMMARY_METADATA: Final = "Selected provider records"
+PDF_SUMMARY_NOTE: Final = (
+    "Counts describe unique confirmed works in the supplied snapshots, not a verified complete "
+    "account. Every Read work contributes to the library portrait, whether rated or not."
+)
+PDF_READING_GUIDE: Final = "How to read this report"
+PDF_GUIDE: Final = (
+    "Start with coverage, then separate the shape of your library from rating-linked associations. "
+    "Content mentions are supported by public-description excerpts. The watchlist shortlist "
+    "explains both evidence and gaps; a ranking score is not a predicted rating."
+)
+PDF_EVIDENCE_NOTICE: Final = (
+    "Generated locally from pinned inputs and saved reports. No source requests, browser session "
+    "or credentials are needed to render this document."
+)
+PDF_NAVIGATION: Final = "Contents"
+PDF_SECTION_INVENTORY: Final = "01  Library portrait"
+PDF_SECTION_STRUCTURE: Final = "Pages, formats and publication years"
+PDF_SECTION_DATES: Final = "02  Reading dates and cohorts"
+PDF_SECTION_ENJOYMENT: Final = "03  Ratings and enjoyment evidence"
+PDF_SECTION_CONTENT: Final = "04  Themes and six appetites"
+PDF_SECTION_WATCHLIST: Final = "05  Watchlist and explained shortlist"
+PDF_SECTION_QUALITY: Final = "06  Automated metadata quality"
+PDF_SECTION_APPENDIX: Final = "07  Statistics, limitations and provenance"
+PDF_ALL_READ_NOTE: Final = (
+    "The denominator below is all Read works, not only the rated subset. Available fields are "
+    "not interchangeable: selected edition facts do not describe every edition of a work."
+)
+PDF_RATING_LABEL: Final = "Usable personal rating"
+PDF_PAGES_LABEL: Final = "Selected edition pages"
+PDF_EDITION_YEAR: Final = "Edition publication year"
+PDF_WORK_YEAR: Final = "Work first-publication year"
+PDF_DESCRIPTION_LABEL: Final = "Description text (provenance audited below)"
+PDF_GENRES_LABEL: Final = "Recognized genre families"
+PDF_FORMAT_LABEL: Final = "Selected edition format"
+PDF_LANGUAGE_LABEL: Final = "Selected edition language"
+PDF_FIELD_LABEL: Final = "Field"
+PDF_AVAILABLE_LABEL: Final = "Available"
+PDF_MISSING_LABEL: Final = "Missing / conflicting"
+PDF_KNOWN_LABEL: Final = "Known works"
+PDF_MINIMUM_LABEL: Final = "Minimum"
+PDF_MEDIAN_LABEL: Final = "Median"
+PDF_MAXIMUM_LABEL: Final = "Maximum"
+PDF_TOTAL_LABEL: Final = "Known page sum"
+PDF_PAGES_UNAVAILABLE: Final = "Page statistics are unavailable: no selected edition page counts."
+PDF_PAGES_NOTE: Final = (
+    "Known page sum is an inventory statistic, not pages actually read; editions, rereads and "
+    "missing page counts prevent that inference. "
+    "Work first-publication and edition years remain separate."
+)
+PDF_LANGUAGE_NOTE: Final = (
+    "Edition language is separate from work-level translation availability. Neither proves "
+    "the language actually read or a language preference."
+)
+PDF_CHART_NOTE: Final = (
+    "Top {shown} of {total} observed categories; counts are distinct works per label. "
+    "Multilabel totals can exceed the population."
+)
+PDF_NO_OBSERVATIONS: Final = "No supported observations are available for this section."
+PDF_DATE_CAVEAT: Final = (
+    "Only explicit dates support dated cohorts. Missing dates are not inferred from capture time. "
+    "Goodreads completion dates take precedence; any permitted StoryGraph supplement is separately "
+    "labeled with source and precision. Ratings shown by completion year are CURRENT ratings, "
+    "not ratings recorded at that historical time. Addition dates are not reading dates."
+)
+PDF_RATINGS_CAVEAT: Final = (
+    "Personal ratings are separate from provider community ratings. Missing or conflicting "
+    "ratings are not zeroes. Coverage and selection differences matter: a linked-rating share "
+    "is not a matching-accuracy estimate."
+)
+PDF_RATING_BUCKET: Final = "{value:g} stars"
+PDF_RATING_DISTRIBUTION: Final = "Observed personal-rating distribution"
+PDF_VALIDATION_CAVEAT: Final = (
+    "Held-out errors require the same cohort and training-only baselines. Connected coauthors "
+    "stay together where grouped validation is available. Component-resampling ranges describe "
+    "stability, not confidence or future recommendation accuracy."
+)
+PDF_CONTENT_CAVEAT: Final = (
+    "Themes and the six supported appetite labels—wonder, surprise, intensity, meaning, connection "
+    "and clarity—describe explicit content mentions, not personality. Rules are versioned and "
+    "supported mentions include public-description quotes. No official colors, assessment weights "
+    "or genre-to-personality proxies are used. A missing mention is not a negative example."
+)
+PDF_CONTENT_PREFIX: Final = "content."
+PDF_MENTION_TITLE: Final = "{label} — {count} supported works"
+PDF_QUOTE: Final = "{work}: “{quote}”"
+PDF_LINK: Final = '<link href="{url}" color="#188B86">{label}</link>'
+PDF_WATCHLIST_CAVEAT: Final = (
+    "Composition describes the current watchlist; the separately generated shortlist orders "
+    "eligible candidates using transparent saved evidence. Sparse, ambiguous or excluded records "
+    "remain visible in the counts rather than receiving invented scores."
+)
+PDF_WATCHLIST_GENRES: Final = "Watchlist composition: known genre families"
+PDF_RANKED_LABEL: Final = "Rankable"
+PDF_UNRANKABLE_LABEL: Final = "Unrankable"
+PDF_EXCLUDED_LABEL: Final = "Excluded"
+PDF_SHORTLIST: Final = "Your explained shortlist"
+PDF_NO_SHORTLIST: Final = (
+    "No evidence-supported shortlist is available; no order has been invented."
+)
+PDF_SHORTLIST_TITLE: Final = "{rank}. {title}  |  score {score}"
+PDF_AUTHORS: Final = "Authors: {value}"
+PDF_SCORE_NOTE: Final = "Ranking score, not enjoyment probability or a guaranteed future rating."
+PDF_REASONS_LABEL: Final = "Why it appears"
+PDF_MISMATCHES_LABEL: Final = "Counter-evidence and mismatches"
+PDF_MISSINGNESS_LABEL: Final = "What remains unknown"
+PDF_EXAMPLE_TITLE: Final = "Supporting Read example"
+PDF_EXAMPLE_RATING: Final = "Current personal rating"
+PDF_WORK_ID_LABEL: Final = "Work ID"
+PDF_EVIDENCE_TIERS: Final = (
+    "Evidence tiers — identity: {identity}; features: {features}; preference: {preference}."
+)
+PDF_QUALITY_CAVEAT: Final = (
+    "An automated audit checks completeness, provenance and internal consistency. It cannot "
+    "establish bibliographic accuracy or independently verify every provider match. Unknown, "
+    "unsupported, empty and failed states stay distinct; there is no invented aggregate score."
+)
+PDF_POPULATION_LABEL: Final = "Population"
+PDF_SCOPE_LABEL: Final = "Scope"
+PDF_STATES_LABEL: Final = "Observed states"
+PDF_IDENTITY_AUDIT: Final = "Identity and provider agreement"
+PDF_DIAGNOSTICS: Final = "Consistency findings and actionable gaps"
+PDF_CODE_LABEL: Final = "Finding"
+PDF_COUNT_LABEL: Final = "Count"
+PDF_MESSAGE_LABEL: Final = "Explanation"
+PDF_PROVIDER_STATUS: Final = "Provider outcomes and durable deferrals"
+PDF_DETAIL_KEY: Final = "Statistic"
+PDF_DETAIL_VALUE: Final = "Observed value"
+PDF_FINDING_CONTEXT: Final = (
+    "Population: {population} · sample: {sample} · missing: {missing} · "
+    "reliability: {reliability} · baseline: {baseline}"
+)
+PDF_UNCERTAINTY: Final = "Uncertainty, support and method details"
+PDF_FINDINGS_BOUNDED: Final = (
+    "Displayed {shown} of {total} findings in stable summary-first order. "
+    "The saved analytics report "
+    "retains the complete structured findings."
+)
+PDF_CAPABILITIES: Final = "Capability and missingness inventory"
+PDF_CAPABILITY_STATE: Final = "State"
+PDF_CAPABILITY_COVERAGE: Final = "Coverage"
+PDF_CAPABILITY_REASON: Final = "Reason"
+PDF_FRACTION: Final = "{known} / {total}"
+PDF_OTHER_STATISTICS: Final = "Additional computed statistics"
+PDF_INVENTORY_SAMPLE: Final = "Read inventory reference"
+PDF_INVENTORY_BOUND: Final = (
+    "First {shown} of {total} Read works in stable title order; this is a bounded reference, "
+    "not the analysis sample. All Read works contribute to applicable statistics."
+)
+PDF_TITLE_LABEL: Final = "Title"
+PDF_AUTHORS_LABEL: Final = "Authors"
+PDF_RATING_SHORT_LABEL: Final = "Rating"
+PDF_PAGES_SHORT_LABEL: Final = "Pages"
+PDF_YEARS_LABEL: Final = "Work / edition year"
+PDF_YEARS: Final = "{work} / {edition}"
+PDF_PROVENANCE: Final = "Pinned snapshots and calculation versions"
+PDF_SOURCE_LABEL: Final = "Source"
+PDF_COLLECTION_LABEL: Final = "Collection"
+PDF_SNAPSHOT_LABEL: Final = "Snapshot"
+PDF_RECORDS_LABEL: Final = "Records"
+PDF_CAPTURED_LABEL: Final = "Saved at"
+PDF_VERSION_INFO: Final = (
+    "Analytics: {analytics}; settings digest: {settings}; saved analytics report: {report}; "
+    "ranking policy: {recommendation}; quality schema: {quality}."
+)
+PDF_LIMITATIONS: Final = "Interpretation limits"
+PDF_LIMIT_SOURCE: Final = (
+    "A complete file import does not establish a complete or current account collection."
+)
+PDF_LIMIT_MISSING: Final = (
+    "Unavailable fields remain unknown. Unknown content is never treated as dislike."
+)
+PDF_LIMIT_LABELS: Final = (
+    "Unverified browser genre/series labels are not trusted analytic features."
+)
+PDF_LIMIT_PROVIDERS: Final = (
+    "Source acceptance and analytics success do not establish full provider coverage. Deferred "
+    "requests and durable retry gates are not reset to force completion."
+)
+PDF_LIMIT_DISPLAY: Final = (
+    "Large nested statistics and evidence lists are explicitly abbreviated for readability; "
+    "saved typed reports retain full details. Tables paginate, and only approved public "
+    "description references become links."
+)
+PDF_LIMIT_FONT: Final = (
+    "Embedded Noto fonts provide glyph coverage, which is separate from correct script layout. "
+    "Complex-script shaping and right-to-left (RTL) layout are not enabled; Devanagari and RTL "
+    "text may render incorrectly despite available glyphs. Unsupported glyphs are explicitly "
+    "shown as Unicode code points, not silently dropped."
+)
+PDF_ISSUE: Final = "{code}: {message}"
+PDF_FOOTER: Final = "BOOKYSTATS  ·  LOCAL LIBRARY REPORT"
+PDF_PAGE: Final = "Page {page}"
+PDF_CONTROL_REGEX: Final = r"[\x00-\x1f]"
+PDF_STRUCTURE_PREFIX: Final = "read.structure."
+PDF_ENJOYMENT_PREFIX: Final = "read.enjoyment."
+PDF_RATINGS_PREFIX: Final = "ratings."
+PDF_VALIDATION_PREFIX: Final = "read.validation."
+PDF_DATE_TOKEN: Final = "cohort"
+PDF_YEAR_TOKEN: Final = "year"
+PDF_COMPLETION_TOKEN: Final = "completion"
+PDF_ADDITIONS_TOKEN: Final = "addition"
+PDF_PERSONAL_PREFIX: Final = "read.personal_ratings"
+PDF_FEATURE_PREFIX: Final = "read.feature."
+PDF_TEST_FILENAME: Final = "library.pdf"
+PDF_TEST_ACCOUNT: Final = "synthetic-pdf-reader"
+PDF_TEST_HASH: Final = "synthetic-pdf-hash"
+PDF_TEST_SOURCE: Final = "work:1"
+PDF_TEST_DATE: Final = "2026-11-03T00:00:00+00:00"
+PDF_TEST_OTHER_DATE: Final = "2026-11-02T00:00:00+00:00"
+PDF_TEST_UNICODE: Final = "Murakami ō — café · Привет · λ"
+PDF_TEST_CJK: Final = "本の図書館"
+PDF_TEST_AUTHOR: Final = "Synthetic Author"
+PDF_TEST_LONG_TITLE: Final = (
+    "{index:03d} Murakami ō — café · Привет · λ 本の図書館 "
+    "A substantially long title with <untrusted markup> & a long explanatory subtitle that wraps "
+    "through multiple lines without clipping the title, rating, year or surrounding table rows."
+)
+PDF_TEST_TITLE_FIRST: Final = "000 Murakami"
+PDF_TEST_TITLE_LAST: Final = "039 Murakami"
+PDF_TEST_PREVIOUS: Final = b"previous-good-pdf"
+PDF_TEST_FAILURE: Final = "injected PDF rendering failure"
+PDF_TEST_RENDER_ATTRIBUTE: Final = "render_pdf"
+PDF_TEST_STAGING_PATTERN: Final = "*.staging"
+PDF_TEST_RESOURCES: Final = "/Resources"
+PDF_TEST_FONT_RESOURCE: Final = "/Font"
+PDF_TEST_DESCRIPTOR: Final = "/FontDescriptor"
+PDF_TEST_FONT_FILE: Final = "/FontFile2"
+PDF_TEST_ACTION: Final = "/A"
+PDF_TEST_URI: Final = "/URI"
+PDF_TEST_ANNOTATIONS: Final = "/Annots"
+PDF_TEST_QUOTE: Final = "A story of friendship and enduring connection."
+PDF_TEST_URL: Final = "https://www.goodreads.com/book/show/12345"
+PDF_TEST_REASON: Final = "Shares a supported feature with rated Read examples."
+PDF_TEST_GAP: Final = "Missing work first-publication year; retained as unknown."
+PDF_TEST_QUALITY_CODE: Final = "synthetic_metadata_missing"
+PDF_KEY_POPULATION_NAME: Final = "population_name"
+PDF_KEY_SOURCES: Final = "sources"
+PDF_KEY_WORK_IDS: Final = "work_ids"
+PDF_KEY_COMPONENTS: Final = "components"
+PDF_KEY_FEATURE: Final = "feature"
+PDF_KEY_LABEL: Final = "label"
+PDF_KEY_CONTRIBUTION: Final = "contribution"
+PDF_KEY_SAMPLE_SIZE: Final = "sample_size"
+PDF_SCOPE_POPULATION: Final = "{scope} / {population}"
+PDF_STATE_SOURCES: Final = "{states}; sources: {sources}"
+PDF_DIAGNOSTIC_DETAIL: Final = "{message} Affected work IDs (bounded): {works}"
+PDF_WORK_REFERENCE: Final = "{work} — {title}"
+PDF_COMPONENT_FEATURE: Final = "Feature"
+PDF_COMPONENT_LABEL: Final = "Observed label"
+PDF_COMPONENT_CONTRIBUTION: Final = "Ranking contribution"
+PDF_COMPONENT_SUPPORT: Final = "Rated support"
+PDF_EOF: Final = b"%%EOF"
+PDF_TEST_REPLACE_ATTRIBUTE: Final = "replace"
+PDF_UNAVAILABLE_SUMMARY: Final = "Metrics awaiting sufficient observations"
+PDF_UNAVAILABLE_METRIC: Final = "Metric (no eligible sample)"
+PDF_CAPABILITY_GROUP_NOTE: Final = (
+    "Metrics with identical state, coverage and explanation are grouped. These are capability "
+    "limits, not zero-valued findings. Complete definitions and details remain in analytics.json."
+)
+PDF_TEST_LONG_WORD: Final = "unbroken"
+PDF_TEST_GROUP_METRIC: Final = "read.feature.authors.synthetic-{index}"
+PDF_TEST_VALIDATION_PROOF: Final = "Essential held-out evaluation summary retained."
+MQ_REPORT_VERSION: Final = "metadata-quality-v1"
+MQ_REPORT_ALL: Final = "all"
+MQ_REPORT_INPUT_MISMATCH: Final = (
+    "Metadata quality requires the same pinned manifest and as-of time as the analytics report."
+)
+MQ_REPORT_PROVIDER_DISCREPANCY: Final = "cross_provider_discrepancy"
+MQ_REPORT_UNBACKED: Final = "selected_value_without_scoped_evidence"
+MQ_REPORT_UNTRUSTED: Final = "selected_value_without_trusted_provenance"
+MQ_REPORT_RATING_CONFLICT: Final = "personal_rating_conflict"
+MQ_REPORT_YEAR_ORDER: Final = "first_publication_after_edition"
+MQ_REPORT_PROVIDER_ORIGIN: Final = "provider_origin_mismatch"
+MQ_REPORT_READER_CONTAMINATION: Final = "reader_field_contamination"
+MQ_REPORT_UNVERIFIED_LABELS: Final = "unverified_browser_labels"
+MQ_REPORT_PROVIDER_DISCREPANCY_MESSAGE: Final = (
+    "Selected providers differ on a catalog title/author or work first-publication year. "
+    "This is an automated discrepancy, not proof either provider is wrong; "
+    "edition naming can differ."
+)
+MQ_REPORT_UNBACKED_MESSAGE: Final = (
+    "A selected analysis value lacks matching present evidence in its required scope."
+)
+MQ_REPORT_UNTRUSTED_MESSAGE: Final = (
+    "A selected value has evidence but no recognized authoritative source/public provider origin."
+)
+MQ_REPORT_RATING_CONFLICT_MESSAGE: Final = (
+    "Conflicting personal ratings remain unresolved; no rating was invented."
+)
+MQ_REPORT_YEAR_ORDER_MESSAGE: Final = (
+    "Work first-publication year follows the selected edition year; inspect retained provenance."
+)
+MQ_REPORT_PROVIDER_ORIGIN_MESSAGE: Final = (
+    "A public-provider observation does not reference its selected canonical provider identity."
+)
+MQ_REPORT_READER_CONTAMINATION_MESSAGE: Final = (
+    "Evidence contains a provider reader-scope field or a disallowed StoryGraph reader field."
+)
+MQ_REPORT_UNVERIFIED_LABELS_MESSAGE: Final = (
+    "Browser genre/series labels remain unverified observations, not trusted analytical features."
+)
+MQ_REPORT_LIMIT_AUTOMATED: Final = (
+    "Coverage and consistency are automated diagnostics, not independently verified accuracy. "
+    "Independent verification is unknown; no aggregate quality score is assigned."
+)
+MQ_REPORT_LIMIT_IDENTITY: Final = (
+    "Inputs contain confirmed catalog works and selected identity-valid metadata only. "
+    "Identifier-anchor coverage is the presence of validated ISBN observations, "
+    "not matching accuracy; "
+    "unselected candidates and independent ground truth are not available in this snapshot."
+)
+MQ_REPORT_LIMIT_PROVIDERS: Final = (
+    "Cross-provider comparisons use normalized catalog titles/authors (including edition identity) "
+    "and work first-publication years. Agreement can share upstream errors; "
+    "title/author differences "
+    "may be legitimate edition naming. Different descriptions, subjects and edition facts are not "
+    "automatically conflicts. Provider status is current caller-supplied context, not pinned book "
+    "evidence or fetched by this report."
+)
+MQ_REPORT_LIMIT_SCOPE: Final = (
+    "Edition language is not language actually read; "
+    "work translations cannot fill edition language. "
+    "Missing values remain unknown, and unrated Read works stay in the coverage population."
+)
+MQ_REPORT_LIMIT_COVERAGE: Final = (
+    "Coverage counts selected analysis values. Source counts show works with supporting trusted "
+    "evidence, may overlap, and can be lower than coverage "
+    "when diagnostics identify unsupported values."
+)
+MQ_REPORT_TEST_GOODREADS_ID: Final = "123"
+MQ_REPORT_TEST_GOODREADS_URL: Final = "https://www.goodreads.com/book/show/123"
+MQ_REPORT_TEST_CSV_ORIGIN: Final = "file:///synthetic-library.csv"
+MQ_REPORT_TEST_OTHER_DESCRIPTION: Final = "An alternative public catalog synopsis."
+MQ_REPORT_TEST_LANGUAGE_URL: Final = "https://www.goodreads.com/book/show/123?token=redacted"
+MQ_REPORT_KEY_SETTINGS_HASH: Final = "settings_hash"
+
+REC_POLICY_VERSION: Final = "watchlist-baseline-v1"
+REC_RANKED: Final = "ranked"
+REC_UNRANKABLE: Final = "unrankable"
+REC_EXCLUDED: Final = "excluded"
+REC_SCORE_LABEL: Final = "Ranking score, not a probability of enjoyment"
+REC_CONFIRMED: Final = "confirmed catalog work"
+REC_POSSIBLE: Final = "possible Read overlap; not a confirmed identity link"
+REC_SUPPORTED: Final = "shared selected evidence"
+REC_LIMITED: Final = "limited evidence"
+REC_ABSENT: Final = "unavailable"
+REC_AUTHOR: Final = "author familiarity"
+REC_NO_SIGNAL: Final = (
+    "No shared feature with an unconflicted personally rated Read work; abstained."
+)
+REC_READ: Final = "Confirmed completed/Read work; excluded from start-next suggestions."
+REC_ACTIVE: Final = "Currently reading; excluded from start-next suggestions."
+REC_RECONSIDER: Final = "Paused or DNF; kept separate from start-next suggestions."
+REC_UNRELEASED_WORK: Final = "Known original publication is in a future year."
+REC_UNRELEASED_EDITION: Final = (
+    "Known selected edition publication is in a future year; "
+    "other editions are not assumed available."
+)
+REC_POSSIBLE_READ: Final = (
+    "Unresolved possible match to a Read work; no identity link was inferred."
+)
+REC_UNKNOWN_STATUS: Final = "Watchlist membership conflicts with an unknown/current reading state."
+REC_UNKNOWN_PUBLICATION: Final = (
+    "Original publication year is unknown; availability is not established."
+)
+REC_UNKNOWN_EDITION: Final = "Selected edition publication year is unknown."
+REC_UNKNOWN_GENRE: Final = "No supported normalized genre metadata."
+REC_UNKNOWN_APPETITE: Final = (
+    "No shared explicit appetite labels; content mentions are not personal appetite labels."
+)
+REC_UNKNOWN_SERIES: Final = (
+    "No verified provider series evidence; no reading-order prerequisite is inferred."
+)
+REC_NO_RATING: Final = "No unconflicted personal ratings on confirmed Read works."
+REC_SUPPORT: Final = "Shared {feature}: {label}; {count} personally rated Read work(s)."
+REC_MISMATCH: Final = (
+    "Shared {feature}: {label} also occurs in {count} Read work(s) rated below 3/5."
+)
+REC_FAMILIAR: Final = (
+    "Author occurs in confirmed Read history; familiarity alone does not establish enjoyment."
+)
+REC_LIMITATIONS: Final = (
+    "Transparent retrospective baseline, not a learned or validated enjoyment probability. "
+    "Only confirmed Read personal ratings and features available for both Read and unread works "
+    "inform scores. Community ratings, candidate ratings, reviews, and unrated books are not "
+    "negative examples. Unknown fields are not penalties. Current source snapshots do not "
+    "establish complete account coverage. Year-only publication dates do not establish "
+    "within-year release availability."
+)
+REC_COMPATIBILITY_ERROR: Final = (
+    "Recommendation inputs and analytics must pin the same manifest and as-of date."
+)
+REC_STORE_ERROR: Final = (
+    "Recommendation storage failed integrity or compatibility validation; "
+    "last-good reports are retained."
+)
+REC_STORE_CLOSED: Final = "Recommendation storage is closed."
+REC_KEY: Final = "key"
+REC_POLICY: Final = "policy_version"
+REC_AS_OF: Final = "as_of"
+REC_MANIFEST: Final = "manifest"
+REC_ANALYSIS_REPORT_ID: Final = "analysis_report_id"
+REC_REUSED: Final = "reused"
+REC_REPORT_ID: Final = "report_id"
+REC_SNAPSHOT_IDS: Final = "source_snapshot_ids"
+REC_CREATED_AT: Final = "created_at"
+REC_BOOKS: Final = "books"
+REC_ACCOUNT: Final = "account"
+REC_FEATURES: Final = "features"
+REC_AUTHOR_NAMES: Final = "authors"
+REC_WORK_ID: Final = "work_id"
+REC_RATING: Final = "rating"
+REC_TITLE: Final = "title"
+REC_STATUS: Final = "status"
+REC_COLLECTIONS: Final = "collections"
+REC_EVENTS: Final = "reading_events"
+REC_YEAR: Final = "publication_year"
+REC_ORIGINAL_YEAR: Final = "first_publication_year"
+REC_ADDED_AT: Final = "added_at"
+REC_ISSUES: Final = "issues"
+REC_SOURCE_IDS: Final = "source_ids"
+REC_TOKEN_MATCH: Final = "match"
+REC_TOKEN_AMBIGUOUS: Final = "ambig"
+REC_TOKEN_UNRESOLVED: Final = "unresolved"
+REC_TOKEN_CONFLICT: Final = "conflict"
+REC_CREATE_CACHE: Final = (
+    "CREATE TABLE IF NOT EXISTS recommendation_cache ("
+    "cache_key TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL)"
+)
+REC_CREATE_REPORTS: Final = (
+    "CREATE TABLE IF NOT EXISTS recommendation_reports ("
+    "report_id INTEGER PRIMARY KEY AUTOINCREMENT, cache_key TEXT NOT NULL "
+    "REFERENCES recommendation_cache(cache_key), analysis_report_id INTEGER "
+    "REFERENCES analysis_reports(report_id), payload TEXT NOT NULL, payload_hash TEXT NOT NULL)"
+)
+REC_GET_CACHE: Final = (
+    "SELECT cache_key, payload, payload_hash FROM recommendation_cache WHERE cache_key = ?"
+)
+REC_INSERT_CACHE: Final = "INSERT INTO recommendation_cache VALUES (?, ?, ?)"
+REC_INSERT_REPORT: Final = (
+    "INSERT INTO recommendation_reports(cache_key, analysis_report_id, payload, payload_hash) "
+    "VALUES (?, ?, ?, ?)"
+)
+REC_LATEST: Final = (
+    "SELECT report_id, cache_key, analysis_report_id, payload, payload_hash "
+    "FROM recommendation_reports "
+    "ORDER BY report_id DESC LIMIT 1"
+)
+REC_TEST_AUTHOR: Final = "Recommendation author"
+REC_TEST_OTHER_AUTHOR: Final = "Other recommendation author"
+REC_TEST_GENRE: Final = "fantasy"
+REC_TEST_OTHER_GENRE: Final = "history"
+REC_TEST_AS_OF: Final = "2026-11-03T00:00:00+00:00"
+REC_TEST_FUTURE_AS_OF: Final = "2027-11-03T00:00:00+00:00"
+REC_TEST_CORRUPT: Final = "UPDATE recommendation_cache SET payload_hash = ? WHERE cache_key = ?"
+REC_TEST_COUNT: Final = "SELECT COUNT(*) FROM recommendation_cache"
+REC_TEST_UPDATE: Final = "UPDATE recommendation_reports SET payload_hash = ?"
+REC_TEST_BAD_HASH: Final = "0"
+REC_REASONS: Final = "reasons"
+REC_IDENTITY_TIER: Final = "identity_tier"
+REC_RANKING_SCORE: Final = "ranking_score"
+REC_MISMATCHES: Final = "mismatches"
+REC_COMPONENTS: Final = "components"
+REC_SUPPORTING_BOOKS: Final = "supporting_books"
+REC_FEATURE_TIER: Final = "feature_tier"
+REC_PREFERENCE_TIER: Final = "preference_tier"
+REC_RANKED_FIELD: Final = "ranked"
+REC_UNRANKABLE_FIELD: Final = "unrankable"
+REC_EXCLUDED_FIELD: Final = "excluded"
+REC_SHORTLIST_FIELD: Final = "shortlist"
+REC_SCHEMA: Final = (
+    "SELECT name, sql FROM sqlite_master WHERE name IN "
+    "('recommendation_cache', 'recommendation_reports') ORDER BY name"
+)
+REC_CACHE_TABLE: Final = "recommendation_cache"
+REC_REPORT_TABLE: Final = "recommendation_reports"
+REC_IF_NOT_EXISTS: Final = "IF NOT EXISTS "
+REC_SNAPSHOTS: Final = "snapshots"
+REC_SETTINGS_HASH: Final = "settings_hash"
+REC_SET_VERSION: Final = "PRAGMA user_version = 3"
+REC_LEGACY_VERSION: Final = "PRAGMA user_version = 2"
+REC_ALL_CACHE: Final = "SELECT cache_key, payload, payload_hash FROM recommendation_cache"
+REC_ALL_REPORTS: Final = (
+    "SELECT report_id, cache_key, analysis_report_id, payload, payload_hash "
+    "FROM recommendation_reports"
+)
+REC_DROP_REPORTS: Final = "DROP TABLE recommendation_reports"
+REC_DROP_CACHE: Final = "DROP TABLE recommendation_cache"
+REC_LEGACY_CONTENT: Final = (
+    "SELECT cache_key, kind, payload, payload_hash FROM analysis_components ORDER BY cache_key"
+)
+REC_LEGACY_REPORTS: Final = "SELECT * FROM analysis_reports ORDER BY report_id"
+REC_POSSIBLE_READ_MATCHES: Final = "possible_read_matches"
+REC_PENDING_MATCHES: Final = (
+    "SELECT id, record_id, target_record_id FROM match_candidates "
+    "WHERE resolution = 'pending' ORDER BY id"
+)
+REC_TARGET_RECORD_ID: Final = "target_record_id"
+REC_POSSIBLE_TARGETS: Final = "possible_targets"
+REC_TEST_PENDING: Final = (
+    "INSERT INTO match_candidates(record_id, target_record_id, kind, reason, identifiers_json, "
+    "resolution, first_snapshot_id, last_snapshot_id) "
+    "VALUES (?, ?, 'likely', 'synthetic possible match', '[]', 'pending', ?, ?)"
+)
+REC_TEST_RECORDS: Final = "SELECT id, source_id FROM source_records WHERE source = ? ORDER BY id"
+REC_TEST_SNAPSHOT: Final = "SELECT MAX(id) FROM snapshots"
+REC_COMMUNITY_RATINGS: Final = "community_ratings"
+REC_RATING_CONFLICT: Final = "rating_conflict"
+REC_CALCULATION_VERSION: Final = "calculation_version"
+REC_ANALYTICS_SETTINGS: Final = "settings"
+REC_PUBLICATION_DATES: Final = "publication_dates"
+REC_TEST_FUTURE_DAY: Final = "2026-12-01"
+REC_TEST_FUTURE_MONTH: Final = "2026-12"
+REC_TEST_CURRENT_YEAR: Final = "2026"
+REC_TEST_SERIES: Final = "Verified recommendation series"
+REC_TEST_PUBLICATION: Final = "date,scope,field,reason"
+
+LOG_FILE_NAME: Final = "bookystats.log"
+LOG_APPEND_MODE: Final = "a"
+LOG_RUN_START: Final = "=== RUN START {time} UTC | trigger: {trigger} ==="
+LOG_RUN_END: Final = "=== RUN END {time} UTC | outcome: {outcome} ==="
+LOG_EVENT: Final = "[{time} UTC] {message}"
+LOG_FAILURE_TRIGGER: Final = "failure"
+LOG_INTERRUPTED: Final = (
+    "Run interrupted or exited without a final receipt; saved history is retained."
+)
+LOG_EXCEPTION: Final = "{type}: {message}"
+LOG_ALREADY_FINISHED: Final = "Cannot append progress to a finished run."
+LOG_SYMLINK_ERROR: Final = "Refusing to append the operational log through a symbolic link."
+LOG_SECRET_QUERY_PATTERN: Final = (
+    r"(?i)([?&](?:api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|"
+    r"client[-_]?secret|password|secret|signature|authorization|auth|"
+    r"cookie|remember_user_token)=)[^&\s]+"
+)
+LOG_SECRET_HEADER_PATTERN: Final = (
+    r"(?im)(\b(?:authorization|proxy-authorization|cookie|set-cookie|"
+    r"""x-api-key)["']?\s*[:=]\s*["']?)[^\r\n]+"""
+)
+LOG_SECRET_VALUE_PATTERN: Final = (
+    r"""(?i)(\b(?:client_secret|refresh_token|access_token|id_token|"""
+    r"""api_key|password)\b["']?\s*[:=]\s*["']?)[^"'&\s,;}]+"""
+)
+LOG_SECRET_USERINFO_PATTERN: Final = r"(?i)(https?://)[^/\s@]+@"
+LOG_TEST_PROVIDER_MESSAGE: Final = (
+    "https://provider.invalid/books?refresh_token=private-refresh&client_secret=private-client\n"
+    "Authorization: Basic private-basic\nCookie: session=private-cookie\n"
+    '{"access_token": "private-json"}\n'
+    "{'Authorization': 'Basic private-dict'}\n"
+    "headers={'Cookie': 'private-dict-cookie'}\n"
+    "https://private-user:private-password@provider.invalid/books"
+)
+LOG_TEST_REFRESH: Final = "private-refresh"
+LOG_TEST_CLIENT: Final = "private-client"
+LOG_TEST_BASIC: Final = "private-basic"
+LOG_TEST_COOKIE: Final = "private-cookie"
+LOG_TEST_JSON: Final = "private-json"
+LOG_TEST_USER: Final = "private-user"
+LOG_TEST_PASSWORD: Final = "private-password"
+LOG_TEST_DICT: Final = "private-dict"
+LOG_TEST_START_TOKEN: Final = "=== RUN START"
+LOG_TEST_END_TOKEN: Final = "=== RUN END"
+LOG_TEST_PROGRESS: Final = "Metadata: processed 2 of 8 books — continuing."
+LOG_TEST_INTERRUPT_TYPE: Final = "KeyboardInterrupt"
+LOG_TEST_WRITE: Final = "write"
+LOG_TEST_FLUSH: Final = "flush"
+LOG_TEST_METHOD_PARAMETER: Final = "method"
+LOG_ISSUES_HEADING: Final = "Issue totals by scope and code (all occurrences; limited examples)"
+LOG_ISSUE_COUNT: Final = "  {scope} | {code}: {count} occurrences"
+LOG_ISSUE_EXAMPLE: Final = "    Example: {message}"
+LOG_ISSUE_TRUNCATED: Final = "… [message shortened]"
+LOG_ANALYTICS_SCOPE: Final = "analytics"
+LOG_DELIVERY_SCOPE: Final = "delivery"
+
+LOG2_RUN_START: Final = "=== RUN START {time} | trigger: {trigger} ==="
+LOG2_RUN_END: Final = "=== RUN END {time} | outcome: {outcome} ==="
+LOG2_EVENT: Final = "[{time}] {message}"
+LOG2_SOURCE: Final = "Source {source}/{collection}: {state}; {records:,} active records."
+LOG2_SOURCES: Final = (
+    "Sources: {complete}/{total} imports complete; {records:,} records in successful imports. "
+    "File imports do not verify account completeness."
+)
+LOG2_METADATA: Final = (
+    "Metadata {provider}: {state}; {processed:,}/{requested:,} lookups processed, "
+    "{deferred:,} deferred."
+)
+LOG2_CORE: Final = (
+    "  Core-gap fallback: {unresolved:,} records still missing description/genre evidence; "
+    "{skipped:,} strategy skips (not provider matches)."
+)
+LOG2_ANALYTICS: Final = (
+    "Analytics: {state}; report {report_id}, {read:,} Read works, {rated:,} rating-linked."
+)
+LOG2_PRODUCTS: Final = (
+    "Reports: {state}; PDF and JSON bundle published for analytics report {report_id}."
+)
+LOG2_PRODUCTS_RETAINED: Final = (
+    "Reports: {state}; no new bundle published; any last-good bundle retained."
+)
+LOG2_VERIFICATION: Final = (
+    "Verification: {result}; full checks and lineage remain in saved receipts."
+)
+LOG2_RECEIPT: Final = "Run {run_id}: {state}."
+LOG2_METADATA_PROGRESS: Final = "Metadata {source}: {completed:,}/{total:,} books ({percent}%)."
+LOG2_PATH_PATTERN: Final = r"""(?i)(?<![\w:/])(?:[a-z]:[\\/]|\\\\[^\\\s]+\\)[^\r\n"'<>|]*"""
+LOG2_NOTICE_EXPLANATION: Final = (
+    "Expected import notices are counted without row examples; original fields remain archived."
+)
+LOG2_TEST_LARGE_TOTAL: Final = "total"
+LOG2_TEST_PRIVATE_PATH_MESSAGE: Final = (
+    'Cannot read "Q:\\private\\reader\\inputs\\library.csv"; check the configured input.'
+)
+LOG2_TEST_ACTION: Final = "check the configured input"
+LOG2_TEST_ZERO_TIMEOUT: Final = "timeout"
+LOG2_TEST_UTC_DUPLICATE: Final = "+00:00 UTC"
+LOG2_TEST_MONOTONIC: Final = "monotonic"
+LOG2_TEST_SYMLINK: Final = "is_symlink"
+LOG2_TEST_PROGRESS_FINISHED: Final = "2,153/2,153 books (100%)"
+LOG2_TEST_PARTIAL_END: Final = "| outcome: partial ==="
+LOG2_SOURCE_RETAINED: Final = (
+    "Source {source}/{collection}: {state}; no complete replacement; "
+    "any last-good snapshot retained."
 )

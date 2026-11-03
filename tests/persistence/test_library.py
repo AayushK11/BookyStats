@@ -15,6 +15,7 @@ from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.adapters.metadata.open_library import OpenLibraryProvider
 from bookystats.application.sync import SyncService
+from bookystats.domain.analytics import AnalyticsSettings
 from bookystats.domain.matching import MatchKind, MatchResult, title_author_key
 from bookystats.domain.models import (
     BookRecord,
@@ -38,6 +39,7 @@ from bookystats.persistence.payloads import PayloadIntegrityError, PayloadStore
 from bookystats.runtime.config import Settings
 from tests.adapters.metadata.test_open_library import FakeHttp, response, work_response
 from tests.support.paths import fixture_path
+from tests.support.sources import accounts
 
 
 @pytest.fixture
@@ -58,6 +60,14 @@ def db(database_path: Path) -> Iterator[Database]:
         yield database
     finally:
         database.close()
+
+
+def test_existing_only_open_never_creates_a_missing_database(tmp_path: Path) -> None:
+    path = tmp_path / S.LAYOUT_DATABASES / S.LIBRARY_SQLITE3
+    with closing(Database(path)) as database, pytest.raises(sqlite3.OperationalError):
+        database.initialize(require_existing=C.TRUE)
+    assert not path.exists()
+    assert not path.parent.exists()
 
 
 def book(**changes: object) -> BookRecord:
@@ -1007,6 +1017,209 @@ def test_different_verified_provider_work_ids_do_not_merge_same_title(db: Databa
     assert library(db)[S.WORKS] == C.TWO
 
 
+def test_unselected_title_only_catalog_works_cannot_veto_unique_bibliography_links(
+    db: Database,
+) -> None:
+    personal = book(isbns=())
+    catalog = book(source=Source.GOODREADS, isbns=())
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ONE
+    selected = _work_metadata(db, personal)
+    alternative = selected.model_copy(
+        update={
+            S.PROVIDER_ID: S.MATCH_UPGRADE_TEST_OTHER_WORK,
+            S.WORK_ID: S.MATCH_UPGRADE_TEST_OTHER_WORK,
+            S.URL: S.OPEN_LIBRARY_WORK_URL_TEMPLATE.format(v0=S.MATCH_UPGRADE_TEST_OTHER_WORK),
+        }
+    )
+    db.save_enrichment(
+        personal.source,
+        Source.OPEN_LIBRARY,
+        EnrichmentResult(
+            source_id=personal.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(selected, alternative),
+        ),
+    )
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == C.ONE
+    assert library(db)[S.EDITIONS] == C.TWO
+
+
+def test_automatic_work_recovery_requires_same_pair_unchanged_identities_and_no_human_override(
+    db: Database,
+) -> None:
+    personal = book(isbns=())
+    catalog = book(source=Source.GOODREADS, isbns=())
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ONE
+    duplicate = catalog.model_copy(update={S.SOURCE_ID: S.SECOND})
+    publish(db, snapshot(catalog, duplicate, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    separated = rows(db, S.MATCH_UPGRADE_TEST_IDENTITIES)
+    assert separated[C.ZERO][S.WORK_ID] != separated[C.ONE][S.WORK_ID]
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ONE
+    restored = rows(db, S.MATCH_UPGRADE_TEST_IDENTITIES)
+    assert restored[C.ZERO][S.WORK_ID] == restored[C.ONE][S.WORK_ID]
+    assert restored[C.ZERO][S.EDITION_ID] != restored[C.ONE][S.EDITION_ID]
+    assert db.reconcile_provider_work_matches() == C.ZERO
+
+
+def test_current_catalog_conflict_splits_automatic_isbn_identity_and_rating(db: Database) -> None:
+    personal = book(observations=(rating(C.FOUR),))
+    catalog = book(source=Source.GOODREADS)
+    for account, record in zip(accounts(), (personal, catalog), strict=C.TRUE):
+        data = snapshot(
+            record,
+            source=account.source,
+            account_id=account.account_id,
+            collection=S.LIBRARY if account.source == Source.STORYGRAPH else S.READ,
+        ).model_copy(update={S.INPUT_RAW_DOCUMENT_ID: S.ONE_2})
+        publish(db, data)
+    assert db.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO].rating == C.FOUR
+    _work_metadata(db, personal)
+    _work_metadata(db, catalog, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.TWO
+    assert db.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO].rating is C.NONE
+    candidate = db.match_candidates()[C.ZERO]
+    assert candidate[S.KIND] == S.CONFLICTING
+    assert candidate[S.REASON] == S.MTX_CATALOG_CONFLICT
+    decisions = len(rows(db, S.MATCH_UPGRADE_TEST_DECISIONS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert len(rows(db, S.MATCH_UPGRADE_TEST_DECISIONS)) == decisions
+
+
+def test_catalog_conflict_blocks_new_isbn_link_into_existing_group(db: Database) -> None:
+    personal = book()
+    catalog = book(source=Source.GOODREADS)
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    _work_metadata(db, personal)
+    _work_metadata(db, catalog, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+    descendant = catalog.model_copy(update={S.SOURCE_ID: S.THIRD})
+
+    publish(db, snapshot(catalog, descendant, source=Source.GOODREADS))
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.THREE
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.THREE
+
+
+def test_catalog_conflict_splits_dependent_automatic_isbn_links(db: Database) -> None:
+    personal = book()
+    catalog = book(source=Source.GOODREADS)
+    descendant = catalog.model_copy(update={S.SOURCE_ID: S.THIRD})
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, descendant, source=Source.GOODREADS))
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.ONE
+    _work_metadata(db, personal)
+    _work_metadata(db, descendant, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.THREE
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.THREE
+
+
+def test_same_current_catalog_and_unrelated_search_hit_do_not_split_isbn_link(
+    db: Database,
+) -> None:
+    personal = book()
+    catalog = book(source=Source.GOODREADS)
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    _work_metadata(db, personal)
+    selected = _work_metadata(db, catalog)
+    unrelated = selected.model_copy(
+        update={
+            S.PROVIDER_ID: S.MATCH_UPGRADE_TEST_OTHER_WORK,
+            S.WORK_ID: S.MATCH_UPGRADE_TEST_OTHER_WORK,
+            S.URL: S.OPEN_LIBRARY_WORK_URL_TEMPLATE.format(v0=S.MATCH_UPGRADE_TEST_OTHER_WORK),
+            S.TITLE: S.TEST_UNRELATED_SEARCH_HITS_DO_NOT_UNRELATED_TITLE_AN_UNRELATED_WORK,
+            S.ISBNS: (),
+        }
+    )
+    db.save_enrichment(
+        catalog.source,
+        Source.OPEN_LIBRARY,
+        EnrichmentResult(
+            source_id=catalog.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(selected, unrelated),
+        ),
+    )
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.ONE
+
+
+def test_stale_catalog_identity_cannot_split_automatic_isbn_link(db: Database) -> None:
+    personal = book()
+    catalog = book(source=Source.GOODREADS)
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    _work_metadata(db, personal)
+    _work_metadata(db, catalog, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+
+    changed = catalog.model_copy(update={S.TITLE: S.MATILDA_2})
+    publish(db, snapshot(changed, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.ONE
+
+
+def test_superseded_catalog_conflict_does_not_split_automatic_isbn_link(db: Database) -> None:
+    personal = book()
+    catalog = book(source=Source.GOODREADS)
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    _work_metadata(db, personal)
+    _work_metadata(db, catalog, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+    _work_metadata(db, catalog)
+
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.ONE
+
+
+def test_withdrawn_catalog_conflict_does_not_split_active_isbn_pair(db: Database) -> None:
+    personal = book()
+    catalog = book(source=Source.GOODREADS)
+    withdrawn = catalog.model_copy(update={S.SOURCE_ID: S.THIRD})
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, withdrawn, source=Source.GOODREADS))
+    _work_metadata(db, personal)
+    _work_metadata(db, withdrawn, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.ONE
+
+
+def test_catalog_conflict_preserves_explicit_acceptance_and_undo(db: Database) -> None:
+    personal = book()
+    catalog = book(source=Source.GOODREADS)
+    publish(db, snapshot(personal))
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    _work_metadata(db, personal)
+    _work_metadata(db, catalog, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
+    db.reconcile_provider_work_matches()
+    candidate_id = int(str(db.match_candidates()[C.ZERO][S.ID]))
+    decision_id = db.resolve_match(candidate_id, accept=C.TRUE)
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.ONE
+    assert db.match_candidates(include_resolved=C.TRUE)[C.ZERO][S.RESOLUTION] == S.ACCEPTED
+
+    db.undo_match(decision_id)
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.TWO
+    db.resolve_match(candidate_id, accept=C.FALSE)
+    publish(db, snapshot(catalog, source=Source.GOODREADS))
+    assert db.reconcile_provider_work_matches() == C.ZERO
+    assert db.match_candidates(include_resolved=C.TRUE)[C.ZERO][S.RESOLUTION] == S.REJECTED
+
+
 def test_provider_work_identity_cannot_override_contradictory_bibliography(db: Database) -> None:
     left, right = _different_editions(db)
     changed = right.model_copy(
@@ -1047,7 +1260,7 @@ def test_conflicting_provider_work_ids_in_an_existing_group_block_transitive_mer
     _work_metadata(db, same_edition, work_id=S.MATCH_UPGRADE_TEST_OTHER_WORK)
     _work_metadata(db, other_edition)
     assert db.reconcile_provider_work_matches() == C.ZERO
-    assert library(db)[S.WORKS] == C.TWO
+    assert library(db)[S.WORKS] == library(db)[S.EDITIONS] == C.THREE
 
 
 def test_stale_identity_invalidates_a_provider_work_link_without_transferring_ratings(
@@ -1962,6 +2175,7 @@ def test_retryable_metadata_uses_persisted_due_time_across_restart(
             issues=(Issue(code=S.METADATA_REQUEST_FAILED, message=S.FAILED, retryable=C.TRUE),),
         ),
     )
+    db._connection().execute(S.META_COVERAGE_TEST_OLD_IMPLEMENTATION)
     db.close()
     reopened = Database(database_path)
     try:

@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -16,6 +17,7 @@ from bookystats.adapters.http import HttpClient
 from bookystats.adapters.metadata.open_library import OpenLibraryProvider, _Fields, _merge_details
 from bookystats.domain.errors import ConnectorError, ProviderDeferredError
 from bookystats.domain.interfaces import HttpResponse
+from bookystats.domain.matching import select_metadata_candidate
 from bookystats.domain.models import BookRecord, FieldState, Source, SyncState
 from bookystats.persistence.cache import MetadataCache
 from bookystats.persistence.raw import RawStore, RecordingFetcher
@@ -77,6 +79,60 @@ def test_rejected_batch_stops_subsequent_requests(book: BookRecord) -> None:
     with pytest.raises(ProviderDeferredError):
         provider.lookup(book)
     assert len(http.calls) == C.ONE
+
+
+def test_local_catalog_recovers_series_title_without_new_requests(
+    payload: dict[str, Any], book: BookRecord, tmp_path: Path
+) -> None:
+    cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
+    try:
+        original = book.model_copy(update={S.ISBNS: ()})
+        first = OpenLibraryProvider(FakeHttp(response(payload)), cache=cache).lookup(original)
+        assert first.candidates
+        variant = original.model_copy(update={S.TITLE: S.ENR_TEST_SERIES_TITLE})
+        http = FakeHttp()
+        recovered = OpenLibraryProvider(http, cache=cache).lookup(variant)
+        assert recovered.cache_hit
+        assert recovered.candidates == first.candidates
+        assert select_metadata_candidate(variant, recovered.candidates) is not C.NONE
+        assert not http.calls
+    finally:
+        cache.close()
+
+
+def test_catalog_ambiguity_cannot_fall_back_to_a_narrower_query_cache(
+    payload: dict[str, Any], book: BookRecord, tmp_path: Path
+) -> None:
+    cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
+    try:
+        OpenLibraryProvider(FakeHttp(response(payload)), cache=cache).lookup(book)
+        payload[S.DOCS][C.ZERO][S.KEY] = S.OL123W
+        other = OpenLibraryProvider(FakeHttp(response(payload))).lookup(book)
+        cache.put(
+            Source.OPEN_LIBRARY,
+            S.SECOND,
+            {
+                S.CANDIDATES: [candidate.model_dump(mode=S.JSON) for candidate in other.candidates],
+                S.COMPLETE: C.TRUE,
+                S.ISSUES: [],
+            },
+            ttl_seconds=C.OPEN_LIBRARY_POSITIVE_TTL,
+        )
+        http = FakeHttp()
+        result = OpenLibraryProvider(http, cache=cache).lookup(book)
+        assert len(result.candidates) == C.TWO
+        assert select_metadata_candidate(book, result.candidates) is C.NONE
+        assert not http.calls
+    finally:
+        cache.close()
+
+
+def test_series_suffix_is_not_discarded_before_shared_identity_validation(
+    payload: dict[str, Any], book: BookRecord
+) -> None:
+    variant = book.model_copy(update={S.TITLE: S.ENR_TEST_SERIES_TITLE, S.ISBNS: ()})
+    result = OpenLibraryProvider(FakeHttp(response(payload))).lookup(variant)
+    assert result.candidates
 
 
 def test_zero_mean_without_ratings_is_unavailable_not_failed(
@@ -287,7 +343,7 @@ def test_work_search_never_promotes_aggregate_or_partial_edition_data_to_exact_e
         int(params[S.LIMIT])
         <= C.TEST_OPEN_LIBRARY_WORK_SEARCH_NEVER_EDITION_DATA_TO_EXACT_EDITION_5
     )
-    assert params[S.FIELDS] == S.PROVIDER_ALL_FIELDS
+    assert params[S.FIELDS] == S.ENR_OPEN_LIBRARY_SEARCH_FIELDS
     assert headers == {S.ACCEPT: S.GOOGLE_BOOKS_HTTP_PAYLOAD_APPLICATION_JSON}
     assert S.PRIVATE_SHELF not in json.dumps(http.calls)
     assert S.ORIGINAL_WATCHLIST_BOOK not in json.dumps(http.calls)
@@ -330,6 +386,25 @@ def test_distinct_books_share_one_batch_and_have_individual_cache_hits(
     assert provider.lookup(second_book).cache_hit
     assert len(http.calls) == C.ONE
     cache.close()
+
+
+def test_projected_search_archives_the_complete_actual_response(
+    payload: dict[str, Any], book: BookRecord, tmp_path: Path
+) -> None:
+    payload[S.DOCS][C.ZERO][S.UNKNOWN] = {S.VALUE: S.META_COVERAGE_TEST_DETAILS_TEXT}
+    expected = response(payload)
+    archive = RawStore(tmp_path / S.TEST_RAW_FILENAME)
+    recording = RecordingFetcher(FakeHttp(expected), archive, source=Source.OPEN_LIBRARY)
+    try:
+        result = OpenLibraryProvider(recording).lookup(book)
+        assert result.state == SyncState.COMPLETE
+        assert recording.last_capture is not C.NONE
+        assert archive.get(recording.last_capture.id).body == expected.body
+        assert parse_qs(urlsplit(recording.last_capture.origin).query)[S.FIELDS] == [
+            S.ENR_OPEN_LIBRARY_SEARCH_FIELDS
+        ]
+    finally:
+        archive.close()
 
 
 def test_huge_watchlist_is_one_bounded_batch_and_explicitly_defers_the_remainder(
@@ -731,7 +806,7 @@ def test_unknown_metrics_are_not_zero_and_inconsistent_rating_is_flagged(
     assert any(issue.code == S.INCONSISTENT_RATING for issue in result.issues)
 
 
-def test_cache_is_catalog_only_stale_entries_refetch_and_corruption_is_explicit(
+def test_cache_is_catalog_only_age_independent_and_corruption_is_explicit(
     payload: dict[str, Any], book: BookRecord, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     now = [C.TEST_OPEN_LIBRARY_CACHE_IS_CATALOG_AND_CORRUPTION_IS_EXPLICIT_NOW]
@@ -747,9 +822,15 @@ def test_cache_is_catalog_only_stale_entries_refetch_and_corruption_is_explicit(
         * C.TEST_OPEN_LIBRARY_CACHE_IS_REFETCH_AND_CORRUPTION_IS_EXPLICIT_2
         * C.TEST_OPEN_LIBRARY_CACHE_IS_REFETCH_AND_CORRUPTION_IS_EXPLICIT_2
     )
-    http = FakeHttp(response(payload))
-    fresh = OpenLibraryProvider(http, cache=cache).lookup(book)
-    assert not fresh.cache_hit and len(http.calls) == C.ONE
+    cache.close()
+    cache = MetadataCache(path)
+    http = FakeHttp()
+    reused = OpenLibraryProvider(http, cache=cache).lookup(
+        book.model_copy(update={S.SOURCE_ID: S.SECOND_ORIGINAL_ID})
+    )
+    assert reused.cache_hit and not http.calls
+    assert reused.source_id == S.SECOND_ORIGINAL_ID
+    assert reused.candidates == first.candidates
     assert (
         S.TEST_GOOGLE_BOOKS_FRESH_CACHE_CACHING_SENSITIVE_PAYLOAD_BYTES_2 not in path.read_bytes()
     )
@@ -867,8 +948,14 @@ def work_response(payload: object, status: int = C.OPEN_LIBRARY_HTTP_PAYLOAD) ->
 
 
 def test_confirmed_work_details_add_description_and_precise_work_publication(
-    payload: dict[str, Any], work_payload: dict[str, Any], book: BookRecord, tmp_path: Path
+    payload: dict[str, Any],
+    work_payload: dict[str, Any],
+    book: BookRecord,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    now = [C.TEST_OPEN_LIBRARY_CACHE_IS_CATALOG_AND_CORRUPTION_IS_EXPLICIT_NOW]
+    monkeypatch.setattr(S.BOOKYSTATS_CACHE_UTC_TIMESTAMP, lambda: now[C.ZERO])
     raw = RawStore(tmp_path / S.TEST_RAW_FILENAME)
     cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
     http = FakeHttp(response(payload), work_response(work_payload))
@@ -898,8 +985,11 @@ def test_confirmed_work_details_add_description_and_precise_work_publication(
         assert stored is not C.NONE
         assert stored[S.META_COVERAGE_BODY] == work_response(work_payload).text
         assert stored[S.META_COVERAGE_CAPTURE_ID] == recording.last_capture.id
+        now[C.ZERO] += C.OPEN_LIBRARY_POSITIVE_TTL + C.ONE
         empty = FakeHttp()
-        repeated = OpenLibraryProvider(empty, cache=cache, work_details=C.TRUE).lookup(book)
+        repeated = OpenLibraryProvider(
+            empty, cache=cache, work_details=C.TRUE, detail_request_limit=C.ZERO
+        ).lookup(book)
         assert repeated.cache_hit and not empty.calls
         assert repeated.candidates == result.candidates
     finally:
@@ -907,13 +997,47 @@ def test_confirmed_work_details_add_description_and_precise_work_publication(
         cache.close()
 
 
-def test_ambiguous_and_title_only_candidates_never_trigger_work_details(
-    payload: dict[str, Any], book: BookRecord
+def test_detail_allowance_retains_partial_identity_without_halting_cached_searches(
+    payload: dict[str, Any], book: BookRecord, tmp_path: Path
+) -> None:
+    cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
+    try:
+        http = FakeHttp(response(payload))
+        provider = OpenLibraryProvider(
+            http, cache=cache, work_details=C.TRUE, detail_request_limit=C.ZERO
+        )
+        first = provider.lookup(book)
+        repeated = provider.lookup(book)
+        assert first.state == repeated.state == SyncState.PARTIAL
+        assert first.candidates == repeated.candidates
+        assert select_metadata_candidate(book, first.candidates) is not C.NONE
+        assert any(issue.code == S.ENR_DETAIL_DEFERRED for issue in first.issues)
+        assert len(http.calls) == C.ONE
+    finally:
+        cache.close()
+
+
+def test_streaming_details_yield_before_requesting_the_next_book(
+    payload: dict[str, Any], work_payload: dict[str, Any], book: BookRecord
+) -> None:
+    http = FakeHttp(response(payload), work_response(work_payload), work_response(work_payload))
+    other = book.model_copy(update={S.SOURCE_ID: S.SECOND_ORIGINAL_ID})
+    stream = OpenLibraryProvider(http, work_details=C.TRUE).iter_lookup_many((book, other))
+    first = next(stream)
+    assert first.state == SyncState.COMPLETE and len(http.calls) == C.TWO
+    second = next(stream)
+    assert second.source_id == other.source_id and len(http.calls) == C.THREE
+    with pytest.raises(StopIteration):
+        next(stream)
+
+
+def test_unique_work_identity_fetches_details_but_ambiguous_does_not(
+    payload: dict[str, Any], work_payload: dict[str, Any], book: BookRecord
 ) -> None:
     without_isbn = book.model_copy(update={S.ISBNS: ()})
-    http = FakeHttp(response(payload))
+    http = FakeHttp(response(payload), work_response(work_payload))
     result = OpenLibraryProvider(http, work_details=C.TRUE).lookup(without_isbn)
-    assert result.candidates and len(http.calls) == C.ONE
+    assert result.candidates and len(http.calls) == C.TWO
     second = copy.deepcopy(payload[S.DOCS][C.ZERO])
     second[S.KEY] = S.OL123W
     payload[S.DOCS].append(second)

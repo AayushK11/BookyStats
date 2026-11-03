@@ -6,7 +6,7 @@ from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.constants import MatchKind as MatchKind
 from bookystats.domain.identifiers import normalized_isbns, normalized_text
-from bookystats.domain.models import BookRecord, FieldState, MetadataCandidate
+from bookystats.domain.models import BookRecord, FieldState, MetadataCandidate, Source
 
 type Matchable = BookRecord | MetadataCandidate
 
@@ -323,6 +323,20 @@ def compare_books(left: Matchable, right: Matchable) -> MatchResult:
     )
 
 
+def compare_metadata_identity(book: BookRecord, candidate: MetadataCandidate) -> MatchResult:
+    comparison = compare_books(book, candidate)
+    if (
+        comparison.kind != MatchKind.CONFLICTING
+        and candidate.provider == Source.OPEN_LIBRARY
+        and candidate.work_id == candidate.provider_id
+        and candidate.edition_id is C.NONE
+        and all(item.scope == S.WORK for item in candidate.observations)
+        and work_bibliography_compatible(book, candidate)
+    ):
+        return MatchResult(MatchKind.CONFIRMED, S.MATCH_REPAIR_WORK_REASON)
+    return comparison
+
+
 def select_metadata_candidate(
     book: BookRecord, candidates: tuple[MetadataCandidate, ...]
 ) -> MetadataCandidate | None:
@@ -333,7 +347,7 @@ def select_metadata_candidate(
         if serialized in seen:
             continue
         seen.add(serialized)
-        comparison = compare_books(book, candidate)
+        comparison = compare_metadata_identity(book, candidate)
         if comparison.kind != MatchKind.UNRELATED:
             plausible.append((candidate, comparison))
     if len(plausible) == C.ONE and plausible[C.ZERO][C.ONE].kind == MatchKind.CONFIRMED:

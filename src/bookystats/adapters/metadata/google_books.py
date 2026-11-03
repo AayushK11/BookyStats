@@ -469,7 +469,7 @@ class GoogleBooksProvider:
             separators=(S.COMMA, S.COLON),
         )
         if self._cache is not C.NONE:
-            cached = self._cache.get(Source.GOOGLE_BOOKS, key)
+            cached = self._cache.get(Source.GOOGLE_BOOKS, key, allow_expired=C.TRUE)
             if cached is not C.NONE:
                 return _cached(cached)
         params = {

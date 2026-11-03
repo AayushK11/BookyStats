@@ -68,6 +68,7 @@ def test_expiration_is_utc_timestamp_based_and_excludes_expiry_boundary(
     assert cache.get(Source.GOOGLE_BOOKS, S.IDENTITY) == {S.CANDIDATES: []}
     now[C.ZERO] += C.ONE
     assert cache.get(Source.GOOGLE_BOOKS, S.IDENTITY) is C.NONE
+    assert cache.get(Source.GOOGLE_BOOKS, S.IDENTITY, allow_expired=C.TRUE) == {S.CANDIDATES: []}
     cache.put(Source.GOOGLE_BOOKS, S.IDENTITY, {S.FRESH: C.TRUE}, ttl_seconds=C.ZERO)
     assert cache.get(Source.GOOGLE_BOOKS, S.IDENTITY) is C.NONE
     cache.close()
@@ -122,7 +123,8 @@ def test_invalid_json_does_not_replace_a_good_entry(tmp_path: Path, invalid: obj
     cache.close()
 
 
-def test_expiry_tampering_is_not_silently_trusted(tmp_path: Path) -> None:
+@pytest.mark.parametrize(S.ENR_ALLOW_EXPIRED_PARAMETER, (C.FALSE, C.TRUE))
+def test_expiry_tampering_is_not_silently_trusted(tmp_path: Path, allow_expired: bool) -> None:
     path = tmp_path / S.CATALOG_SQLITE
     cache = MetadataCache(path)
     cache.put(
@@ -134,7 +136,7 @@ def test_expiry_tampering_is_not_silently_trusted(tmp_path: Path) -> None:
     with sqlite3.connect(path) as database:
         database.execute(S.TEST_CACHE_EXPIRY_TAMPERING_IS_NOT_CACHE_SET_EXPIRES_AT_EXPIRES)
     with pytest.raises(MetadataCacheError):
-        cache.get(Source.OPEN_LIBRARY, S.IDENTITY)
+        cache.get(Source.OPEN_LIBRARY, S.IDENTITY, allow_expired=allow_expired)
     cache.close()
 
 

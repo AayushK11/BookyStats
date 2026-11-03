@@ -80,7 +80,7 @@ def test_goodreads_export_keeps_read_and_current_records_not_only_to_read() -> N
     assert all(record.collections == C.IMPORT_COLLECTIONS for record in snapshot.records)
 
 
-def test_storygraph_only_ratings_and_matching_identity_are_processed() -> None:
+def test_storygraph_only_ratings_identity_and_supplemental_completion_are_processed() -> None:
     row = C.TEST_IMPORT_STORYGRAPH_ROW.copy()
     row[S.IMPORT_AUTHORS] = S.COMMA.join(C.TEST_IMPORT_EXPECTED_AUTHORS)
     snapshot = collect(Source.STORYGRAPH, [row])
@@ -92,7 +92,7 @@ def test_storygraph_only_ratings_and_matching_identity_are_processed() -> None:
     assert observation(book, S.RATING).value == C.TEST_IMPORT_QUARTER_NUMBER
     assert observation(book, S.RATING).scope == S.READER
     assert observation(book, S.ISBNS).state == FieldState.UNAVAILABLE
-    assert {item.field for item in book.observations} <= C.RATING_IDENTITY_FIELDS
+    assert {item.field for item in book.observations} <= C.DTX_PERSONAL_FIELDS
     assert not book.reading_events
     assert book.status == C.ReadingStatus.UNKNOWN
     assert book.added_at is C.NONE
@@ -102,6 +102,54 @@ def test_storygraph_only_ratings_and_matching_identity_are_processed() -> None:
     assert snapshot.capabilities[S.REVIEW] == FieldState.UNSUPPORTED
     assert snapshot.capabilities[S.READING_EVENTS] == FieldState.UNSUPPORTED
     assert not snapshot.identity_verified
+
+
+@pytest.mark.parametrize(S.DTX_TEST_DATE_PARAMETERS, C.DTX_COMPLETION_DATE_CASES)
+def test_storygraph_supplemental_completion_preserves_precision_and_unknown_states(
+    value: str, state: FieldState, precision: str | None
+) -> None:
+    row = {**C.TEST_IMPORT_STORYGRAPH_ROW, S.IMPORT_LAST_DATE_READ: value}
+    snapshot = collect(Source.STORYGRAPH, [row])
+    book = snapshot.records[C.ZERO]
+    supplemental = book.supplemental_completion_dates[C.ZERO]
+    assert snapshot.state == SyncState.COMPLETE
+    assert supplemental.source == Source.STORYGRAPH
+    assert supplemental.source_id == book.source_id
+    assert supplemental.observation.state == state
+    assert supplemental.observation.scope == S.READER
+    assert supplemental.observation.source_url == S.TEST_IMPORT_ORIGIN
+    assert supplemental.observation.observed_at == S.TEST_IMPORT_CAPTURED_AT
+    assert book.raw_fields == row
+    assert not book.reading_events
+    assert book.added_at is C.NONE
+    assert book.status == C.ReadingStatus.UNKNOWN
+    if precision is not C.NONE:
+        assert supplemental.finished is not C.NONE
+        assert supplemental.finished.precision == precision
+        assert supplemental.finished.raw == value
+        assert supplemental.observation.value == supplemental.finished.value
+    else:
+        assert supplemental.finished is C.NONE
+        assert supplemental.observation.value is C.NONE
+    assert any(issue.code == S.DTX_INVALID_COMPLETION_CODE for issue in snapshot.issues) == (
+        state == FieldState.UNAVAILABLE
+    )
+    sanitized = book.ratings_only()
+    assert sanitized.supplemental_completion_dates == book.supplemental_completion_dates
+    assert {item.field for item in sanitized.observations} <= C.DTX_PERSONAL_FIELDS
+    assert not sanitized.reading_events
+
+
+def test_storygraph_missing_last_date_read_does_not_fall_back_to_other_dates() -> None:
+    row = C.TEST_IMPORT_STORYGRAPH_ROW.copy()
+    row.pop(S.IMPORT_LAST_DATE_READ)
+    row[S.IMPORT_DATES_READ] = S.DTX_TEST_DAY
+    book = collect(Source.STORYGRAPH, [row]).records[C.ZERO]
+    supplemental = book.supplemental_completion_dates[C.ZERO]
+    assert supplemental.finished is C.NONE
+    assert supplemental.observation.state == FieldState.UNSUPPORTED
+    assert book.raw_fields[S.IMPORT_DATES_READ] == S.DTX_TEST_DAY
+    assert not book.reading_events
 
 
 def test_storygraph_non_read_rows_stay_archived_not_processed() -> None:

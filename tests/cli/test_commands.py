@@ -10,12 +10,18 @@ import pytest
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.adapters.http import HttpClient
-from bookystats.application.sync import SyncReceipt
+from bookystats.application.sync import SourceReceipt, SyncReceipt
 from bookystats.cli import commands as cli
 from bookystats.cli.commands import main
 from bookystats.domain.errors import ConfigurationError
 from bookystats.domain.interfaces import HttpResponse
-from bookystats.domain.models import Source, SyncState, VerificationResult
+from bookystats.domain.models import (
+    CollectionProgress,
+    Issue,
+    Source,
+    SyncState,
+    VerificationResult,
+)
 from bookystats.persistence.library import Database
 from bookystats.runtime import scheduling
 from bookystats.runtime.config import (
@@ -25,9 +31,111 @@ from bookystats.runtime.config import (
     atomic_write,
     save_settings,
 )
+from bookystats.runtime.layout import database_path
 from tests.support.exports import csv_body
 from tests.support.scheduling import activation
 from tests.support.sources import accounts
+
+
+@pytest.mark.parametrize(S.LOG2_TEST_LARGE_TOTAL, (C.ZERO, C.ONE, C.LOG2_TEST_LARGE_TOTAL))
+def test_metadata_progress_is_percentage_bounded_without_timeout_boilerplate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], total: int
+) -> None:
+    events: list[str] = []
+    with ExitStack() as stack:
+        service = cli._build_service(
+            tmp_path,
+            Settings(
+                accounts=accounts(),
+                metadata=MetadataSettings(google_books=C.FALSE, open_library=C.FALSE),
+            ),
+            stack,
+            interactive=C.FALSE,
+            inputs={},
+            on_event=events.append,
+        )
+        assert service.on_metadata_progress is not C.NONE
+        for completed in range(total + C.ONE):
+            service.on_metadata_progress(Source.OPEN_LIBRARY, completed, total)
+        service.on_metadata_progress(Source.OPEN_LIBRARY, total, total)
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == len(events) <= C.LOG2_PROGRESS_BUCKETS + C.ONE
+    assert lines[C.ZERO] == S.LOG2_METADATA_PROGRESS.format(
+        source=S.OPEN_LIBRARY, completed=C.ZERO, total=total, percent=C.ZERO
+    )
+    assert lines[-C.ONE] == S.LOG2_METADATA_PROGRESS.format(
+        source=S.OPEN_LIBRARY,
+        completed=total,
+        total=total,
+        percent=C.LOG2_PROGRESS_PERCENT if total else C.ZERO,
+    )
+    assert all(S.LOG2_TEST_ZERO_TIMEOUT not in line for line in lines)
+
+
+def test_source_progress_is_time_bounded_and_completion_has_no_row_examples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(cli, S.LOG2_TEST_MONOTONIC, lambda: C.ZERO)
+    with ExitStack() as stack:
+        service = cli._build_service(
+            tmp_path,
+            Settings(
+                accounts=accounts(),
+                metadata=MetadataSettings(google_books=C.FALSE, open_library=C.FALSE),
+            ),
+            stack,
+            interactive=C.FALSE,
+            inputs={},
+            on_event=events.append,
+        )
+        assert service.on_progress is not C.NONE
+        for page in range(C.ONE, C.LOG2_TEST_LARGE_TOTAL + C.ONE):
+            service.on_progress(
+                CollectionProgress(source=Source.GOODREADS, collection=S.READ, pages_seen=page)
+            )
+        monkeypatch.setattr(cli, S.LOG2_TEST_MONOTONIC, lambda: C.LOG2_PROGRESS_SECONDS)
+        service.on_progress(
+            CollectionProgress(
+                source=Source.GOODREADS,
+                collection=S.READ,
+                pages_seen=C.LOG2_TEST_LARGE_TOTAL + C.ONE,
+            )
+        )
+        assert service.on_source_complete is not C.NONE
+        service.on_source_complete(
+            SourceReceipt(
+                source=Source.GOODREADS,
+                collection=S.READ,
+                state=SyncState.COMPLETE,
+                records=C.LOG2_TEST_LARGE_TOTAL,
+                issues=(
+                    Issue(
+                        code=S.DQ_CAPTURE_UNVERIFIED_CODE,
+                        message=S.TEST_REPORTING_MESSAGE_ONE,
+                    ),
+                ),
+            )
+        )
+        service.on_source_complete(
+            SourceReceipt(
+                source=Source.GOODREADS,
+                collection=S.READ,
+                state=SyncState.FAILED,
+            )
+        )
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == len(events) == C.FOUR
+    assert S.TEST_REPORTING_MESSAGE_ONE not in S.NEWLINE.join(lines)
+    assert lines[-C.TWO] == S.LOG2_SOURCE.format(
+        source=S.GOODREADS,
+        collection=S.READ,
+        state=S.COMPLETE,
+        records=C.LOG2_TEST_LARGE_TOTAL,
+    )
+    assert lines[-C.ONE] == S.LOG2_SOURCE_RETAINED.format(
+        source=S.GOODREADS, collection=S.READ, state=S.FAILED
+    )
 
 
 def test_status_is_local_and_does_not_create_database(
@@ -46,6 +154,23 @@ def test_status_is_local_and_does_not_create_database(
     assert list(tmp_path.iterdir()) == []
 
 
+def test_status_reads_legacy_database_without_moving_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    legacy = tmp_path / S.LIBRARY_SQLITE3
+    library = Database(legacy)
+    try:
+        library.initialize()
+    finally:
+        library.close()
+    assert main([S.STATUS, S.CLI_PARSER_JSON, S.CLI_PARSER_DATA_DIR, str(tmp_path)]) == C.ZERO
+    report = json.loads(capsys.readouterr().out)
+    assert report[S.LIBRARY_DATABASE] == str(legacy)
+    assert legacy.is_file()
+    assert not (tmp_path / S.LAYOUT_DATABASES).exists()
+    assert not (tmp_path / S.LAYOUT_RUNTIME).exists()
+
+
 def test_unattended_without_accounts_never_prompts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -58,7 +183,7 @@ def test_unattended_without_accounts_never_prompts(
     monkeypatch.setattr(S.BUILTINS_INPUT, unexpected_input)
     assert main([S.SYNC, S.CLI_PARSER_UNATTENDED, S.CLI_PARSER_DATA_DIR, str(tmp_path)]) == C.ONE
     assert S.CLI_MAIN_CONFIGURE_READER_PROFILE_URLS_IN_CONFIG_JSON in capsys.readouterr().err
-    assert not (tmp_path / S.LIBRARY_SQLITE3).exists()
+    assert not database_path(tmp_path, S.LIBRARY_SQLITE3).exists()
     assert not (tmp_path / S.CONFIG_JSON).exists()
 
 
@@ -85,7 +210,7 @@ def test_first_terminal_sync_saves_selected_profiles_before_acquisition(
     assert main([S.SYNC, S.CLI_PARSER_DATA_DIR, str(tmp_path)]) == C.ONE
     assert S.CLI_TEST_SCHEDULE_GUARD in capsys.readouterr().err
     assert load_settings(tmp_path).accounts == chosen
-    assert not (tmp_path / S.LIBRARY_SQLITE3).exists()
+    assert not database_path(tmp_path, S.LIBRARY_SQLITE3).exists()
 
 
 def test_disabled_scheduled_run_never_collects(
@@ -95,7 +220,7 @@ def test_disabled_scheduled_run_never_collects(
     monkeypatch.delenv(S.BOOKYSTATS_GOODREADS_PROFILE, raising=C.FALSE)
     assert main([S.SYNC, S.CLI_PARSER_SCHEDULED, S.CLI_PARSER_DATA_DIR, str(tmp_path)]) == C.ZERO
     assert S.DISABLED in capsys.readouterr().out
-    assert not (tmp_path / S.LIBRARY_SQLITE3).exists()
+    assert not database_path(tmp_path, S.LIBRARY_SQLITE3).exists()
 
 
 def test_nonpublic_command_is_rejected() -> None:
@@ -123,13 +248,13 @@ def test_fetch_writes_a_helper_without_network_database_or_configuration_changes
     report = json.loads(captured.out)
     assert report[S.COMMAND] == S.FETCH
     helper = Path(report[S.FETCH_HELPER_PATH])
-    assert helper == tmp_path / S.FETCH_HELPER_FILE
+    assert helper == tmp_path / S.LAYOUT_RUNTIME / S.FETCH_HELPER_FILE
     script = helper.read_text(encoding=S.UTF_8)
     assert S.FETCH_ACCOUNT_PLACEHOLDER not in script
     assert json.dumps(accounts()[C.ONE].account_id) in script
     assert S.DO_NOT_PRINT_THIS not in script + captured.out + captured.err
     assert (tmp_path / S.CONFIG_JSON).read_bytes() == configuration
-    assert all(not (tmp_path / name).exists() for name in C.CLI_LOCAL_DATABASES)
+    assert all(not database_path(tmp_path, name).exists() for name in C.CLI_LOCAL_DATABASES)
 
 
 def test_fetch_requires_a_configured_goodreads_account(
@@ -140,7 +265,7 @@ def test_fetch_requires_a_configured_goodreads_account(
     save_settings(tmp_path, Settings(accounts=accounts()[: C.ONE]))
     assert main([S.FETCH, S.CLI_PARSER_DATA_DIR, str(tmp_path)]) == C.ONE
     assert S.FETCH_ACCOUNT_REQUIRED in capsys.readouterr().err
-    assert not (tmp_path / S.FETCH_HELPER_FILE).exists()
+    assert not (tmp_path / S.LAYOUT_RUNTIME / S.FETCH_HELPER_FILE).exists()
 
 
 @pytest.mark.parametrize(S.CLI_TEST_RETIRED_OPTION, C.CLI_FETCH_REJECTED_OPTIONS)
@@ -222,6 +347,29 @@ def test_missing_headless_google_authorization_is_explicit_and_never_prompts(
         assert metadata.issues[C.ZERO].code == S.OAUTH_AUTHORIZATION_REQUIRED_CODE
 
 
+@pytest.mark.parametrize(S.CLI_TEST_INTERACTIVE_PARAMETER, C.CLI_TEST_INTERACTIVITY)
+def test_fallback_does_not_authorize_google_before_due_gaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interactive: bool
+) -> None:
+    from bookystats.adapters import google_oauth
+
+    def unexpected_authorization(*args: object, **kwargs: object) -> None:
+        pytest.fail(S.CLI_TEST_UNEXPECTED_NETWORK)
+
+    monkeypatch.delenv(S.GOOGLE_BOOKS_API_KEY, raising=C.FALSE)
+    monkeypatch.setattr(google_oauth, S.CLI_TEST_ENSURE_TOKEN, unexpected_authorization)
+    with ExitStack() as stack:
+        service = cli._build_service(
+            tmp_path, Settings(accounts=accounts()), stack, interactive=interactive, inputs={}
+        )
+        assert Source.GOOGLE_BOOKS not in service.providers
+        assert Source.GOOGLE_BOOKS in service.provider_factories
+        receipt = service._metadata(Source.GOOGLE_BOOKS)
+        assert receipt.state == SyncState.COMPLETE
+        assert receipt.coverage_scope == S.ENR_CORE_COVERAGE_SCOPE
+        assert receipt.requested == receipt.processed == C.ZERO
+
+
 def test_scheduled_run_rejects_changed_code_before_constructing_sources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -243,7 +391,7 @@ def test_scheduled_run_rejects_changed_code_before_constructing_sources(
     monkeypatch.setattr(cli, S.TEST_BUILD_SERVICE, unexpected_service)
     assert main([S.SYNC, S.CLI_PARSER_SCHEDULED, S.CLI_PARSER_DATA_DIR, str(tmp_path)]) == C.ONE
     assert S.SCHEDULE_REVALIDATION_REQUIRED in capsys.readouterr().err
-    assert not (tmp_path / S.LIBRARY_SQLITE3).exists()
+    assert not database_path(tmp_path, S.LIBRARY_SQLITE3).exists()
 
 
 def test_explicit_files_publish_with_raw_lineage_and_reuse_other_archived_inputs(
@@ -293,7 +441,7 @@ def test_explicit_files_publish_with_raw_lineage_and_reuse_other_archived_inputs
     assert all(item.input_kind == S.INPUT_FILE and item.raw_document_id for item in receipt.sources)
     assert not (tmp_path / S.PROFILES).exists()
     assert not (tmp_path / S.STABILITY_JSON).exists()
-    archive = RawStore(tmp_path / S.CLI_RAW_DATABASE)
+    archive = RawStore(database_path(tmp_path, S.CLI_RAW_DATABASE))
     try:
         document = archive.latest(Source.STORYGRAPH, accounts()[C.ZERO].account_id)
         assert document is not C.NONE
@@ -311,7 +459,7 @@ def test_explicit_files_publish_with_raw_lineage_and_reuse_other_archived_inputs
         and item.publication.unchanged == C.ONE
         for item in replay.sources
     )
-    database = Database(tmp_path / S.LIBRARY_SQLITE3)
+    database = Database(database_path(tmp_path, S.LIBRARY_SQLITE3))
     try:
         records = database.active_records()
         assert len(records) == C.TWO
@@ -325,13 +473,13 @@ def test_explicit_files_publish_with_raw_lineage_and_reuse_other_archived_inputs
     assert main([*base, S.CLI_STORYGRAPH_FILE, str(storygraph)]) == C.THREE
     failure = SyncReceipt.model_validate_json(capsys.readouterr().out)
     assert failure.sources[C.ZERO].publication is C.NONE
-    archive = RawStore(tmp_path / S.CLI_RAW_DATABASE)
+    archive = RawStore(database_path(tmp_path, S.CLI_RAW_DATABASE))
     try:
         broken = archive.latest(Source.STORYGRAPH, accounts()[C.ZERO].account_id)
         assert broken is not C.NONE and broken.body == storygraph.read_bytes()
     finally:
         archive.close()
-    database = Database(tmp_path / S.LIBRARY_SQLITE3)
+    database = Database(database_path(tmp_path, S.LIBRARY_SQLITE3))
     try:
         assert database.active_records() == records
     finally:
@@ -358,7 +506,7 @@ def test_plain_sync_selects_configured_csvs_instead_of_live_acquisition(
     monkeypatch.setattr(cli, S.TEST_BUILD_SERVICE, fresh_service)
     assert main([S.SYNC, S.CLI_PARSER_DATA_DIR, str(tmp_path)]) == C.ONE
     assert S.CLI_TEST_SCHEDULE_GUARD in capsys.readouterr().err
-    assert not (tmp_path / S.LIBRARY_SQLITE3).exists()
+    assert not database_path(tmp_path, S.LIBRARY_SQLITE3).exists()
 
 
 def test_scheduled_capture_cannot_enable_interactive_login(
@@ -552,10 +700,11 @@ def test_separate_goodreads_shelves_survive_later_import_replay_and_failure(
     assert not imported.account_sync_complete
     assert imported.log_file is not C.NONE
     log = Path(imported.log_file).read_text(encoding=S.UTF_8)
-    assert S.REPORT_RESULT_LINE.format(result=S.SUCCESS.upper()) in log
-    assert S.TEST_BROWSER_EXPORT_READ_NAME in log
+    assert S.LOG2_VERIFICATION.format(result=S.SUCCESS) in log
+    assert S.TEST_BROWSER_EXPORT_READ_NAME not in log
+    assert S.RUNLOG_FILES_HEADING not in log
     assert str(tmp_path) not in log
-    archive = RawStore(tmp_path / S.CLI_RAW_DATABASE)
+    archive = RawStore(database_path(tmp_path, S.CLI_RAW_DATABASE))
     try:
         for collection in (S.TO_READ, S.READ):
             raw = archive.latest(
@@ -581,7 +730,7 @@ def test_separate_goodreads_shelves_survive_later_import_replay_and_failure(
     assert failed.verification is not C.NONE
     assert failed.verification.result == VerificationResult.FAILED
     assert failed.sources[-C.ONE].state == SyncState.COMPLETE
-    database = Database(tmp_path / S.LIBRARY_SQLITE3)
+    database = Database(database_path(tmp_path, S.LIBRARY_SQLITE3))
     try:
         records = database.active_records()
         assert len(records) == C.THREE

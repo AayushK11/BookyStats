@@ -490,7 +490,7 @@ def test_fresh_cache_survives_key_rotation_without_caching_sensitive_payload(
     assert len(key) == C.TEST_GOOGLE_BOOKS_FRESH_CACHE_WITHOUT_CACHING_SENSITIVE_PAYLOAD
 
 
-def test_stale_cache_is_refetched_and_normal_empty_results_are_cached(
+def test_settled_cache_survives_age_and_new_source_aliases(
     payload: dict[str, Any], book: BookRecord, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     now = [C.TEST_GOOGLE_BOOKS_STALE_CACHE_IS_NORMAL_EMPTY_RESULTS_ARE_CACHED_NOW]
@@ -498,15 +498,22 @@ def test_stale_cache_is_refetched_and_normal_empty_results_are_cached(
     cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
     http = FakeHttp(response(payload), response(payload))
     provider = GoogleBooksProvider(http, api_key=S.KEY, cache=cache)
-    assert not provider.lookup(book).cache_hit
+    first = provider.lookup(book)
+    assert not first.cache_hit
     now[C.ZERO] += (
         C.EIGHT
         * C.TEST_GOOGLE_BOOKS_STALE_CACHE_IS_AND_NORMAL_EMPTY_RESULTS_ARE_CACHED
         * C.TEST_GOOGLE_BOOKS_STALE_CACHE_IS_AND_NORMAL_EMPTY_RESULTS_ARE_CACHED_2
         * C.TEST_GOOGLE_BOOKS_STALE_CACHE_IS_AND_NORMAL_EMPTY_RESULTS_ARE_CACHED_2
     )
-    assert not provider.lookup(book).cache_hit
-    assert len(http.calls) == C.TWO
+    cache.close()
+    cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
+    reused = GoogleBooksProvider(http, api_key=S.KEY, cache=cache).lookup(
+        book.model_copy(update={S.SOURCE_ID: S.SECOND_ORIGINAL_ID})
+    )
+    assert reused.cache_hit and reused.source_id == S.SECOND_ORIGINAL_ID
+    assert reused.candidates == first.candidates
+    assert len(http.calls) == C.ONE
     missing = book.model_copy(
         update={
             S.ISBNS: (),

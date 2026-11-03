@@ -321,6 +321,26 @@ def test_unrecognized_database_and_non_sqlite_file_are_not_replaced(tmp_path: Pa
     assert path.read_bytes() == S.AN_STORE_TEST_CORRUPT_BYTES
 
 
+def test_require_existing_never_creates_a_missing_database_or_parent(tmp_path: Path) -> None:
+    for path in (
+        tmp_path / S.AN_STORE_TEST_FILENAME,
+        tmp_path / S.AN_STORE_TEST_LABEL / S.AN_STORE_TEST_FILENAME,
+    ):
+        parent_existed = path.parent.exists()
+        with pytest.raises(AnalyticsStoreError):
+            AnalyticsStore(path, require_existing=C.TRUE)
+        assert not path.exists()
+        assert path.parent.exists() == parent_existed
+
+
+def test_require_existing_reopens_and_preserves_a_valid_report(tmp_path: Path) -> None:
+    path = tmp_path / S.AN_STORE_TEST_FILENAME
+    with AnalyticsStore(path) as store:
+        saved = store.publish(_report())
+    with AnalyticsStore(path, require_existing=C.TRUE) as store:
+        assert store.latest() == saved
+
+
 def test_damaged_hash_and_internally_mismatched_component_fail_closed(tmp_path: Path) -> None:
     path = tmp_path / S.AN_STORE_TEST_FILENAME
     report = _report()

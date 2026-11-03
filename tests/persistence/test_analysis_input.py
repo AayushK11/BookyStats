@@ -13,11 +13,15 @@ from bookystats.domain.models import (
     EnrichmentResult,
     FieldState,
     Observation,
+    PartialDate,
+    ReadingEvent,
+    ReadingStatus,
     Source,
+    SupplementalCompletionDate,
     SyncState,
 )
 from bookystats.persistence.analysis_input import AnalyticsInputError
-from bookystats.persistence.library import Database
+from bookystats.persistence.library import Database, _identity_hash, _semantic_hash
 from tests.persistence.test_library import book, metadata_candidate, publish, rating, snapshot
 from tests.support.sources import accounts
 
@@ -85,6 +89,206 @@ def test_uses_confirmed_links_and_keeps_rating_authority_separate(library: Datab
         for item in result.evidence
         if item.observation.field == S.RATING
     )
+
+
+def test_possible_read_candidates_are_active_scoped_evidence_not_confirmed_links(
+    library: Database,
+) -> None:
+    seed(library)
+    watch = book(
+        **{
+            S.SOURCE: Source.GOODREADS,
+            S.SOURCE_ID: S.TEST_IMPORT_SECOND_ID,
+            S.TITLE: S.TEST_IMPORT_OTHER_TITLE,
+            S.ISBNS: (),
+            S.STATUS: ReadingStatus.TO_READ,
+        }
+    )
+    publish_scope(library, Source.GOODREADS, watch, collection=S.TO_READ)
+    connection = library._connection()
+    rows = connection.execute(S.REC_TEST_RECORDS, (Source.GOODREADS.value,)).fetchall()
+    left, right = rows[C.ONE][S.ID], rows[C.ZERO][S.ID]
+    snapshot_id = connection.execute(S.REC_TEST_SNAPSHOT).fetchone()[C.ZERO]
+    with connection:
+        connection.execute(S.REC_TEST_PENDING, (left, right, snapshot_id, snapshot_id))
+    pinned = library.analytics_input(accounts(), AnalyticsSettings())
+    candidate = next(item for item in pinned.books if watch.source_id in item.source_ids)
+    completed = next(item for item in pinned.books if S.READ in item.collections)
+    assert candidate.work_id != completed.work_id
+    assert len(candidate.possible_read_matches) == C.ONE
+    possible = candidate.possible_read_matches[C.ZERO]
+    assert possible.work_id == completed.work_id
+    assert possible.source == Source.GOODREADS
+    assert possible.source_snapshot_ids
+    publish_scope(library, Source.GOODREADS, collection=S.READ)
+    changed = library.analytics_input(accounts(), AnalyticsSettings())
+    candidate = next(item for item in changed.books if watch.source_id in item.source_ids)
+    assert not candidate.possible_read_matches
+
+
+def supplemental(
+    value: str = S.DTX_TEST_DAY, source_id: str = S.ONE_2
+) -> SupplementalCompletionDate:
+    return SupplementalCompletionDate(
+        source_id=source_id,
+        finished=PartialDate(value=value, raw=value),
+        observation=Observation(
+            field=S.DTX_SUPPLEMENTAL_COMPLETION_DATE,
+            value=value,
+            scope=S.READER,
+            state=FieldState.PRESENT,
+            source_url=S.TEST_IMPORT_ORIGIN,
+            observed_at=S.TEST_IMPORT_CAPTURED_AT,
+        ),
+    )
+
+
+def test_supplemental_completion_follows_only_confirmed_work_links(library: Database) -> None:
+    date = supplemental()
+    personal = book(
+        **{
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (date,),
+            S.OBSERVATIONS: (rating(C.FOUR), date.observation),
+        }
+    )
+    catalog = book(**{S.SOURCE: Source.GOODREADS, S.ADDED_AT: PartialDate(value=S.DTX_TEST_YEAR)})
+    publish_scope(library, Source.STORYGRAPH, personal)
+    publish_scope(library, Source.GOODREADS, catalog, collection=S.READ)
+    data = library.analytics_input(accounts(), AnalyticsSettings())
+    result = data.books[C.ZERO]
+    assert result.supplemental_completion_dates == (date,)
+    assert data.supplemental_completion_counts[S.DTX_SOURCE_COMPLETION_DATES_PRESENT] == C.ONE
+    assert data.supplemental_completion_counts[S.DTX_SOURCE_COMPLETION_DATES_EMPTY] == C.ZERO
+    assert not result.reading_events
+    assert result.added_at == catalog.added_at
+    assert result.field_states[S.DTX_SUPPLEMENTAL_COMPLETION_DATE] == FieldState.PRESENT
+    evidence = next(
+        item
+        for item in result.evidence
+        if item.observation.field == S.DTX_SUPPLEMENTAL_COMPLETION_DATE
+    )
+    assert evidence.source == Source.STORYGRAPH.value
+    assert evidence.source_id == personal.source_id
+    assert evidence.observation == date.observation
+
+
+def test_unconfirmed_supplemental_completion_does_not_transfer(library: Database) -> None:
+    date = supplemental()
+    publish_scope(
+        library,
+        Source.STORYGRAPH,
+        book(
+            **{
+                S.ISBNS: (),
+                S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (date,),
+                S.OBSERVATIONS: (date.observation,),
+            }
+        ),
+    )
+    publish_scope(
+        library,
+        Source.GOODREADS,
+        book(**{S.SOURCE: Source.GOODREADS, S.ISBNS: ()}),
+        collection=S.READ,
+    )
+    data = library.analytics_input(accounts(), AnalyticsSettings())
+    result = data.books[C.ZERO]
+    assert not result.supplemental_completion_dates
+    assert data.supplemental_completion_counts[S.DTX_SOURCE_COMPLETION_DATES_PRESENT] == C.ONE
+    assert not any(
+        item.observation.field == S.DTX_SUPPLEMENTAL_COMPLETION_DATE for item in result.evidence
+    )
+
+
+def test_conflicting_supplemental_dates_remain_separate_from_goodreads_history(
+    library: Database,
+) -> None:
+    dates = (supplemental(), supplemental(S.DTX_TEST_OTHER_DATE, S.TEST_IMPORT_SECOND_ID))
+    publish_scope(
+        library,
+        Source.STORYGRAPH,
+        *(
+            book(
+                **{
+                    S.SOURCE_ID: date.source_id,
+                    S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (date,),
+                    S.OBSERVATIONS: (date.observation,),
+                }
+            )
+            for date in dates
+        ),
+    )
+    event = ReadingEvent(finished=PartialDate(value=S.DTX_TEST_YEAR), status=ReadingStatus.READ)
+    publish_scope(
+        library,
+        Source.GOODREADS,
+        book(**{S.SOURCE: Source.GOODREADS, S.READING_EVENTS: (event,)}),
+        collection=S.READ,
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    assert result.reading_events == (event,)
+    assert set(result.supplemental_completion_dates) == set(dates)
+    assert result.field_states[S.DTX_SUPPLEMENTAL_COMPLETION_DATE] == FieldState.FAILED
+
+
+def test_supplemental_capture_time_does_not_change_record_semantics() -> None:
+    date = supplemental()
+    changed = date.model_copy(
+        update={
+            S.DTX_OBSERVATION: date.observation.model_copy(
+                update={S.OBSERVED_AT: S.TEST_STORAGE_START_T10}
+            ),
+        }
+    )
+    original = book(**{S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (date,)})
+    recaptured = original.model_copy(update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (changed,)})
+    assert _semantic_hash(original) == _semantic_hash(recaptured)
+    changed_date = original.model_copy(
+        update={
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (supplemental(S.DTX_TEST_OTHER_DATE),),
+        }
+    )
+    assert _semantic_hash(original) != _semantic_hash(changed_date)
+
+
+def test_supplemental_date_changes_preserve_provider_identity_and_queue(
+    library: Database,
+) -> None:
+    date = supplemental()
+    original = book(
+        **{
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (date,),
+            S.OBSERVATIONS: (date.observation,),
+        }
+    )
+    publish_scope(library, Source.STORYGRAPH, original)
+    library.save_enrichment(
+        Source.STORYGRAPH,
+        Source.GOOGLE_BOOKS,
+        EnrichmentResult(
+            source_id=original.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(metadata_candidate(),),
+        ),
+    )
+    assert library.enrichment_targets(Source.GOOGLE_BOOKS) == ()
+    changed = supplemental(S.DTX_TEST_OTHER_DATE)
+    updated = original.model_copy(
+        update={
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (changed,),
+            S.OBSERVATIONS: (changed.observation,),
+        }
+    )
+    assert _identity_hash(updated) == _identity_hash(original)
+    assert _semantic_hash(updated) != _semantic_hash(original)
+    publish_scope(library, Source.STORYGRAPH, updated)
+    personal_account = next(
+        account for account in accounts() if account.source == Source.STORYGRAPH
+    )
+    assert not library.metadata_for(
+        Source.STORYGRAPH, personal_account.account_id, updated.source_id
+    )[C.ZERO][S.STALE_IDENTITY]
+    assert library.enrichment_targets(Source.GOOGLE_BOOKS) == ()
 
 
 @pytest.mark.parametrize(S.ANALYTIC_CATEGORY_TEST_PARAMETERS, C.ANALYTIC_CATEGORY_TEST_CASES)
@@ -270,6 +474,10 @@ def test_watchlist_update_cannot_replace_pinned_read_facts(library: Database) ->
     publish_scope(library, Source.GOODREADS, watch, collection=S.TO_READ)
     data = library.analytics_input(accounts(), AnalyticsSettings())
     assert data.books[C.ZERO].community_ratings[Source.GOODREADS.value] == C.THREE
+    assert any(
+        item.observation.field == S.COMMUNITY_RATING and item.observation.value == C.THREE
+        for item in data.books[C.ZERO].evidence
+    )
     assert data.books[C.ZERO].rating == C.FOUR
 
 

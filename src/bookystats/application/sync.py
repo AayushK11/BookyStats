@@ -17,18 +17,25 @@ from bookystats.domain.errors import (
 from bookystats.domain.interfaces import (
     AnalyticsRunner,
     BatchMetadataProvider,
+    ConfirmedWorkMetadataReader,
     MetadataProvider,
+    ProductsRunner,
     ProgressCallback,
+    SelectedMetadataReader,
     SourceConnector,
     Storage,
+    StreamingMetadataProvider,
 )
+from bookystats.domain.metadata import missing_fallback_fields
 from bookystats.domain.models import (
     Account,
+    BookRecord,
     CollectionProgress,
     CollectionSnapshot,
     EnrichmentResult,
     FieldState,
     Issue,
+    MetadataCandidate,
     Model,
     PublicationResult,
     ReadingStatus,
@@ -37,6 +44,7 @@ from bookystats.domain.models import (
     Verification,
     utc_now,
 )
+from bookystats.domain.products import ProductReceipt
 from bookystats.runtime.config import Settings
 
 
@@ -60,8 +68,16 @@ class MetadataReceipt(Model):
     processed: int = C.ZERO
     candidates: int = C.ZERO
     cache_hits: int = C.ZERO
+    skipped_by_strategy: int = C.ZERO
+    coverage_scope: str = S.ENR_LOOKUP_COVERAGE_SCOPE
+    fallback_fields: tuple[str, ...] = ()
+    fallback_unresolved: int = C.ZERO
     deferred: int = C.ZERO
     issues: tuple[Issue, ...] = ()
+
+    @property
+    def fallback_skipped(self) -> int:
+        return self.skipped_by_strategy
 
 
 class SyncReceipt(Model):
@@ -75,6 +91,7 @@ class SyncReceipt(Model):
     verification: Verification | None = C.NONE
     log_file: str | None = C.NONE
     analytics: AnalyticsReceipt | None = C.NONE
+    products: ProductReceipt | None = C.NONE
 
 
 class SyncService:
@@ -87,23 +104,33 @@ class SyncService:
         *,
         on_progress: ProgressCallback | None = C.NONE,
         provider_issues: Mapping[Source, Issue] | None = C.NONE,
+        provider_factories: Mapping[Source, Callable[[], MetadataProvider | Issue]] | None = C.NONE,
         collection_connectors: Mapping[tuple[Source, str], SourceConnector] | None = C.NONE,
         source_context: AbstractContextManager[object] | None = C.NONE,
         on_source_complete: Callable[[SourceReceipt], None] | None = C.NONE,
         on_metadata_progress: Callable[[Source, int, int], None] | None = C.NONE,
         analytics: AnalyticsRunner | None = C.NONE,
+        products: ProductsRunner | None = C.NONE,
+        on_event: Callable[[str], None] | None = C.NONE,
     ) -> None:
         self.store = store
         self.settings = settings
         self.connectors = connectors
-        self.providers = providers
+        self.providers = dict(providers)
         self.on_progress = on_progress
-        self.provider_issues = provider_issues or {}
+        self.provider_issues = dict(provider_issues or {})
+        self.provider_factories = provider_factories or {}
         self.collection_connectors = collection_connectors or {}
         self.source_context = source_context
         self.on_source_complete = on_source_complete
         self.on_metadata_progress = on_metadata_progress
         self.analytics = analytics
+        self.products = products
+        self.on_event = on_event
+
+    def _event(self, message: str) -> None:
+        if self.on_event is not C.NONE:
+            self.on_event(message)
 
     def _progress(self, run_id: int, expected: Source, progress: CollectionProgress) -> None:
         if progress.source != expected:
@@ -140,7 +167,7 @@ class SyncService:
                     S.CAPABILITIES: {
                         field: state
                         for field, state in snapshot.capabilities.items()
-                        if field in C.RATING_IDENTITY_FIELDS
+                        if field in C.DTX_PERSONAL_FIELDS
                     },
                 }
             )
@@ -263,8 +290,94 @@ class SyncService:
             issues=(Issue(code=exc.code, message=str(exc), retryable=exc.retryable),),
         )
 
+    def _fallback_gaps(self, book: BookRecord) -> tuple[str, ...]:
+        candidates: list[MetadataCandidate] = []
+        work_candidates: tuple[MetadataCandidate, ...] = ()
+        if isinstance(self.store, SelectedMetadataReader):
+            account = next(
+                (account for account in self.settings.accounts if account.source == book.source),
+                C.NONE,
+            )
+            if account is not C.NONE:
+                for item in self.store.metadata_for(
+                    book.source, account.account_id, book.source_id
+                ):
+                    if item.get(S.STALE_IDENTITY) is not C.FALSE:
+                        continue
+                    candidate = MetadataCandidate.model_validate(item.get(S.CANDIDATE))
+                    if item.get(S.PROVIDER) == candidate.provider.value:
+                        candidates.append(candidate)
+                if isinstance(self.store, ConfirmedWorkMetadataReader):
+                    work_candidates = self.store.metadata_for_work(
+                        book.source, account.account_id, book.source_id
+                    )
+        return missing_fallback_fields(book, candidates, work_candidates=work_candidates)
+
     def _metadata(self, source: Source) -> MetadataReceipt:
+        targets = self.store.enrichment_targets(source)
+        fallback_skipped = C.ZERO
+        fallback_fields: tuple[str, ...] = ()
+        if (
+            source == Source.GOOGLE_BOOKS
+            and self.settings.metadata.open_library
+            and self.settings.metadata.strategy == S.ENR_STRATEGY_OPEN_LIBRARY_FIRST
+        ):
+            fallback_fields = C.ENR_FALLBACK_FIELDS
+            filtered = [book for book in targets if self._fallback_gaps(book)]
+            fallback_skipped = len(targets) - len(filtered)
+            targets = tuple(filtered)
+        if (
+            not targets
+            and fallback_fields
+            and (
+                fallback_skipped
+                or not any(self._fallback_gaps(book) for book in self.store.active_records())
+            )
+        ):
+            receipt = MetadataReceipt(
+                provider=source,
+                state=SyncState.COMPLETE,
+            )
+        else:
+            receipt = self._metadata_targets(source, targets)
+        unresolved = (
+            sum(bool(self._fallback_gaps(book)) for book in self.store.active_records())
+            if fallback_fields
+            else C.ZERO
+        )
+        if unresolved and receipt.state == SyncState.COMPLETE:
+            receipt = receipt.model_copy(
+                update={
+                    S.STATE: SyncState.PARTIAL,
+                    S.ISSUES: (
+                        *receipt.issues,
+                        Issue(
+                            code=S.ENR_GAPS_REMAIN_CODE,
+                            message=S.ENR_GAPS_REMAIN_MESSAGE.format(count=unresolved),
+                        ),
+                    ),
+                }
+            )
+        return receipt.model_copy(
+            update={
+                S.ENR_SKIPPED_BY_STRATEGY: fallback_skipped,
+                S.ENR_COVERAGE_SCOPE: (
+                    S.ENR_CORE_COVERAGE_SCOPE if fallback_fields else S.ENR_LOOKUP_COVERAGE_SCOPE
+                ),
+                S.ENR_FALLBACK_FIELDS: fallback_fields,
+                S.ENR_FALLBACK_UNRESOLVED: unresolved,
+            }
+        )
+
+    def _metadata_targets(self, source: Source, targets: tuple[BookRecord, ...]) -> MetadataReceipt:
         provider = self.providers.get(source)
+        if provider is C.NONE and targets and source in self.provider_factories:
+            initialized = self.provider_factories[source]()
+            if isinstance(initialized, Issue):
+                self.provider_issues[source] = initialized
+            else:
+                provider = initialized
+                self.providers[source] = provider
         if provider is C.NONE:
             setup_issue = self.provider_issues.get(source)
             if setup_issue is not C.NONE:
@@ -299,7 +412,6 @@ class SyncService:
                 )
             return C.NONE
 
-        targets = self.store.enrichment_targets(source)
         targets = tuple(
             sorted(
                 targets,
@@ -309,7 +421,9 @@ class SyncService:
             )
         )
         selected = targets[: self.settings.metadata.max_books_per_run]
-        if source == Source.OPEN_LIBRARY and not isinstance(provider, BatchMetadataProvider):
+        if source == Source.OPEN_LIBRARY and not isinstance(
+            provider, (BatchMetadataProvider, StreamingMetadataProvider)
+        ):
             selected = selected[: C.ONE]
         if not selected:
             issue = coverage_issue()
@@ -323,8 +437,62 @@ class SyncService:
         if self.on_metadata_progress is not C.NONE:
             self.on_metadata_progress(source, C.ZERO, requested)
         incremental = C.FALSE
+        invalid_batch = C.FALSE
         deferred_issue: Issue | None = C.NONE
-        if source == Source.OPEN_LIBRARY and isinstance(provider, BatchMetadataProvider):
+        if source == Source.OPEN_LIBRARY and isinstance(provider, StreamingMetadataProvider):
+            incremental = C.TRUE
+            streamed: list[EnrichmentResult] = []
+            for offset in range(C.ZERO, requested, C.OPEN_LIBRARY_MAX_BATCH_IDENTITIES):
+                batch = selected[offset : offset + C.OPEN_LIBRARY_MAX_BATCH_IDENTITIES]
+                emitted = C.ZERO
+                try:
+                    for result in provider.iter_lookup_many(batch):
+                        if emitted >= len(batch) or result.source_id != batch[emitted].source_id:
+                            invalid_batch = C.TRUE
+                            break
+                        book = batch[emitted]
+                        if any(
+                            issue.code == S.MC_TARGET_DEFERRED
+                            or (
+                                issue.code == S.METADATA_DEFERRED
+                                and issue.message
+                                == S.ISSUES_MESSAGE_OPEN_LIBRARY_S_TARGETED_BATCH_BUDGET_IS
+                            )
+                            for issue in result.issues
+                        ):
+                            deferred_issue = next(
+                                (
+                                    issue
+                                    for issue in result.issues
+                                    if issue.code != S.MC_TARGET_DEFERRED
+                                ),
+                                result.issues[C.ZERO],
+                            )
+                            break
+                        self.store.save_enrichment(book.source, source, result)
+                        streamed.append(result)
+                        emitted += C.ONE
+                        if self.on_metadata_progress is not C.NONE:
+                            self.on_metadata_progress(source, len(streamed), requested)
+                except ProviderDeferredError as exc:
+                    deferred_issue = Issue(code=exc.code, message=str(exc), retryable=C.TRUE)
+                except ConnectorError as exc:
+                    if emitted < len(batch):
+                        book = batch[emitted]
+                        result = self._provider_failure(book.source_id, exc)
+                        self.store.save_enrichment(book.source, source, result)
+                        streamed.append(result)
+                        if self.on_metadata_progress is not C.NONE:
+                            self.on_metadata_progress(source, len(streamed), requested)
+                    deferred_issue = Issue(code=exc.code, message=str(exc), retryable=exc.retryable)
+                if deferred_issue is not C.NONE:
+                    selected = selected[: len(streamed)]
+                    break
+                if invalid_batch or emitted != len(batch):
+                    invalid_batch = C.TRUE
+                    break
+            results = tuple(streamed)
+        elif source == Source.OPEN_LIBRARY and isinstance(provider, BatchMetadataProvider):
             incremental = C.TRUE
             batch_collected: list[EnrichmentResult] = []
             for offset in range(C.ZERO, requested, C.OPEN_LIBRARY_MAX_BATCH_IDENTITIES):
@@ -395,10 +563,14 @@ class SyncService:
                 if self.on_metadata_progress is not C.NONE:
                     self.on_metadata_progress(source, len(collected), requested)
             results = tuple(collected)
-        if len(results) != len(selected) or any(
-            (
-                result.source_id != book.source_id
-                for book, result in zip(selected, results, strict=C.FALSE)
+        if (
+            invalid_batch
+            or len(results) != len(selected)
+            or any(
+                (
+                    result.source_id != book.source_id
+                    for book, result in zip(selected, results, strict=C.FALSE)
+                )
             )
         ):
             saved = results if incremental else ()
@@ -454,6 +626,8 @@ class SyncService:
         run_id = self.store.start_run(trigger)
         finalized = C.FALSE
         try:
+            self._event(S.PROD_RUN_STARTED.format(run_id=run_id))
+            self._event(S.PROD_STAGE_SOURCES)
             accounts = {account.source: account for account in self.settings.accounts}
             sources: list[SourceReceipt] = []
             with self.source_context or nullcontext():
@@ -488,12 +662,22 @@ class SyncService:
                         if self.on_source_complete is not C.NONE:
                             self.on_source_complete(receipt)
             metadata: list[MetadataReceipt] = []
-            if self.settings.metadata.google_books:
-                metadata.append(self._metadata(Source.GOOGLE_BOOKS))
-            if self.settings.metadata.open_library:
-                metadata.append(self._metadata(Source.OPEN_LIBRARY))
+            provider_order = (
+                (Source.OPEN_LIBRARY, Source.GOOGLE_BOOKS)
+                if self.settings.metadata.strategy == S.ENR_STRATEGY_OPEN_LIBRARY_FIRST
+                else (Source.GOOGLE_BOOKS, Source.OPEN_LIBRARY)
+            )
+            enabled = {
+                Source.GOOGLE_BOOKS: self.settings.metadata.google_books,
+                Source.OPEN_LIBRARY: self.settings.metadata.open_library,
+            }
+            for provider in provider_order:
+                if enabled[provider]:
+                    self._event(S.PROD_STAGE_METADATA.format(provider=provider.value))
+                    metadata.append(self._metadata(provider))
             sources_complete = all(item.state == SyncState.COMPLETE for item in sources)
             if sources_complete:
+                self._event(S.PROD_STAGE_RECONCILE)
                 self.store.reconcile_provider_work_matches()
             accounts_complete = sources_complete and all(
                 item.input_kind == S.INPUT_LIVE for item in sources
@@ -501,6 +685,7 @@ class SyncService:
             analytics: AnalyticsReceipt | None = C.NONE
             if self.settings.analytics.enabled and self.analytics is not C.NONE:
                 if sources_complete:
+                    self._event(S.PROD_STAGE_ANALYTICS)
                     try:
                         analytics = self.analytics.run(
                             self.settings.accounts, self.settings.analytics
@@ -515,14 +700,50 @@ class SyncService:
                         state=SyncState.PARTIAL,
                         issues=(Issue(code=S.AN_SKIPPED_CODE, message=S.AN_SKIPPED_MESSAGE),),
                     )
+                self._event(
+                    S.PROD_STAGE_RESULT.format(
+                        stage=S.PROD_ANALYTICS_STAGE, state=analytics.state.value
+                    )
+                )
+            products: ProductReceipt | None = C.NONE
+            if self.products is not C.NONE:
+                if analytics is not C.NONE and analytics.state == SyncState.COMPLETE:
+                    self._event(S.PROD_STAGE_PRODUCTS)
+                    try:
+                        products = self.products.run(
+                            self.settings.accounts, self.settings.analytics, analytics
+                        )
+                    except (BookyError, ValidationError, OSError) as exc:
+                        products = ProductReceipt(
+                            state=SyncState.FAILED,
+                            analytics_report_id=analytics.report_id,
+                            issues=(
+                                Issue(
+                                    code=S.PROD_FAILED_CODE,
+                                    message=S.PROD_FAILED_MESSAGE.format(
+                                        error_type=type(exc).__name__
+                                    ),
+                                ),
+                            ),
+                        )
+                else:
+                    products = ProductReceipt(
+                        state=SyncState.PARTIAL,
+                        issues=(Issue(code=S.PROD_SKIPPED_CODE, message=S.PROD_SKIPPED_MESSAGE),),
+                    )
+                self._event(
+                    S.PROD_STAGE_RESULT.format(stage=S.PROD_PRODUCTS, state=products.state.value)
+                )
             state = (
                 SyncState.COMPLETE
                 if sources_complete
                 and all(item.state == SyncState.COMPLETE for item in metadata)
                 and (analytics is C.NONE or analytics.state == SyncState.COMPLETE)
+                and (products is C.NONE or products.state == SyncState.COMPLETE)
                 else SyncState.PARTIAL
             )
             self.store.finish_run(run_id, state)
+            self._event(S.PROD_STAGE_FINISHED.format(run_id=run_id, state=state.value))
             finalized = C.TRUE
             return SyncReceipt(
                 run_id=run_id,
@@ -533,6 +754,7 @@ class SyncService:
                 sources=tuple(sources),
                 metadata=tuple(metadata),
                 analytics=analytics,
+                products=products,
             )
         except KeyboardInterrupt:
             self.store.finish_run(run_id, SyncState.INTERRUPTED)

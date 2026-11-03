@@ -2,12 +2,265 @@
 
 Delivery progress is tracked in [TODO.md](TODO.md).
 
+## How to read this plan
+
+[README.md](README.md) is the user guide and
+[CONTRIBUTING.md](CONTRIBUTING.md) is the development guide. This document keeps
+the detailed product requirements and dated evidence in one place. A requirement
+below is not an implemented feature unless the current delivery record says so.
+
+| Start here | Purpose |
+| --- | --- |
+| [Architecture](#architecture) | Current local-first pipeline, data boundaries and invariants |
+| [Delivery scope](#delivery-scope) | Implemented versus deferred scope |
+| [Recorded acceptance](#current-repair-acceptance-and-provider-gaps) | Historical code/data checks and known provider gaps |
+| [Identity matching](#10-identity-matching) | Matching requirements and difficult cases |
+| [Metadata](#14-metadata-enrichment-and-caching) | Provider, caching and large-library requirements |
+| [Analytics](#phase-2--understand-the-data-and-build-the-statistical-engine) | Questions, supported evidence and statistical safeguards |
+| [Reading appetites](#21-read-your-color-inspired-dimensions) | Read Your Color inspired scope, not an official assessment |
+| [Watchlist ranking](#phase-3--rank-the-goodreads-watchlist) | Explainable recommendation requirements |
+| [Annual reviews](#phase-4--her-year-in-review) | Deferred personal/public annual products |
+
+Historical acceptance describes the environment and inputs at that time.
+Runtime databases are not versioned; use offline `booky status` to establish
+what actually exists in the current checkout.
+
+## Production hardening — 2026-11-03
+
+The owner requested coordinated improvements to matching, metadata scalability,
+backend analytics, reading-appetite analysis, available dates and documentation.
+This section records the current scope; acceptance is recorded only after the
+integrated code and real-CSV checks finish.
+
+- **Matching:** improve correctness, not a target link count. Contradictory
+  selected catalog identities must veto or reverse automatic ISBN links.
+  Preserve human decisions, ambiguity and separate work/edition evidence.
+- **Metadata:** Open Library first, with Google used for remaining declared
+  core gaps: selected identity-valid public description or recognized genre
+  family. Optional years/pages/series/languages/translations alone do not trigger
+  fallback. Retain independent provider mode for explicit compatibility.
+  Retain both enabled providers and the configured local budget,
+  settled public evidence, durable gates and honest partial coverage. Investigate
+  alternative catalogs without adding an unverified dependency or treating
+  batching as a quota exemption.
+- **Analytics:** connect description-backed appetite evidence with separately
+  gated enjoyment analysis; disclose rating availability and use leakage-safe,
+  same-cohort validation. Fix semantic-cache invalidation when analytical
+  membership changes.
+- **Dates:** use Goodreads library-addition dates for descriptive library age,
+  never as reading or guaranteed shelf-entry dates. The owner explicitly
+  authorized StoryGraph completion dates as supplemental evidence, retaining
+  source lineage and precision and never overriding Goodreads dates. Other
+  StoryGraph personal fields remain raw-only.
+- **Presentation:** keep three commands and the existing modular architecture.
+  Make offline status useful and root documentation readable. No frontend,
+  ranking, annual review, source automation or scheduler is added here.
+
+Alternative-provider decision: Hardcover is a future opt-in coverage pilot,
+not an installed replacement. Its documented token/quota model still requires
+a benchmark. Wikidata can augment structured identifiers/dates; official Open
+Library dumps are a bulk option whose storage/indexing cost is disproportionate
+for this library. See README for links and operational details.
+
+### Hardening acceptance
+
+- **Code:** 815 Python and 51 JavaScript tests passed; Ruff lint/format over 92
+  Python files, strict mypy over 45 source files, sdist/wheel builds and diff
+  checks passed. New coverage includes contradictory catalog/ISBN repairs,
+  settled-cache reuse, streamed-prefix retention, fallback scope/auth, date
+  authority/precision and immutable-cache repeat regressions.
+- **Real supplied CSVs, providers explicitly disabled:** all 2,153 active source
+  records imported; 730 Read works, 813 watchlist works, 577 linked ratings and
+  278 usable descriptions remained the same as the source-only baseline.
+  The upgraded report contains 180 findings and 406 usable supplemental dates
+  from 423 explicit StoryGraph completion dates. Raw date totals, linked usable
+  totals, missingness and origin are separate; no Goodreads event was invented.
+- **Recovery:** the frozen-policy repeat reused taste and watchlist caches;
+  missing configured Read input retained 730 prior records and report 3;
+  restored configuration completed as report 4 with both caches reused.
+- **Separate live catalog smoke:** a synthetic public-book fixture produced a
+  selected Open Library lookup from real search/detail responses. Adding a
+  confirmed cross-source alias and then repeating left durable wire attempts at
+  2, 2 and 2. Google was disabled. This proves neither complete provider coverage
+  nor real/unattended source collection.
+- **Integrity:** seven isolated SQLite databases passed full integrity and
+  foreign-key checks; all three original CSV SHA-256 hashes are unchanged.
+  A source-only real-data report is exported to ignored
+  `data\analytics-report.json`; default databases were not silently replaced.
+
+The cold provider-enabled full-library rebuild was not repeated for this
+acceptance. Sequential catalog requests, remaining missingness and provider
+quotas still apply; Hardcover's actual identity-valid coverage needs a pilot.
+Richer analytics and stronger correctness tests do not establish matching
+accuracy, predictive improvement or recommendation accuracy.
+
+## Automatic product delivery
+
+The owner subsequently authorized watchlist recommendations, an automatic
+metadata-quality audit, a comprehensive PDF library report and persistent
+understandable logging. Processing uses the existing configured CSVs; automatic
+Goodreads/StoryGraph acquisition and scheduling remain deferred.
+
+The pipeline must run without human correction/selection queues. This means
+abstaining on uncertain identities or insufficient evidence, not relaxing
+matching checks. Quality reports quantify coverage, provenance and consistency;
+no independently labeled factual-accuracy benchmark has been established.
+Recommendations must disclose eligibility, ordering evidence, exclusions,
+missingness and uncertainty; their scores are not enjoyment probabilities.
+
+Successful analytics feeds all downstream products from the exact same pinned
+input manifest and as-of timestamp. `data\reports\report-<id>` contains the PDF,
+analytics/recommendation/quality JSON and a file-hash manifest. Publication of
+`reports\latest.json` happens only after the entire bundle succeeds. Failures
+retain the last complete bundle; corrupt or mismatched bundles fail explicitly.
+Recommendation histories/caches share the strictly versioned analytics database.
+`data\logs\bookystats.log` appends redacted stage progress and bounded examples
+with complete grouped issue counts; sync never deletes older logs or reports.
+
+The approved one-off cleanup removed generated/test artifacts, not implementation
+files, original CSVs, configuration, credentials or provider retry state.
+Current integrated validation and real provider-enabled acceptance are recorded
+below only after execution; earlier source-only results remain historical.
+
+### Automatic delivery validation
+
+- The final integrated code gate passed 883 Python tests and 51 JavaScript tests,
+  Ruff lint/format over 113 files, strict mypy over 57 source files and both
+  package builds. The 69-file wheel and 136-file sdist include the console
+  helper, packaged fonts and licenses, but exclude runtime data and credentials.
+- A separate real-CSV acceptance explicitly disabled both metadata providers.
+  Initial sync, unchanged repeat, missing configured Read failure and restored
+  recovery behaved correctly. It retained 2,153 active source records across
+  the 610/730/813 scopes, 730 Read works and 813 watchlist works. Source-only
+  evidence ranked 110 works, abstained on 703 and produced a ten-item shortlist.
+  Repeat/recovery reused both analytics components and recommendations.
+- The failed Read scope did not replace its 730-record snapshot or the latest
+  complete product bundle. Recovery published a coherent new bundle with exact
+  matching manifests/as-of timestamps across all products. All three isolated
+  databases passed full integrity and foreign-key checks.
+- The source-only PDF had 111 pages and 166,541 extracted characters. Local
+  raster inspection of pages 1/3/56/111 found readable tables and pagination;
+  no extracted text baselines fell outside the page bounds. This is separate
+  from provider-enabled PDF acceptance and complex-script rendering checks.
+- The real default provider-enabled rebuild and relocated unchanged repeat
+  completed source imports, analytics and products. Both overall receipts were
+  honestly partial: Open Library had parked/incomplete outcomes, and Google's
+  first request was rate-limited. No daily-exhaustion claim is supported.
+- Default report 2 pins 730 Read works, 813 watchlist works, 574 linked
+  unconflicted ratings and 230 findings. Its recommendations rank 318 works,
+  shortlist ten and abstain on 495; ranked works were checked against Read,
+  possible-Read overlaps, watchlist membership and known future publication.
+  All products share exactly the saved manifest/as-of; both analytics components
+  and recommendations reused on repeat.
+- Durable catalog counters stayed **Open Library 1,521 -> 1,521** and
+  **Google 1 -> 1**. Retry deadlines, failure counts and diagnostic codes stayed
+  unchanged. Zero new catalog requests does not establish full enrichment.
+- All four production databases passed full SQLite integrity and foreign-key
+  checks. Original CSV hashes were unchanged. Physical reorganization preserved
+  database and OAuth bytes exactly and did not clear retry state or history.
+- The final `data\reports\report-2\library.pdf` has 150 pages and 239,763 extracted
+  characters. Pages 1/3/76/150 were locally raster-inspected; no extracted text
+  baselines were outside MediaBox. Font limitations explicitly disclose disabled
+  complex-script shaping/RTL; correct extraction alone does not prove shaping.
+
+### Organized runtime layout
+
+The owner requested a cleaner data directory. Known runtime files now belong in
+`databases`, private OAuth in `credentials`, and locks/generated capture helpers
+in `runtime`; `inputs`, `reports` and `logs` retain their existing roles.
+Nonsecret config and input path resolution are unchanged.
+
+Offline status recognizes legacy flat files without moving them. Sync takes the
+modern and any legacy lock, validates/checkpoints all legacy SQLite databases,
+then atomically renames individual known files without overwriting destinations.
+Partial moves are resumable. Existing-only status connections prevent a rename
+race from creating an empty replacement database. The actual four databases and
+OAuth file moved byte-for-byte only after the cold rebuild closed its handles.
+The data root has no loose files; normal sync never deletes report/input history.
+
+## Reader-first revision — 2026-11-03
+
+The owner rejected the first PDF as too technical and requested a deep personal,
+engaging report. The chosen presentation is roughly 12–20 pages, with complete
+technical evidence in JSON and free/local metadata sources only. StoryGraph
+remains the sole personal-rating authority. The owner explicitly allowed
+separately labeled Goodreads community comparisons; they must never train
+personal preferences or recommendation scoring.
+
+The revision adds a typed reader summary and an editorial PDF: all-Read shelf
+shape, favorites and rating vocabulary, community differences, returning authors,
+supported genre/length comparisons, six description-backed appetites, actual
+completion-date cohorts, watchlist familiarity/composition and a ten-item
+shortlist. It does not reproduce an official assessment or infer personality.
+The full inventory, diagnostics, prediction checks and ranking remain in JSON.
+The supplied library's PDF is 15 pages rather than 150.
+Final bundle `data\reports\report-8` passed text-baseline and per-glyph content
+frame checks, with no footer overlap. Cover, appetite, shortlist and coverage
+pages were raster-inspected; report history remains immutable.
+
+Enrichment reuses verified Open Library candidates across canonical query
+identities and normalizes exact catalog genre paths. Unique work-only
+title/author matches may select public work facts without establishing an edition
+match. Ambiguous catalog works remain unselected. New detail requests target
+remaining core gaps and stop after 40 per provider instance; cached details
+remain usable. Existing transient floors and host retry gates still win.
+
+The real run exposed two compatibility/correctness regressions, now covered by
+tests: historical recommendation caches must preserve their calculation version,
+and weak unselected title-only catalog candidates must not veto an independent
+reciprocal bibliography link. Strong ISBN ambiguity and selected catalog
+conflicts still veto. An automatically withdrawn bibliography link may recover
+only for the same unchanged pair with current compatible evidence and no human
+override. All seven temporarily withdrawn personal-rating links recovered
+automatically; the final total is again 574.
+
+### Recorded second-pass acceptance
+
+- 912 Python tests and 51 JavaScript tests passed, with Ruff lint/format over
+  115 files, strict mypy over 58 source files and sdist/wheel builds. Package
+  boundary checks covered a 70-file wheel and 138-file source archive.
+- Sources retain 2,597 archived input rows and 2,153 active source records,
+  including 730 Read and 813 watchlist works. All three original CSV hashes
+  are unchanged. Personal rating evidence remains StoryGraph-only.
+- Saved analytics contains 232 findings and 574 linked unconflicted ratings.
+  The recommendation product ranks 359 works, shortlists ten and abstains on
+  454; all ranked IDs passed current-watchlist, completed-work, possible-Read
+  overlap and known-future-work checks. No independent usefulness gain is claimed.
+- Recognized genres increased from 271 to 329 Read works and 248 to 297
+  watchlist works: only 45.1% and 36.5% respectively. Descriptions increased
+  to 535/730 and 609/813. Series remains 70/730 and 8/813; edition-language
+  coverage remains zero. This is measured recovery, not complete enrichment.
+- Provider-enabled source imports, analytics and products completed, but the
+  overall receipt remains partial. Google's generic rate-limit cooldown was
+  preserved; no daily-exhaustion or reset-time claim is supported.
+- The unchanged repeat reused taste, watchlist and recommendation caches.
+  Durable counters stayed Open Library 1,666 and Google 1: zero new provider
+  requests. Both complete metadata coverage and catalog accuracy remain unproven.
+- All four production databases passed full SQLite integrity/foreign-key checks.
+  Product manifests/as-of timestamps, file hashes and saved reports agree.
+  No original CSV, credential, old report or provider gate was reset.
+- Separate provider-disabled real-CSV initial/repeat/failure/recovery checks
+  passed. The failed Read scope retained its last complete bundle; recovery
+  reused all caches. A final source-only repeat also passed under the final
+  matching policy. This is separate evidence, not provider acceptance.
+- Logging now appends compact stages, roughly five-percent progress updates,
+  complete grouped issue counts and bounded redacted actionable examples.
+  Expected import notices do not dump row examples or duplicate the full report.
+
+The immediate remaining product problem is reliable metadata acquisition and
+coverage evaluation, not more PDF pages. A genuine bulk/index route needs its
+storage and coverage benchmark before adoption; the public API is not unlimited
+bulk infrastructure. Independent matching and recommendation evaluation,
+verified live acquisition, unattended evidence, backup/restore and any explicit
+scheduling approval remain separate future work.
+
 ## Architecture
 
 Exactly four named pipelines: **ingestion / processing / analytics / watchlist**.
 Each command saves data to SQLite and exits; no always-running service or broker
 is needed. Plain `booky sync` processes configured CSVs without source fetching
-or a source browser. Backend analytics runs after metadata; ranking remains future work.
+or a source browser. Analytics runs after metadata, followed by separate quality,
+recommendation and PDF/JSON delivery services.
 Live acquisition, retry/resume orchestration and scheduling are deferred, not
 gates before analytics. Future triggers should reuse the same application
 services. Do not activate Windows scheduling on this machine. Real-account
@@ -18,23 +271,25 @@ Manual command (future external triggers reuse the same application services)
     |
 [ingestion: now]  <-- exact top-level files CSV paths; legacy explicit file flags
     | Goodreads Read + to-read; StoryGraph personal ratings
-    | supplied file bytes archived before parsing: data\raw.sqlite3
+    | supplied file bytes archived before parsing: data\databases\raw.sqlite3
     v
 [processing: now] <-- Google Books + Open Library enabled by default
-    | provider query cache: data\metadata.sqlite3
-    | full provider HTTP responses: data\raw.sqlite3 (separate source/type)
-    | processed snapshots + payloads + run receipts: data\library.sqlite3
+    | provider query cache: data\databases\metadata.sqlite3
+    | full provider HTTP responses: data\databases\raw.sqlite3 (separate source/type)
+    | processed snapshots + payloads + run receipts: data\databases\library.sqlite3
     v
 [analytics: now, backend only]
-    | saved reports + separate taste/watchlist caches: data\analytics.sqlite3
+    | saved reports + separate taste/watchlist caches: data\databases\analytics.sqlite3
     v
-[watchlist: future]
-      rankings + explanations (location undecided; not created)
+[watchlist: now]
+      rankings, eligibility, explanations + immutable caches: data\databases\analytics.sqlite3
+      quality + analytics/recommendations JSON + PDF: data\reports\report-<id>\
+      atomic verified latest pointer: data\reports\latest.json
 
-Run logs: data\logs\*.log
+Run log: data\logs\bookystats.log (append-only progress + grouped diagnostics)
 Backups, when created: data\backups\
 No automatic deletion of originals, raw data, library, or backups.
-Only the latest completed generated log is retained.
+Logs and report history are retained; sync never automatically deletes them.
 ```
 
 These are data boundaries, not separate servers. Metadata providers can be
@@ -99,7 +354,7 @@ implementation work is not evidence that live collection or consent succeeded.
 | **ingestion — now** | Exact configured CSV paths on plain sync; legacy explicit flags for advanced import/replay. Archive bytes before parsing; verify stored hashes, account/scope, and file completeness without claiming account completeness. Never silently replay missing configured paths. | Immutable source originals, source/account binding, capture time, content hash, and collection lineage. |
 | **processing — now** | Parse, validate, apply authority, conservatively match identities, and enrich through default-enabled Google Books and Open Library with a separate query cache. | Independently published source/scope snapshots, structured books/editions, Goodreads history/reviews/watchlist, StoryGraph personal ratings, and metadata provenance/coverage. |
 | **analytics — now** | Read pinned compatible snapshots, confirmed work IDs and selected identity-valid metadata after enrichment. Calculate supported findings; reuse taste/watchlist components separately. | Saved reports, preference weights, capability/coverage evidence and exact input references in ignored `data\analytics.sqlite3`. |
-| **watchlist — later** | Combine saved preference weights with the declared processed Goodreads watchlist and relevant metadata. | Ranked next reads, score components, explanations, confidence, and exact input versions. |
+| **watchlist — now** | Conservatively filter the current Goodreads watchlist, use supported personal-rating signals and retain uncertainty/abstentions. | Deterministic ranking, varied shortlist, score components, evidence tiers and exact pinned inputs; no calibrated enjoyment probabilities. |
 
 ### Saved inputs, reuse and future orchestration
 
@@ -115,7 +370,8 @@ their original input list and freshness labels when new results are blocked.
 Save checks and a run report for success, partial success or failure.
 
 `domain.analytics` and pure `content_analysis` own calculations. The reusable `AnalyticsService` is injected
-into `SyncService` after metadata. StoryGraph contributes ratings only; selected
+into `SyncService` after metadata. StoryGraph contributes ratings and explicitly
+authorized, separately labeled supplemental completion dates; selected
 metadata must pass identity checks and work links must be confirmed. Reused
 components receive the current input references without changing cached values.
 Selected public provider work metadata follows confirmed catalog-work links,
@@ -240,7 +496,11 @@ prune history to conceal duplicate processed storage.
   Never invent zeroes, dates, or personal history.
 - **Keep provenance and authority:** Goodreads owns the current watchlist,
   reading history, reviews, status, and other personal data. StoryGraph contributes
-  only personal ratings and identity needed to match them. Its other supplied fields
+  personal ratings and identity needed to match them. The owner-approved
+  exception also permits explicit completion dates as supplemental evidence,
+  retaining StoryGraph provenance/precision and requiring confirmed work links.
+  They never override Goodreads dates or become Goodreads reading events.
+  Other supplied fields
   remain raw-only. Never substitute community averages for personal ratings or
   merge editions on a title guess.
 - **Publish safely:** retain the last usable processed snapshot when new input
@@ -786,7 +1046,7 @@ Produce a standalone Calendar Year in Books
 | Database | **SQLite**, persisted across runs |
 | StoryGraph access | Configured supplied CSV for personal ratings/identity; live acquisition deferred |
 | Goodreads access | Explicit console helper via `fetch`; configured split Read/to-read CSVs or alternative official whole-library CSV; never mix the modes |
-| Source authority | Goodreads watchlist and history/personal data; StoryGraph personal ratings only |
+| Source authority | Goodreads watchlist and history/personal data; StoryGraph ratings and explicitly labeled supplemental completion dates, never overriding Goodreads |
 | Metadata | Google Books and Open Library enabled by default; API-key priority, automatic interactive OAuth setup when needed |
 | Exports | Default configured input; preserve original bytes before parsing, never silently replay missing paths |
 | Refresh cadence | On-demand CSV processing now; weekly automatic acquisition requires later approval and evidence |
@@ -1665,7 +1925,8 @@ acquisition mode. The detailed requirements below still include deeper work;
 only supported findings may be produced. The implemented baseline includes a
 capability inventory: current exports provide 730 Read memberships but no usable
 dated reading events or personal reviews. The latest actual Read input has
-314 confirmed personal-rating links across 730 works; previously it had 122.
+314 confirmed personal-rating links across 730 works in an earlier acceptance;
+those counts are historical, not the current coverage.
 Unlinked Read books are not automatically unrated. StoryGraph
 moods, pace and other non-rating attributes remain raw-only under current
 authority rules; do not silently promote them to fill an analytics feature.
@@ -1701,10 +1962,12 @@ community comparisons. The current combined implementation passed the full
   language or establish the language actually read.
 - Cache keys include the full as-of date/year.
 
-The actual files have no reading dates, so dated-cohort/breadth results still
-need observations. Review analyses also remain gated. Implementation tests do
-not fill those data gaps. Actual analytics and replay acceptance passed, while
-full provider enrichment remains incomplete.
+The Goodreads files have no authoritative dated reading events. A subsequent
+owner-approved policy permits explicit StoryGraph completion dates as separately
+labeled supplemental evidence, without overriding Goodreads. Library-addition
+and publication dates remain different facts. Review analyses remain gated.
+Implementation tests do not fill data gaps; full provider enrichment remains
+incomplete.
 
 ## 19. Let the collected data determine the analyses
 

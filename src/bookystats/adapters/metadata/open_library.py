@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import NoReturn, cast
 
@@ -15,7 +15,12 @@ from bookystats.domain.dates import parse_date
 from bookystats.domain.errors import ConnectorError, ProviderDeferredError
 from bookystats.domain.identifiers import normalize_isbn, normalized_isbns, normalized_text
 from bookystats.domain.interfaces import HttpFetcher, HttpResponse
-from bookystats.domain.matching import select_metadata_candidate
+from bookystats.domain.matching import (
+    select_metadata_candidate,
+    work_bibliography_compatible,
+    work_candidate_keys,
+)
+from bookystats.domain.metadata import missing_fallback_fields
 from bookystats.domain.models import (
     BookRecord,
     EnrichmentResult,
@@ -431,10 +436,7 @@ def _cached(payload: dict[str, JsonValue]) -> _Search:
 def _matches(book: BookRecord, candidate: MetadataCandidate) -> bool:
     if set(normalized_isbns(book.isbns)) & set(candidate.isbns):
         return C.TRUE
-    return normalized_text(book.title) == normalized_text(candidate.title) and bool(
-        {normalized_text(author) for author in book.authors if normalized_text(author)}
-        & {normalized_text(author) for author in candidate.authors if normalized_text(author)}
-    )
+    return work_bibliography_compatible(book, candidate)
 
 
 def _query(book: BookRecord) -> str | None:
@@ -714,18 +716,65 @@ class OpenLibraryProvider:
         *,
         cache: MetadataCache | None = C.NONE,
         work_details: bool = C.FALSE,
+        detail_request_limit: int = C.ENR_DETAIL_REQUEST_LIMIT,
     ) -> None:
         self._http = http
         self._cache = cache
         self._halted = C.FALSE
         self._work_details = work_details
+        self._detail_request_limit = detail_request_limit
+        self._detail_requests = C.ZERO
+        self._catalog: dict[str, dict[str, MetadataCandidate]] | None = C.NONE
+
+    def _catalog_lookup(self, book: BookRecord) -> _Search | None:
+        if self._cache is C.NONE:
+            return C.NONE
+        if self._catalog is C.NONE:
+            self._catalog = {}
+            for entry in self._cache.catalog_entries(Source.OPEN_LIBRARY):
+                if S.CANDIDATES not in entry:
+                    continue
+                search = _cached(entry)
+                if not search.complete or search.issues:
+                    continue
+                self._remember_catalog(search)
+        matches = {
+            candidate.provider_id: candidate
+            for key in work_candidate_keys(book)
+            for candidate in self._catalog.get(key, {}).values()
+            if _matches(book, candidate)
+        }
+        candidates = tuple(matches[key] for key in sorted(matches))
+        if not candidates:
+            return C.NONE
+        return _Search(candidates, cache_hit=C.TRUE)
+
+    def _remember_catalog(self, search: _Search) -> None:
+        if self._catalog is C.NONE or not search.complete or search.issues:
+            return
+        for candidate in search.candidates:
+            for key in work_candidate_keys(candidate):
+                candidates = self._catalog.setdefault(key, {})
+                previous = candidates.get(candidate.provider_id)
+                if previous is C.NONE or max(
+                    (item.observed_at or S.EMPTY for item in candidate.observations),
+                    default=S.EMPTY,
+                ) > max(
+                    (item.observed_at or S.EMPTY for item in previous.observations),
+                    default=S.EMPTY,
+                ):
+                    candidates[candidate.provider_id] = candidate
 
     def _detail_payload(
         self, candidate: MetadataCandidate
     ) -> tuple[dict[str, JsonValue], str, bool]:
         url = S.META_COVERAGE_WORK_DETAIL_URL.format(identifier=candidate.provider_id)
         key = S.META_COVERAGE_WORK_CACHE_KEY.format(identifier=candidate.provider_id)
-        cached = self._cache.get(Source.OPEN_LIBRARY, key) if self._cache else C.NONE
+        cached = (
+            self._cache.get(Source.OPEN_LIBRARY, key, allow_expired=C.TRUE)
+            if self._cache
+            else C.NONE
+        )
         if cached is not C.NONE:
             body, stamp, origin = (
                 cached.get(S.META_COVERAGE_BODY),
@@ -759,6 +808,13 @@ class OpenLibraryProvider:
             raise ConnectorError(
                 S.META_RUN_HALTED_MESSAGE, code=S.METADATA_DEFERRED, retryable=C.TRUE
             )
+        if self._detail_requests >= self._detail_request_limit:
+            raise ProviderDeferredError(
+                S.ENR_DETAIL_DEFERRED_MESSAGE,
+                code=S.ENR_DETAIL_DEFERRED,
+                retryable=C.TRUE,
+            )
+        self._detail_requests += C.ONE
         response = self._http.fetch(
             url, headers={S.ACCEPT: S.GOOGLE_BOOKS_HTTP_PAYLOAD_APPLICATION_JSON}
         )
@@ -793,16 +849,28 @@ class OpenLibraryProvider:
         candidate = select_metadata_candidate(book, result.candidates)
         if candidate is C.NONE:
             return result
-        known = {
-            item.field
-            for item in candidate.observations
-            if item.state in (FieldState.PRESENT, FieldState.EMPTY)
-        }
-        if known >= C.META_COVERAGE_DETAIL_FIELDS:
+        if not missing_fallback_fields(book, (candidate,)):
             return result
         try:
             payload, stamp, cache_hit = self._detail_payload(candidate)
             enriched, issues = _merge_details(candidate, _detail_fields(payload, candidate, stamp))
+        except ProviderDeferredError as error:
+            if error.code != S.ENR_DETAIL_DEFERRED:
+                raise
+            return result.model_copy(
+                update={
+                    S.STATE: SyncState.PARTIAL,
+                    S.ISSUES: (
+                        *result.issues,
+                        Issue(
+                            code=error.code,
+                            message=str(error),
+                            source_id=book.source_id,
+                            retryable=C.TRUE,
+                        ),
+                    ),
+                }
+            )
         except (ConnectorError, MetadataCacheError) as error:
             if isinstance(error, ConnectorError) and (
                 error.state in (SyncState.BLOCKED, SyncState.NEEDS_AUTH)
@@ -872,7 +940,7 @@ class OpenLibraryProvider:
                 S.OPEN_LIBRARY_ENDPOINT_HTTPS_OPENLIBRARY_ORG_SEARCH_JSON,
                 params={
                     S.Q: S.OPEN_LIBRARY_QUERY_OR.join(queries[key] for key in selected),
-                    S.FIELDS: S.PROVIDER_ALL_FIELDS,
+                    S.FIELDS: S.ENR_OPEN_LIBRARY_SEARCH_FIELDS,
                     S.LIMIT: str(C.OPEN_LIBRARY_MAX_RESULTS),
                 },
                 headers={S.ACCEPT: S.GOOGLE_BOOKS_HTTP_PAYLOAD_APPLICATION_JSON},
@@ -952,6 +1020,7 @@ class OpenLibraryProvider:
                     if subset.candidates
                     else C.OPEN_LIBRARY_NEGATIVE_TTL,
                 )
+                self._remember_catalog(subset)
             for index in pending[key]:
                 results[index] = _result(books[index], subset)
 
@@ -959,6 +1028,13 @@ class OpenLibraryProvider:
         return self.lookup_many((book,))[C.ZERO]
 
     def lookup_many(self, books: tuple[BookRecord, ...]) -> tuple[EnrichmentResult, ...]:
+        return tuple(self.iter_lookup_many(books))
+
+    def iter_lookup_many(self, books: tuple[BookRecord, ...]) -> Iterator[EnrichmentResult]:
+        for book, result in zip(books, self._lookup_many_search(books), strict=C.TRUE):
+            yield self._enrich_details(book, result) if self._work_details else result
+
+    def _lookup_many_search(self, books: tuple[BookRecord, ...]) -> tuple[EnrichmentResult, ...]:
         if self._halted:
             raise ProviderDeferredError(
                 S.META_RUN_HALTED_MESSAGE,
@@ -970,6 +1046,14 @@ class OpenLibraryProvider:
         pending: dict[str, list[int]] = {}
         queries: dict[str, str] = {}
         for index, book in enumerate(books):
+            try:
+                local = self._catalog_lookup(book)
+            except MetadataCacheError as error:
+                results[index] = _failure(book, error)
+                continue
+            if local is not C.NONE:
+                results[index] = _result(book, local)
+                continue
             query = _query(book)
             if query is C.NONE:
                 results[index] = EnrichmentResult(
@@ -988,24 +1072,36 @@ class OpenLibraryProvider:
                 [
                     C.META_COVERAGE_OPEN_LIBRARY_CACHE_VERSION,
                     query,
-                    S.PROVIDER_ALL_FIELDS,
+                    S.ENR_OPEN_LIBRARY_SEARCH_FIELDS,
                     C.OPEN_LIBRARY_MAX_RESULTS,
                 ],
                 separators=(S.COMMA, S.COLON),
             )
             try:
-                cached = self._cache.get(Source.OPEN_LIBRARY, key) if self._cache else C.NONE
-                if cached is C.NONE and self._cache:
-                    legacy_key = json.dumps(
-                        [
-                            C.METADATA_CAPTURE_VERSION,
-                            query,
-                            S.PROVIDER_ALL_FIELDS,
-                            C.OPEN_LIBRARY_MAX_RESULTS,
-                        ],
-                        separators=(S.COMMA, S.COLON),
-                    )
-                    cached = self._cache.get(Source.OPEN_LIBRARY, legacy_key)
+                cached = (
+                    self._cache.get(Source.OPEN_LIBRARY, key, allow_expired=C.TRUE)
+                    if self._cache
+                    else C.NONE
+                )
+                if self._cache:
+                    for version in (
+                        C.META_COVERAGE_OPEN_LIBRARY_CACHE_VERSION,
+                        C.METADATA_CAPTURE_VERSION,
+                    ):
+                        if cached is not C.NONE:
+                            break
+                        legacy_key = json.dumps(
+                            [
+                                version,
+                                query,
+                                S.PROVIDER_ALL_FIELDS,
+                                C.OPEN_LIBRARY_MAX_RESULTS,
+                            ],
+                            separators=(S.COMMA, S.COLON),
+                        )
+                        cached = self._cache.get(
+                            Source.OPEN_LIBRARY, legacy_key, allow_expired=C.TRUE
+                        )
                 if cached is not C.NONE:
                     results[index] = _result(book, _cached(cached))
                     continue
@@ -1081,10 +1177,4 @@ class OpenLibraryProvider:
                     for index in pending[key]:
                         if results[index] is C.NONE:
                             results[index] = _failure(books[index], error)
-        completed = tuple(cast(EnrichmentResult, result) for result in results)
-        if not self._work_details:
-            return completed
-        return tuple(
-            self._enrich_details(book, result)
-            for book, result in zip(books, completed, strict=C.TRUE)
-        )
+        return tuple(cast(EnrichmentResult, result) for result in results)

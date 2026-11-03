@@ -102,11 +102,18 @@ def _bind(component: AnalysisComponent, binding: JsonValue) -> AnalysisComponent
 
 
 class AnalyticsStore:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, require_existing: bool = C.FALSE) -> None:
         self._connection: sqlite3.Connection | None = C.NONE
         try:
-            path.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
-            self._connection = sqlite3.connect(path, timeout=C.FIVE)
+            if require_existing:
+                self._connection = sqlite3.connect(
+                    path.resolve().as_uri() + S.LAYOUT_SQLITE_EXISTING_QUERY,
+                    timeout=C.FIVE,
+                    uri=C.TRUE,
+                )
+            else:
+                path.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
+                self._connection = sqlite3.connect(path, timeout=C.FIVE)
             connection = self._db()
             connection.execute(S.AN_STORE_FOREIGN_KEYS)
             if connection.execute(S.AN_STORE_FOREIGN_KEYS_CHECK).fetchall() != [(C.ONE,)]:
@@ -124,12 +131,17 @@ class AnalyticsStore:
                     connection.execute(S.AN_STORE_CREATE_COMPONENTS)
                     connection.execute(S.AN_STORE_CREATE_REPORTS)
                     connection.execute(S.AN_STORE_SET_APP_ID)
-                    connection.execute(S.AN_STORE_SET_VERSION)
-            self._validate()
-            for row in connection.execute(S.AN_STORE_ALL_COMPONENTS):
-                self._component(row)
-            for row in connection.execute(S.AN_STORE_ALL_REPORTS):
-                self._report(row)
+                    connection.execute(S.REC_CREATE_CACHE)
+                    connection.execute(S.REC_CREATE_REPORTS)
+                    connection.execute(S.REC_SET_VERSION)
+                elif version == C.AN_STORE_SCHEMA_VERSION:
+                    self._validate(legacy=C.TRUE)
+                    self._validate_payloads()
+                    connection.execute(S.REC_CREATE_CACHE)
+                    connection.execute(S.REC_CREATE_REPORTS)
+                    connection.execute(S.REC_SET_VERSION)
+                self._validate()
+                self._validate_payloads()
         except (OSError, sqlite3.Error, AnalyticsStoreError, ValueError, UnicodeError):
             self.close()
             raise AnalyticsStoreError(S.AN_STORE_ERROR) from C.NONE
@@ -149,17 +161,24 @@ class AnalyticsStore:
         except sqlite3.Error:
             raise AnalyticsStoreError(S.AN_STORE_ERROR) from C.NONE
 
-    def _validate(self) -> None:
+    def _validate(self, *, legacy: bool = C.FALSE) -> None:
         connection = self._db()
         if (
             connection.execute(S.AN_STORE_APP_ID).fetchone()[C.ZERO] != C.AN_STORE_APPLICATION_ID
             or connection.execute(S.AN_STORE_VERSION).fetchone()[C.ZERO]
-            != C.AN_STORE_SCHEMA_VERSION
-            or tuple(connection.execute(S.AN_STORE_SCHEMA).fetchall()) != C.AN_STORE_SCHEMA
+            != (C.AN_STORE_SCHEMA_VERSION if legacy else C.REC_SCHEMA_VERSION)
+            or tuple(connection.execute(S.AN_STORE_SCHEMA).fetchall())
+            != (C.AN_STORE_SCHEMA if legacy else C.REC_SCHEMA)
             or connection.execute(S.AN_STORE_INTEGRITY).fetchall() != [(S.OK,)]
             or connection.execute(S.AN_STORE_FK_CHECK).fetchall()
         ):
             raise AnalyticsStoreError(S.AN_STORE_ERROR)
+
+    def _validate_payloads(self) -> None:
+        for row in self._db().execute(S.AN_STORE_ALL_COMPONENTS):
+            self._component(row)
+        for row in self._db().execute(S.AN_STORE_ALL_REPORTS):
+            self._report(row)
 
     @staticmethod
     def _component(row: tuple[object, ...]) -> AnalysisComponent:

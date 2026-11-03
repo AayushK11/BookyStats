@@ -10,9 +10,11 @@ from bookystats import strings as S
 from bookystats.application.statistics import (
     _author_components,
     _author_folds,
+    _completion_date,
     _labels,
     _paired_stability,
     _predict_held_out,
+    build_reading_profile,
     build_taste,
     build_watchlist,
 )
@@ -26,6 +28,7 @@ from bookystats.domain.analytics import (
     AnalyticsSettings,
     Finding,
 )
+from bookystats.domain.categories import analytical_categories
 from bookystats.domain.models import (
     FieldState,
     Observation,
@@ -33,6 +36,7 @@ from bookystats.domain.models import (
     ReadingEvent,
     ReadingStatus,
     Source,
+    SupplementalCompletionDate,
     SyncState,
 )
 
@@ -103,6 +107,154 @@ def _summary(component: AnalysisComponent, metric: str) -> dict[str, object]:
 
 def _group(component: AnalysisComponent, feature: str, label: str) -> Finding:
     return _finding(component, S.AN_CALC_GROUP.format(feature=feature, label=label))
+
+
+def _supplemental(
+    value: str | None,
+    *,
+    source_id: str = S.TEST_IMPORT_SECOND_ID,
+    state: FieldState = FieldState.PRESENT,
+) -> SupplementalCompletionDate:
+    return SupplementalCompletionDate(
+        source_id=source_id,
+        finished=PartialDate(value=value) if value is not C.NONE else C.NONE,
+        observation=Observation(
+            field=S.DTX_SUPPLEMENTAL_COMPLETION_DATE,
+            value=value,
+            state=state,
+            scope=S.READER,
+            source_url=S.CONTENT_ANALYSIS_TEST_FILE_URL,
+            observed_at=S.AN_CALC_TEST_FINISH,
+        ),
+    )
+
+
+def test_supplemental_completion_cohorts_preserve_goodreads_precedence_and_unknowns() -> None:
+    actual = _book(
+        C.ONE,
+        C.FOUR,
+        events=(
+            ReadingEvent(
+                finished=PartialDate(value=S.AN_CALC_TEST_YEAR),
+                status=ReadingStatus.READ,
+            ),
+        ),
+    ).model_copy(
+        update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),)}
+    )
+    fallback = _book(C.TWO).model_copy(
+        update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),)}
+    )
+    conflicting = _book(C.THREE).model_copy(
+        update={
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (
+                _supplemental(S.ANX_TEST_EARLIER_DATE),
+                _supplemental(S.ANX_TEST_LATER_DATE),
+            )
+        }
+    )
+    unavailable = _book(C.FOUR).model_copy(
+        update={
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (
+                _supplemental(C.NONE, state=FieldState.UNAVAILABLE),
+            )
+        }
+    )
+    future = _book(C.FIVE).model_copy(
+        update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_FUTURE_DATE),)}
+    )
+    library_only = _book(C.SIX).model_copy(
+        update={S.ADDED_AT: PartialDate(value=S.ANX_TEST_EARLIER_DATE)}
+    )
+    data = _data(actual, fallback, conflicting, unavailable, future, library_only).model_copy(
+        update={S.CONTENT_ANALYSIS_AS_OF: S.ANX_TEST_AS_OF}
+    )
+    finding = _finding(_taste(data), S.ANX_COMPLETION_COHORTS)
+    summary = _summary(_taste(data), S.ANX_COMPLETION_COHORTS)
+    assert finding.sample_size == C.TWO
+    assert finding.missing_count == C.FOUR
+    assert summary[S.ANX_CONFLICTING_DATES] == [conflicting.book_id]
+    assert summary[S.ANX_FUTURE_DATES] == C.ONE
+    selected = summary[S.ANX_SELECTED_DATES]
+    assert selected[actual.book_id][S.VALUE] == S.AN_CALC_TEST_YEAR
+    assert selected[actual.book_id][S.ANX_DATE_ORIGIN] == S.ANX_AUTHORITATIVE_DATE
+    assert selected[fallback.book_id][S.ANX_DATE_ORIGIN] == S.ANX_SUPPLEMENTAL_DATE
+    assert selected[fallback.book_id][S.AN_CALC_EVIDENCE][C.ZERO][S.SOURCE_ID] == (
+        S.TEST_IMPORT_SECOND_ID
+    )
+    assert summary[S.ANX_SUPPLEMENTAL_STATES][FieldState.UNAVAILABLE.value] == C.ONE
+    assert summary[S.ANX_COHORTS][S.AN_CALC_TEST_YEAR][S.ANX_CURRENT_RATINGS] is C.NONE
+    assert actual.reading_events[C.ZERO].finished is not C.NONE
+    assert fallback.reading_events == ()
+
+
+def test_duplicate_supplemental_values_are_consistent_not_multiple_reading_events() -> None:
+    book = _book(C.ONE).model_copy(
+        update={
+            S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (
+                _supplemental(S.ANX_TEST_EARLIER_DATE),
+                _supplemental(
+                    S.ANX_TEST_EARLIER_DATE,
+                    source_id=S.TEST_IMPORT_THIRD_ID,
+                ),
+            )
+        }
+    )
+    finished, origin, conflict = _completion_date(book)
+    assert finished is not C.NONE and finished.value == S.ANX_TEST_EARLIER_DATE
+    assert origin == S.ANX_SUPPLEMENTAL_DATE
+    assert not conflict
+    assert book.reading_events == ()
+
+
+def test_library_addition_profile_keeps_partial_dates_and_day_only_ages_separate() -> None:
+    values = (
+        S.AN_CALC_TEST_FINISH,
+        S.AN_CALC_TEST_MONTH,
+        S.AN_CALC_TEST_YEAR,
+        S.ANX_TEST_FUTURE_DATE,
+    )
+    books = tuple(
+        _book(index).model_copy(update={S.ADDED_AT: PartialDate(value=value)})
+        for index, value in enumerate(values, start=C.ONE)
+    )
+    data = _data(*books).model_copy(update={S.CONTENT_ANALYSIS_AS_OF: S.ANX_TEST_AS_OF})
+    component = build_reading_profile(data, AnalyticsSettings(), key=S.AN_CALC_TEST_KEY)
+    finding = _finding(component, S.ANX_LIBRARY_ADDITIONS.format(collection=S.READ))
+    summary = _summary(component, S.ANX_LIBRARY_ADDITIONS.format(collection=S.READ))
+    assert finding.sample_size == C.THREE
+    assert finding.missing_count == C.ONE
+    assert summary[S.ANX_DATE_PRECISIONS] == {S.DAY: C.ONE, S.MONTH: C.ONE, S.YEAR: C.ONE}
+    assert summary[S.ANX_AGE_SUMMARY][S.AN_CALC_N] == C.ONE
+    assert summary[S.ANX_COHORTS] == {S.AN_CALC_TEST_YEAR: C.THREE}
+    assert summary[S.ANX_FUTURE_DATES] == C.ONE
+    assert S.ANX_ADDITION_NOTE in finding.limitations
+
+
+def test_catalog_holdout_uses_only_positive_feature_training_after_work_exclusion() -> None:
+    settings = AnalyticsSettings(min_group_size=C.THREE)
+    training = tuple(
+        _book(index, C.FOUR).model_copy(
+            update={S.ANX_FEATURES: {S.ANX_FEATURE: (S.AN_CONNECTION,)}}
+        )
+        for index in range(C.ONE, C.FOUR)
+    )
+    held_out = _book(C.FOUR, C.ONE).model_copy(
+        update={S.ANX_FEATURES: {S.ANX_FEATURE: (S.AN_CONNECTION,)}}
+    )
+    prediction = _predict_held_out(
+        held_out, (*training, held_out), settings, features=C.ANX_VALIDATION_FEATURES
+    )
+    altered = held_out.model_copy(update={S.RATING: C.FIVE})
+    assert prediction == _predict_held_out(
+        altered, (*training, altered), settings, features=C.ANX_VALIDATION_FEATURES
+    )
+    assert prediction[C.TWO] == {S.ANX_FEATURE: C.FOUR}
+    unsupported = _predict_held_out(
+        held_out, (*training[: C.TWO], held_out), settings, features=C.ANX_VALIDATION_FEATURES
+    )
+    assert unsupported[C.ZERO] == unsupported[C.ONE]
+    assert unsupported[C.TWO] == {}
 
 
 @pytest.mark.parametrize(S.ANALYTIC_CATEGORY_TEST_PARAMETERS, C.ANALYTIC_CATEGORY_TEST_CASES)
@@ -294,6 +446,18 @@ def test_community_comparison_keeps_providers_and_unknowns_separate() -> None:
         _finding(component, S.AN_CALC_PROVIDER.format(provider=S.GOOGLE_BOOKS)).missing_count
         == C.ONE
     )
+
+
+def test_goodreads_comparison_keeps_storygraph_personal_rating_unchanged() -> None:
+    component = _taste(_data(_book(C.ONE, C.FOUR, providers={S.GOODREADS: C.ONE})))
+    comparison = _summary(component, S.AN_CALC_PROVIDER.format(provider=S.GOODREADS))
+    assert comparison[S.AN_CALC_MEAN] == C.FOUR
+    assert comparison[S.AN_CALC_PROVIDER_MEAN] == C.ONE
+
+
+def test_catalog_category_paths_are_exact_not_genre_guesses() -> None:
+    assert analytical_categories((S.ENR_CATEGORY_TEST_PATH,)) == (S.ANALYTIC_CATEGORY_FANTASY,)
+    assert not analytical_categories((S.ENR_CATEGORY_TEST_FALSE_PATH,))
 
 
 def test_appetite_uses_only_explicit_labels_and_independent_declarations() -> None:

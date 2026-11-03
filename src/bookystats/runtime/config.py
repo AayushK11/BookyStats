@@ -21,6 +21,7 @@ from bookystats.domain.models import Account, Model, Source
 class MetadataSettings(Model):
     google_books: bool = C.TRUE
     open_library: bool = C.TRUE
+    strategy: S.MetadataStrategy = S.ENR_STRATEGY_OPEN_LIBRARY_FIRST
     max_books_per_run: int = Field(
         default=C.METADATASETTINGS_MAX_BOOKS_PER_RUN_DEFAULT,
         ge=C.ONE,

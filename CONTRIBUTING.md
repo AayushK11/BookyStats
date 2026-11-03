@@ -11,10 +11,10 @@ All package code lives under `src\bookystats`:
 | Area | Responsibility |
 | --- | --- |
 | `cli` | Arguments, wiring and displayed output |
-| `application` | Reusable sync, checks and `AnalyticsService` |
-| `domain` | Models, protocols, dates, matching rules and analytics calculations |
-| `adapters` | CSV parsing, metadata HTTP and Google authorization |
-| `persistence` | Raw archive, processed library, shared payloads, metadata cache and analytics store |
+| `application` | Reusable sync, enrichment, analytics and product orchestration |
+| `domain` | Typed contracts, dates, matching, metadata/reader rules and recommendation evidence |
+| `adapters` | CSV parsing, metadata HTTP, Google authorization and PDF rendering |
+| `persistence` | Raw/library/cache stores, analytics/recommendation history and atomic report bundles |
 | `runtime` | Config, locking, logs and retained disabled scheduling guards |
 
 Keep CLI details out of application services and parsing out of storage. Reuse
@@ -24,7 +24,8 @@ scaffolding. Browser automation adapters and dependencies were removed. The thre
 commands are `fetch`, `sync` and `status`. `fetch` writes the packaged Goodreads
 console helper; only explicit manual browser execution captures a shelf.
 CSV operation has no source-browser dependency. Backend analytics runs after
-metadata; automated source collection and ranking remain later work. No frontend,
+metadata; recommendations, quality diagnostics and PDF/JSON delivery follow
+successful analytics automatically. Automated source collection remains later work. No frontend,
 broker or new spec/documentation folders are needed.
 
 Tests mirror the code areas. Put shared builders in `tests\support` and sanitized
@@ -46,7 +47,11 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
 - The three supplied CSVs have fixed structures. Do not edit them or require new
   headers/exports to support analysis; improve parsing and selected metadata.
 - Goodreads owns history/watchlist data where supported; StoryGraph supplies
-  personal ratings and matching identity from explicit Read rows only. Its Read
+  personal ratings and matching identity from explicit Read rows only. Explicit
+  completion dates may supplement missing Goodreads dates under the owner's
+  approved exception: retain StoryGraph provenance/precision, require confirmed
+  work links, never override Goodreads or synthesize Goodreads reading events.
+  Its Read
   Status selects that import scope, not authoritative history. Preserve all rows
   in the raw archive; keep other StoryGraph fields raw-only.
   Require Read Status: missing, empty or unknown values fail that scope rather
@@ -62,6 +67,17 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
   references through library/payload APIs, not SQL JSON functions.
 - Keep metadata outcomes separate from source success. Validate lookup identity
   before saving results, and save validated sequential results before the next lookup.
+- Default to Open Library first and Google only for remaining selected,
+  identity-valid public-description/recognized-genre gaps. Optional metadata
+  alone must not trigger fallback. Keep `metadata.strategy=independent` for
+  explicit independent passes. Strategy skips are not provider matches; report
+  bounded core coverage separately from full provider coverage. Defer Google
+  authorization until due fallback targets need it.
+- Reuse verified cached Open Library works across compatible query identities.
+  Preserve ambiguity across the local catalog; an exact-query cache is not
+  permission to choose one of several plausible works. Work-only catalog
+  matching never establishes an edition. Bound new detail requests while
+  continuing to use cached evidence after the allowance is exhausted.
 - Do not schedule metadata by age. Unchanged successful or deterministic partial,
   ambiguous and invalid attempts stay parked; new records, changed identity or
   provider implementation can become eligible. Load legacy `metadata.max_age_days`
@@ -88,7 +104,8 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
   compatible title/author evidence and conflict checks; a candidate count is not
   a count of bad books.
 - Analytics inputs pin confirmed work IDs, compatible source snapshots and
-  selected identity-checked metadata. StoryGraph contributes ratings only.
+  selected identity-checked metadata. StoryGraph contributes ratings and the
+  separately labeled supplemental completion dates described above.
 - Selected public provider work metadata may follow confirmed catalog-work links,
   including StoryGraph-origin records. Never reuse their raw reader fields or
   another record's edition facts. Choose alternative descriptions deterministically
@@ -114,7 +131,8 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
 - Keep deep reader/content analysis on Read, independent of rating availability.
   Separate work first-publication years from edition years, and show how the
   rating-linked sample differs from all Read books. Watchlist output is
-  descriptive composition/missingness, not recommendations.
+  descriptive composition/missingness. Keep recommendations in their separate
+  service, with conservative eligibility, evidence and explicit abstentions.
 - Normalize genres using the versioned exact-alias family policy. Preserve raw
   provider subjects and unmapped unknowns; do not turn marketing/classification
   labels or browser observations into trusted genres or personality evidence.
@@ -130,6 +148,22 @@ fixtures in `tests\fixtures`. Add focused tests for changed behavior.
   processes. Watch comparison follows enjoyment. Only the main process writes
   SQLite; small inputs run serially and cache hits start no pool. Keep serial/
   parallel parity and failed-worker last-report retention tested.
+- Recommendation and quality products use the exact saved analytics manifest
+  and as-of timestamp. An uncertain possible-Read overlap is an abstention,
+  never a forced match or a human correction requirement. Scores are ordering
+  heuristics, not calibrated enjoyment probabilities.
+- Publish PDF/JSON products as a hash-verified immutable bundle. Change the
+  latest pointer only after every output succeeds; keep the last-good bundle
+  on failure. Reject inconsistent manifests and corrupt files explicitly.
+- Keep the PDF reader-facing and bounded; retain the full evidence and raw
+  diagnostic codes in JSON. Personal rating statistics use StoryGraph only.
+  Goodreads comparisons stay separate from preference and ranking inputs.
+- Preserve historical recommendation calculation versions when unbinding
+  provenance. Include that version in new semantic keys; a calculation upgrade
+  must neither rewrite immutable caches nor make historical reports unreadable.
+- Append incremental progress and bounded diagnostic examples with complete
+  issue-code counts to `logs\bookystats.log`. Redact every line, retain earlier
+  sessions, and never truncate logs or delete historical outputs during sync.
 
 Root `config.json` holds nonsecret ByteMe identities/settings, not package defaults
 or authenticated sessions. The default editable data directory uses it unless
@@ -152,6 +186,14 @@ runtime folders/files only when needed.
 
 Normal sync must not delete user data or backups. Any owner-requested reset is
 a separate, explicit operation, not an automatic retention policy.
+
+Runtime path resolution lives in `runtime\layout.py`: databases belong under
+`databases`, OAuth under `credentials`, and locks/helpers under `runtime`.
+Status recognizes legacy flat paths read-only. `SyncLock` checks the legacy
+lock and migrates known files before a new sync opens stores; preserve bytes,
+checkpoint/close SQLite first, reject conflicts and make partial moves resumable.
+Do not bypass the layout helpers in CLI/OAuth wiring or relocate live databases.
+Keep nonsecret config, configured inputs, report bundles and logs unchanged.
 
 ## Validation
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from pydantic import JsonValue
@@ -20,10 +21,12 @@ from bookystats.domain.models import (
     CollectionProgress,
     CollectionSnapshot,
     EnrichmentResult,
+    MetadataCandidate,
     PublicationResult,
     Source,
     SyncState,
 )
+from bookystats.domain.products import ProductReceipt
 
 ProgressCallback = Callable[[CollectionProgress], None]
 
@@ -48,6 +51,37 @@ class AnalyticsRepository(Protocol):
 
 class AnalyticsRunner(Protocol):
     def run(self, accounts: tuple[Account, ...], settings: AnalyticsSettings) -> AnalyticsReceipt:
+        pass
+
+
+class ProductsRunner(Protocol):
+    def run(
+        self,
+        accounts: tuple[Account, ...],
+        settings: AnalyticsSettings,
+        analytics: AnalyticsReceipt,
+    ) -> ProductReceipt:
+        pass
+
+
+class AnalyticsReportReader(Protocol):
+    def latest(self) -> AnalyticsReport | None:
+        pass
+
+
+class ReportBundleRepository(Protocol):
+    def for_report(self, report: AnalyticsReport) -> ProductReceipt | None:
+        pass
+
+    def publish(
+        self,
+        report: AnalyticsReport,
+        *,
+        recommendations: str,
+        metadata_quality: str,
+        summary: ProductReceipt,
+        render_pdf: Callable[[Path], object],
+    ) -> ProductReceipt:
         pass
 
 
@@ -121,6 +155,28 @@ class MetadataProvider(Protocol):
 @runtime_checkable
 class BatchMetadataProvider(Protocol):
     def lookup_many(self, books: tuple[BookRecord, ...]) -> tuple[EnrichmentResult, ...]:
+        pass
+
+
+@runtime_checkable
+class StreamingMetadataProvider(Protocol):
+    def iter_lookup_many(self, books: tuple[BookRecord, ...]) -> Iterator[EnrichmentResult]:
+        pass
+
+
+@runtime_checkable
+class SelectedMetadataReader(Protocol):
+    def metadata_for(
+        self, source: Source, account_id: str, source_id: str
+    ) -> tuple[dict[str, JsonValue], ...]:
+        pass
+
+
+@runtime_checkable
+class ConfirmedWorkMetadataReader(Protocol):
+    def metadata_for_work(
+        self, source: Source, account_id: str, source_id: str
+    ) -> tuple[MetadataCandidate, ...]:
         pass
 
 

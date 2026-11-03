@@ -24,6 +24,7 @@ from bookystats import strings as S
 from bookystats.adapters.http import validate_source_url
 from bookystats.domain.errors import ConfigurationError
 from bookystats.runtime.config import atomic_write
+from bookystats.runtime.layout import google_credentials_path
 
 
 @C.oauth_credentials_dataclass
@@ -63,7 +64,7 @@ def _bearer(value: object) -> str:
 
 def _save(directory: Path, credentials: Credentials) -> None:
     atomic_write(
-        directory / S.OAUTH_FILE,
+        google_credentials_path(directory),
         json.dumps(
             {
                 S.OAUTH_CLIENT_ID: credentials.client_id,
@@ -78,7 +79,7 @@ def _save(directory: Path, credentials: Credentials) -> None:
 
 
 def _load(directory: Path) -> Credentials | None:
-    path = directory / S.OAUTH_FILE
+    path = google_credentials_path(directory)
     try:
         content = path.read_text(encoding=S.UTF_8)
     except FileNotFoundError:

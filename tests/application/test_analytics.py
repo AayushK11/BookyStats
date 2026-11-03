@@ -8,16 +8,45 @@ import pytest
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.application import analytics as analytics_module
-from bookystats.application.analytics import AnalyticsService, _calculate_components
-from bookystats.domain.analytics import AnalysisInput, AnalyticsSettings, Capability, Finding
-from bookystats.domain.models import FieldState, Observation, ReadingStatus, Source, SyncState
+from bookystats.application.analytics import (
+    AnalyticsService,
+    _calculate_components,
+    _component_key,
+    _taste_input,
+)
+from bookystats.domain.analytics import (
+    AnalysisEvidence,
+    AnalysisInput,
+    AnalyticsSettings,
+    Capability,
+    Finding,
+)
+from bookystats.domain.models import (
+    Account,
+    FieldState,
+    Observation,
+    PartialDate,
+    ReadingStatus,
+    Source,
+    SyncState,
+)
 from bookystats.persistence.analysis_input import AnalyticsInputError
 from bookystats.persistence.analytics import AnalyticsStore
 from bookystats.persistence.library import Database
-from tests.application.test_statistics import _book, _data
+from tests.application.test_statistics import _book, _data, _supplemental
 from tests.persistence.test_analysis_input import publish_scope, seed
 from tests.persistence.test_library import book, rating
 from tests.support.sources import accounts
+
+
+class _InputReader:
+    def __init__(self, data: AnalysisInput) -> None:
+        self.data = data
+
+    def analytics_input(
+        self, accounts: tuple[Account, ...], settings: AnalyticsSettings
+    ) -> AnalysisInput:
+        return self.data
 
 
 def _failed_content_job(
@@ -166,11 +195,35 @@ def test_failed_source_retains_previous_report(tmp_path: Path) -> None:
 
 
 def test_process_parallel_results_equal_serial_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    data = _data(_book(C.ONE, C.FOUR, genre=S.AN_CALC_TEST_GENRE))
+    data = _data(
+        *(
+            _book(index, C.FOUR, genre=S.AN_CALC_TEST_GENRE).model_copy(
+                update={
+                    S.DESCRIPTION: S.CONTENT_ANALYSIS_TEST_TEXT,
+                    S.AN_EVIDENCE: (
+                        AnalysisEvidence(
+                            source=S.GOODREADS,
+                            source_id=str(index),
+                            observation=Observation(
+                                field=S.DESCRIPTION,
+                                value=S.CONTENT_ANALYSIS_TEST_TEXT,
+                                state=FieldState.PRESENT,
+                                source_url=S.CONTENT_ANALYSIS_TEST_URL,
+                                observed_at=S.AN_CALC_TEST_FINISH,
+                            ),
+                        ),
+                    ),
+                    S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),),
+                }
+            )
+            for index in range(C.ONE, C.FOUR)
+        )
+    )
+    settings = AnalyticsSettings(min_group_size=C.THREE)
     serial = _calculate_components(
         data,
         data,
-        AnalyticsSettings(),
+        settings,
         S.AN_CALC_TEST_KEY,
         S.AN_CALC_TEST_KEY,
         C.NONE,
@@ -180,7 +233,7 @@ def test_process_parallel_results_equal_serial_results(monkeypatch: pytest.Monke
     parallel = _calculate_components(
         data,
         data,
-        AnalyticsSettings(),
+        settings,
         S.AN_CALC_TEST_KEY,
         S.AN_CALC_TEST_KEY,
         C.NONE,
@@ -189,6 +242,103 @@ def test_process_parallel_results_equal_serial_results(monkeypatch: pytest.Monke
     assert serial[C.TWO] == S.AN_EXECUTION_SERIAL
     assert parallel[C.TWO] == S.AN_EXECUTION_PARALLEL
     assert serial[: C.TWO] == parallel[: C.TWO]
+
+
+def test_read_membership_invalidates_taste_without_watchlist_overlap_invalidation() -> None:
+    settings = AnalyticsSettings()
+    original = _data(_book(C.ONE, status=ReadingStatus.UNKNOWN))
+    included = original.model_copy(
+        update={
+            S.BOOKS: tuple(
+                book.model_copy(update={S.COLLECTIONS: (S.READ,)}) for book in original.books
+            )
+        }
+    )
+    overlapping = included.model_copy(
+        update={
+            S.BOOKS: tuple(
+                book.model_copy(update={S.COLLECTIONS: (S.READ, S.TO_READ)})
+                for book in included.books
+            )
+        }
+    )
+    assert _component_key(_taste_input(original), settings) != _component_key(
+        _taste_input(included), settings
+    )
+    assert _component_key(_taste_input(included), settings) == _component_key(
+        _taste_input(overlapping), settings
+    )
+
+
+def test_supplemental_recapture_reuses_calculation_and_rebinds_current_provenance(
+    tmp_path: Path,
+) -> None:
+    settings = AnalyticsSettings()
+    supplemental = _supplemental(S.ANX_TEST_EARLIER_DATE)
+    original = _data(
+        _book(C.ONE).model_copy(update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (supplemental,)})
+    )
+    recaptured = supplemental.model_copy(
+        update={
+            S.DTX_OBSERVATION: supplemental.observation.model_copy(
+                update={S.OBSERVED_AT: S.TEST_STORAGE_FINISH_T10}
+            )
+        }
+    )
+    current = original.model_copy(
+        update={
+            S.BOOKS: tuple(
+                book.model_copy(update={S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (recaptured,)})
+                for book in original.books
+            ),
+            S.AN_STORE_TEST_MANIFEST: original.manifest.model_copy(
+                update={
+                    S.AN_STORE_TEST_SNAPSHOTS: tuple(
+                        snapshot.model_copy(update={S.SNAPSHOT_ID: C.TWO})
+                        for snapshot in original.manifest.snapshots
+                    )
+                }
+            ),
+        }
+    )
+    key = _component_key(original, settings)
+    assert key == _component_key(current, settings)
+    reader = _InputReader(original)
+    with AnalyticsStore(tmp_path / S.AN_DATABASE) as reports:
+        service = AnalyticsService(reader, reports)
+        first = service.run(accounts(), settings)
+        reader.data = current
+        repeated = service.run(accounts(), settings)
+        report = reports.latest()
+    assert repeated.taste_reused and repeated.watchlist_reused
+    assert repeated.report_id != first.report_id
+    assert report is not C.NONE
+    finding = next(
+        item for item in report.taste.findings if item.metric_id == S.ANX_COMPLETION_COHORTS
+    )
+    assert finding.source_snapshot_ids == (C.TWO,)
+    assert isinstance(finding.value, dict)
+    selected = finding.value[S.ANX_SELECTED_DATES]
+    assert isinstance(selected, dict)
+    entry = selected[current.books[C.ZERO].book_id]
+    assert isinstance(entry, dict)
+    proof = entry[S.AN_CALC_EVIDENCE]
+    assert isinstance(proof, list)
+    assert proof[C.ZERO][S.ANX_SOURCE_URL] == S.CONTENT_ANALYSIS_TEST_FILE_URL
+    assert S.OBSERVED_AT not in proof[C.ZERO]
+
+
+def test_library_addition_and_supplemental_completion_changes_invalidate_taste() -> None:
+    settings = AnalyticsSettings()
+    original = _data(_book(C.ONE))
+    for update in (
+        {S.ADDED_AT: PartialDate(value=S.ANX_TEST_EARLIER_DATE)},
+        {S.DTX_SUPPLEMENTAL_COMPLETION_DATES: (_supplemental(S.ANX_TEST_EARLIER_DATE),)},
+    ):
+        changed = original.model_copy(
+            update={S.BOOKS: tuple(book.model_copy(update=update) for book in original.books)}
+        )
+        assert _component_key(original, settings) != _component_key(changed, settings)
 
 
 def test_worker_failure_keeps_last_published_report(

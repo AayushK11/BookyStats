@@ -12,6 +12,7 @@ from bookystats.domain.models import (
     ReadingEvent,
     ReadingStatus,
     Source,
+    SupplementalCompletionDate,
     SyncState,
     utc_now,
 )
@@ -57,6 +58,27 @@ class AnalysisEvidence(C.Model):
     detail: str | None = C.NONE
 
 
+class CatalogAppetiteLabel(C.Model):
+    work_id: int = Field(ge=C.ONE)
+    dimension: str
+    rule_version: str
+    proof: dict[str, JsonValue]
+
+    @C.AFTER_MODEL_VALIDATOR
+    def known_dimension(self) -> CatalogAppetiteLabel:
+        if self.dimension not in C.ANALYTICS_DIMENSIONS:
+            raise ValueError(S.AN_UNKNOWN_DIMENSION)
+        return self
+
+
+class PossibleReadMatch(C.Model):
+    candidate_id: int = Field(ge=C.ONE)
+    work_id: int = Field(ge=C.ONE)
+    source: Source
+    source_id: str
+    source_snapshot_ids: tuple[int, ...]
+
+
 class AnalysisBook(C.Model):
     work_id: int = Field(ge=C.ONE)
     source_ids: tuple[str, ...]
@@ -74,9 +96,11 @@ class AnalysisBook(C.Model):
     review: str | None = C.NONE
     community_ratings: dict[str, float] = Field(default_factory=dict)
     reading_events: tuple[ReadingEvent, ...] = ()
+    supplemental_completion_dates: tuple[SupplementalCompletionDate, ...] = ()
     added_at: PartialDate | None = C.NONE
     field_states: dict[str, FieldState] = Field(default_factory=dict)
     evidence: tuple[AnalysisEvidence, ...] = ()
+    possible_read_matches: tuple[PossibleReadMatch, ...] = ()
 
     @property
     def book_id(self) -> str:
@@ -118,6 +142,7 @@ class AnalysisInput(C.Model):
     books: tuple[AnalysisBook, ...]
     manifest: AnalysisManifest
     source_counts: dict[str, int] = Field(default_factory=dict)
+    supplemental_completion_counts: dict[str, int] = Field(default_factory=dict)
     personal_rating_records: int = Field(default=C.ZERO, ge=C.ZERO)
     issues: tuple[Issue, ...] = ()
     as_of: str = Field(default_factory=utc_now)

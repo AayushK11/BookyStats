@@ -17,10 +17,12 @@ from bookystats.domain.analytics import (
     AnalysisInput,
     AnalyticsSettings,
     Capability,
+    CatalogAppetiteLabel,
     Finding,
 )
 from bookystats.domain.categories import analytical_categories
-from bookystats.domain.models import ReadingStatus
+from bookystats.domain.models import PartialDate, ReadingStatus
+from bookystats.domain.reader import build_reader_summary
 
 
 def _unique(books: tuple[AnalysisBook, ...]) -> tuple[AnalysisBook, ...]:
@@ -230,6 +232,8 @@ def _predict_held_out(
     held_out: AnalysisBook,
     training: tuple[AnalysisBook, ...],
     settings: AnalyticsSettings,
+    *,
+    features: tuple[str, ...] = C.AN_CALC_VALIDATION_FEATURES,
 ) -> tuple[float | None, float | None, dict[str, float]]:
     training = _rated(
         tuple(
@@ -243,7 +247,7 @@ def _predict_held_out(
         return C.NONE, C.NONE, {}
     baseline = mean(values)
     dimensions: dict[str, float] = {}
-    for feature in C.AN_CALC_VALIDATION_FEATURES:
+    for feature in features:
         groups = _grouped(training, feature)
         predictions: list[float] = []
         for label in _labels(held_out, feature):
@@ -386,6 +390,60 @@ def _dated_cohorts(
         if int(year) < current_year:
             cohorts[year].append(book)
     return {year: tuple(cohorts[year]) for year in sorted(cohorts)}
+
+
+def _completion_date(book: AnalysisBook) -> tuple[PartialDate | None, str | None, bool]:
+    authoritative = tuple(
+        event.finished
+        for event in book.reading_events
+        if event.status == ReadingStatus.READ and event.finished is not C.NONE
+    )
+    if authoritative:
+        return (
+            min(authoritative, key=lambda item: item.value),
+            S.ANX_AUTHORITATIVE_DATE,
+            C.FALSE,
+        )
+    supplemental = {
+        item.finished.value: item.finished
+        for item in book.supplemental_completion_dates
+        if item.source == C.Source.STORYGRAPH
+        and item.observation.state == C.FieldState.PRESENT
+        and item.observation.scope == S.READER
+        and item.finished is not C.NONE
+    }
+    if len(supplemental) != C.ONE:
+        return C.NONE, C.NONE, len(supplemental) > C.ONE
+    return next(iter(supplemental.values())), S.ANX_SUPPLEMENTAL_DATE, C.FALSE
+
+
+def _completion_proof(book: AnalysisBook, finished: PartialDate, origin: str) -> list[JsonValue]:
+    if origin == S.ANX_SUPPLEMENTAL_DATE:
+        return [
+            {
+                S.SOURCE: item.source.value,
+                S.SOURCE_ID: item.source_id,
+                S.CONTENT_ANALYSIS_FIELD: item.observation.field,
+                S.CONTENT_ANALYSIS_SCOPE: item.observation.scope,
+                S.ANX_SOURCE_URL: item.observation.source_url,
+                S.VALUE: item.finished.value,
+            }
+            for item in book.supplemental_completion_dates
+            if item.finished is not C.NONE
+            and item.finished.value == finished.value
+            and item.observation.state == C.FieldState.PRESENT
+        ]
+    return [
+        {
+            S.SOURCE: S.GOODREADS,
+            S.CONTENT_ANALYSIS_FIELD: S.READING_EVENTS,
+            S.VALUE: event.model_dump(mode=S.JSON),
+        }
+        for event in book.reading_events
+        if event.status == ReadingStatus.READ
+        and event.finished is not C.NONE
+        and event.finished.value == finished.value
+    ]
 
 
 def _rarefied_genres(books: tuple[AnalysisBook, ...], volume: int) -> float:
@@ -770,16 +828,21 @@ class _Calculation:
                 limitations=(S.AN_CALC_PROFILE_NOTE,),
             )
 
-    def rating_availability(self) -> None:
+    def rating_availability(
+        self,
+        *,
+        features: tuple[str, ...] = C.AN_CALC_FEATURES,
+        metric_template: str = S.AN_BIAS_METRIC,
+    ) -> None:
         rated = _rated(self.read)
         rated_ids = {book.work_id for book in rated}
         unavailable = tuple(book for book in self.read if book.work_id not in rated_ids)
-        for feature in C.AN_CALC_FEATURES:
+        for feature in features:
             left = _fractional_distribution(rated, feature)
             right = _fractional_distribution(unavailable, feature)
             left_known = sum(bool(_labels(book, feature)) for book in rated)
             right_known = sum(bool(_labels(book, feature)) for book in unavailable)
-            metric = S.AN_BIAS_METRIC.format(feature=feature)
+            metric = metric_template.format(feature=feature)
             self.add(
                 metric,
                 tuple(book for book in self.read if _labels(book, feature)),
@@ -816,6 +879,136 @@ class _Calculation:
                 if min(left_known, right_known) >= self.settings.min_group_size
                 else left_known + right_known + C.ONE,
             )
+
+    def library_additions(self, books: tuple[AnalysisBook, ...], *, collection: str) -> None:
+        as_of: date | None
+        try:
+            as_of = datetime.fromisoformat(self.data.as_of).date()
+        except ValueError:
+            as_of = C.NONE
+        known: list[AnalysisBook] = []
+        ages: list[int] = []
+        years: Counter[str] = Counter()
+        precisions: Counter[str] = Counter()
+        future = C.ZERO
+        for book in books:
+            added = book.added_at
+            if added is C.NONE:
+                continue
+            if as_of is not C.NONE and added.value > as_of.isoformat()[: len(added.value)]:
+                future += C.ONE
+                continue
+            known.append(book)
+            years[added.value[: C.FOUR]] += C.ONE
+            precisions[added.precision] += C.ONE
+            if added.precision == S.DAY and as_of is not C.NONE:
+                ages.append((as_of - date.fromisoformat(added.value)).days)
+        metric = S.ANX_LIBRARY_ADDITIONS.format(collection=collection)
+        self.add(
+            metric,
+            tuple(known),
+            {
+                S.AN_CALC_TOTAL: len(books),
+                S.ANX_COHORTS: dict(sorted(years.items())),
+                S.ANX_DATE_PRECISIONS: dict(sorted(precisions.items())),
+                S.ANX_AGE_SUMMARY: _numeric_profile(ages),
+                S.ANX_FUTURE_DATES: future,
+                S.ANX_INVALID_AS_OF: as_of is C.NONE,
+            },
+            population=collection,
+            missing=len(books) - len(known),
+            period=self.data.as_of,
+            limitations=(S.ANX_ADDITION_NOTE,),
+        )
+        self.capability(
+            metric,
+            len(known),
+            len(books),
+            S.ANX_ADDITION_NOTE,
+            absent=C.AnalyticsCapability.NEEDS_OBSERVATIONS,
+        )
+
+    def completion_cohorts(self) -> None:
+        as_of: date | None
+        try:
+            as_of = datetime.fromisoformat(self.data.as_of).date()
+        except ValueError:
+            as_of = C.NONE
+        selected: dict[str, JsonValue] = {}
+        cohorts: dict[str, list[AnalysisBook]] = defaultdict(list)
+        origins: dict[str, Counter[str]] = defaultdict(Counter)
+        precisions: dict[str, Counter[str]] = defaultdict(Counter)
+        states = Counter(
+            item.observation.state.value
+            for book in self.read
+            for item in book.supplemental_completion_dates
+        )
+        conflicts: list[JsonValue] = []
+        known: list[AnalysisBook] = []
+        future = C.ZERO
+        precedence = C.ZERO
+        for book in self.read:
+            finished, origin, conflict = _completion_date(book)
+            if conflict:
+                conflicts.append(book.book_id)
+            if finished is C.NONE or origin is C.NONE:
+                continue
+            if origin == S.ANX_AUTHORITATIVE_DATE and any(
+                item.observation.state == C.FieldState.PRESENT
+                for item in book.supplemental_completion_dates
+            ):
+                precedence += C.ONE
+            if as_of is not C.NONE and finished.value > as_of.isoformat()[: len(finished.value)]:
+                future += C.ONE
+                continue
+            year = finished.value[: C.FOUR]
+            cohorts[year].append(book)
+            origins[year][origin] += C.ONE
+            precisions[year][finished.precision] += C.ONE
+            known.append(book)
+            selected[book.book_id] = {
+                S.VALUE: finished.value,
+                S.AN_CALC_PRECISION: finished.precision,
+                S.ANX_DATE_ORIGIN: origin,
+                S.AN_CALC_EVIDENCE: _completion_proof(book, finished, origin),
+            }
+        groups: dict[str, JsonValue] = {}
+        for year in sorted(cohorts):
+            books = tuple(cohorts[year])
+            groups[year] = {
+                S.AN_CALC_N: len(books),
+                S.ANX_DATE_ORIGIN: dict(sorted(origins[year].items())),
+                S.ANX_DATE_PRECISIONS: dict(sorted(precisions[year].items())),
+                S.ANX_CURRENT_RATINGS: (
+                    _rating_summary(books, self.settings, C.NONE)
+                    if len(_rated(books)) >= self.settings.min_group_size
+                    else C.NONE
+                ),
+            }
+        self.add(
+            S.ANX_COMPLETION_COHORTS,
+            tuple(known),
+            {
+                S.ANX_COHORTS: groups,
+                S.ANX_SELECTED_DATES: selected,
+                S.ANX_CONFLICTING_DATES: conflicts,
+                S.ANX_SUPPLEMENTAL_STATES: dict(sorted(states.items())),
+                S.ANX_COMPLETION_COUNTS: dict(self.data.supplemental_completion_counts),
+                S.ANX_MATCHED_DATES: states[C.FieldState.PRESENT.value],
+                S.ANX_PRECEDENCE: precedence,
+                S.ANX_FUTURE_DATES: future,
+                S.ANX_INVALID_AS_OF: as_of is C.NONE,
+            },
+            missing=len(self.read) - len(known),
+            period=self.data.as_of,
+            limitations=(S.ANX_COMPLETION_NOTE,),
+        )
+        self.capability(
+            S.ANX_COMPLETION_COHORTS,
+            len(known),
+            len(self.read),
+            S.ANX_COMPLETION_NOTE,
+        )
 
     def structure_profile(self) -> None:
         pages = tuple(book for book in self.read if _labels(book, S.AN_CALC_LENGTH))
@@ -1197,7 +1390,14 @@ class _Calculation:
             absent=C.AnalyticsCapability.NEEDS_ENRICHMENT,
         )
 
-    def author_validation(self) -> None:
+    def author_validation(
+        self,
+        *,
+        features: tuple[str, ...] = C.AN_CALC_VALIDATION_FEATURES,
+        metric: str = S.AV_VALIDATION,
+        signal_metric: str = S.AV_SIGNAL_CAPABILITY,
+        limitations: tuple[str, ...] = (S.AV_NOTE, S.AV_STABILITY_NOTE),
+    ) -> None:
         rated = _rated(self.read)
         components = _author_components(rated)
         known = tuple(book for component in components for book in component)
@@ -1220,7 +1420,7 @@ class _Calculation:
                 fold_baselines: list[float] = []
                 for book in held_out:
                     prediction, baseline, dimensions = _predict_held_out(
-                        book, training, self.settings
+                        book, training, self.settings, features=features
                     )
                     if prediction is C.NONE or baseline is C.NONE or book.rating is C.NONE:
                         continue
@@ -1274,7 +1474,7 @@ class _Calculation:
             }
         )
         self.add(
-            S.AV_VALIDATION,
+            metric,
             tuple(sorted(evaluated, key=lambda book: book.work_id)),
             summary,
             unit=S.AN_CALC_UNIT_RATING,
@@ -1286,17 +1486,17 @@ class _Calculation:
                     has_signal=bool(signal_residuals),
                 )
             },
-            limitations=(S.AV_NOTE, S.AV_STABILITY_NOTE),
+            limitations=limitations,
         )
         self.capability(
-            S.AV_VALIDATION,
+            metric,
             len(evaluated),
             len(self.read),
             S.AV_NEED,
             minimum=C.AN_CALC_VALIDATION_MIN,
         )
         self.capability(
-            S.AV_SIGNAL_CAPABILITY,
+            signal_metric,
             len(signal_residuals),
             len(rated),
             S.AV_NEED,
@@ -1802,6 +2002,128 @@ class _Calculation:
         )
 
 
+def build_catalog_appetite_analysis(
+    data: AnalysisInput,
+    settings: AnalyticsSettings,
+    labels: tuple[CatalogAppetiteLabel, ...],
+    description_work_ids: tuple[int, ...],
+) -> tuple[tuple[Finding, ...], tuple[Capability, ...]]:
+    known_ids = set(description_work_ids)
+    evidence: dict[int, dict[str, CatalogAppetiteLabel]] = defaultdict(dict)
+    for label in labels:
+        if label.work_id in known_ids:
+            evidence[label.work_id][label.dimension] = label
+    read = tuple(book for book in _unique(data.books) if _completed(book))
+    positive = tuple(
+        book.model_copy(
+            update={
+                S.ANX_FEATURES: {
+                    **book.features,
+                    S.ANX_FEATURE: tuple(sorted(evidence[book.work_id])),
+                }
+            }
+        )
+        for book in read
+        if book.work_id in evidence
+    )
+    calculation = _Calculation(data, settings, positive)
+    known = tuple(book for book in read if book.work_id in known_ids)
+    calculation.add(
+        S.ANX_EXPOSURE,
+        known,
+        {
+            S.AN_CALC_TOTAL: len(read),
+            S.CONTENT_ANALYSIS_KNOWN: len(known),
+            S.ANX_POSITIVE: len(positive),
+            S.ANX_UNMATCHED: len(known) - len(positive),
+            S.ANX_UNKNOWN: len(read) - len(known),
+        },
+        missing=len(read) - len(known),
+        reliability=S.CONTENT_ANALYSIS_RELIABILITY,
+        limitations=(S.ANX_NOTE,),
+    )
+    calculation.capability(
+        S.ANX_EXPOSURE,
+        len(positive),
+        len(read),
+        S.ANX_NOTE,
+        absent=C.AnalyticsCapability.NEEDS_ENRICHMENT
+        if not known
+        else C.AnalyticsCapability.NEEDS_OBSERVATIONS,
+        minimum=settings.min_group_size,
+    )
+    calculation.rating_availability(
+        features=C.ANX_VALIDATION_FEATURES, metric_template=S.ANX_AVAILABILITY
+    )
+    groups = _grouped(positive, S.ANX_FEATURE)
+    for dimension in C.ANALYTICS_DIMENSIONS:
+        group = groups.get(dimension, ())
+        rated = _rated(group)
+        components = _author_components(rated)
+        uncertainty, weak = _concentration(group, S.ANX_FEATURE, settings)
+        supported = len(rated) >= settings.min_group_size and len(components) >= C.TWO and not weak
+        metric = S.ANX_ENJOYMENT.format(dimension=dimension)
+        calculation.capability(
+            metric,
+            len(rated),
+            len(group),
+            S.ANX_SUPPORT_NOTE,
+            minimum=settings.min_group_size if supported else len(rated) + C.ONE,
+        )
+        if len(group) < settings.min_group_size:
+            continue
+        uncertainty[S.ANX_INDEPENDENT] = len(components)
+        uncertainty[S.CONTENT_ANALYSIS_RULE_VERSION] = S.CONTENT_ANALYSIS_VERSION
+        uncertainty[S.ANX_POLICY] = S.ANX_VERSION
+        uncertainty[S.CONTENT_ANALYSIS_PROOF] = [
+            evidence[book.work_id][dimension].proof
+            for book in group[: C.CONTENT_ANALYSIS_MAX_PROOFS]
+        ]
+        adjusted = _adjusted_mean(group, settings, calculation.baseline)
+        calculation.add(
+            metric,
+            group,
+            {
+                S.AN_CALC_N: len(group),
+                S.AN_CALC_RATED: len(rated),
+                S.AN_CALC_RATING_MISSING: len(group) - len(rated),
+                S.ANX_BASELINE: calculation.baseline if supported else C.NONE,
+                S.ANX_ASSOCIATION: (
+                    _rating_summary(group, settings, calculation.baseline) if supported else C.NONE
+                ),
+                S.ANX_DIFFERENCE: (
+                    adjusted - calculation.baseline
+                    if supported and adjusted is not C.NONE and calculation.baseline is not C.NONE
+                    else C.NONE
+                ),
+            },
+            missing=len(group) - len(rated),
+            reliability=S.AN_CALC_EXPLORATORY if supported else S.AN_CALC_WEAK,
+            uncertainty=uncertainty,
+            limitations=(S.ANX_NOTE, S.ANX_SUPPORT_NOTE),
+        )
+    calculation.author_validation(
+        features=C.ANX_VALIDATION_FEATURES,
+        metric=S.ANX_VALIDATION,
+        signal_metric=S.ANX_VALIDATION_SIGNAL,
+        limitations=(S.ANX_NOTE, S.AV_NOTE, S.AV_STABILITY_NOTE),
+    )
+    calculation.findings = [
+        finding.model_copy(
+            update={
+                S.ANX_UNCERTAINTY: {
+                    **finding.uncertainty,
+                    S.ANX_POLICY: S.ANX_VERSION,
+                    S.CONTENT_ANALYSIS_RULE_VERSION: S.CONTENT_ANALYSIS_VERSION,
+                },
+                S.ANX_LIMITATIONS: tuple(dict.fromkeys((*finding.limitations, S.ANX_NOTE))),
+            }
+        )
+        for finding in calculation.findings
+    ]
+    return tuple(calculation.findings), tuple(calculation.capabilities)
+
+
 def build_reading_profile(
     data: AnalysisInput, settings: AnalyticsSettings, *, key: str
 ) -> AnalysisComponent:
@@ -1810,6 +2132,15 @@ def build_reading_profile(
     calculation.structure_profile()
     calculation.recurring_attributes()
     calculation.metadata_quality()
+    calculation.library_additions(calculation.read, collection=S.READ)
+    calculation.add(
+        S.RD_METRIC,
+        calculation.read,
+        build_reader_summary(data.model_copy(update={S.BOOKS: _unique(data.books)})).model_dump(
+            mode=S.JSON, exclude=C.RD_WATCH_KEYS
+        ),
+        limitations=(S.RD_GROUP_NOTE.format(minimum=settings.min_group_size),),
+    )
     return AnalysisComponent(
         key=key,
         kind=C.AnalyticsComponentKind.TASTE,
@@ -1842,6 +2173,7 @@ def build_taste(
     calculation.time()
     calculation.community()
     calculation.appetite()
+    calculation.completion_cohorts()
     calculation.dnf()
     for metric, reason in C.AN_CALC_UNSUPPORTED_TOPICS:
         calculation.capability(
@@ -2006,6 +2338,7 @@ def build_watchlist(
         S.AN_CALC_WATCH_NOTE,
     )
     calculation.watchlist_age(watch)
+    calculation.library_additions(watch, collection=S.TO_READ)
     calculation.capability(
         S.AN_CALC_WATCH_MOVEMENT,
         C.ZERO,

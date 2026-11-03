@@ -16,6 +16,7 @@ from bookystats.adapters import google_oauth
 from bookystats.adapters.google_oauth import Credentials
 from bookystats.adapters.http import HttpClient
 from bookystats.domain.errors import ConfigurationError
+from bookystats.runtime.layout import google_credentials_path
 
 
 def credentials(expiry: float = C.ZERO) -> Credentials:
@@ -95,7 +96,8 @@ def test_authorization_binds_state_and_pkce_and_persists_only_private_file(
     assert stored is not C.NONE
     assert stored.access_token == S.OAUTH_TEST_NEW_ACCESS_TOKEN
     assert stored.expires_at == C.OAUTH_TEST_NOW + C.OAUTH_TEST_TOKEN_LIFETIME
-    assert list(tmp_path.iterdir()) == [tmp_path / S.OAUTH_FILE]
+    assert list(tmp_path.iterdir()) == [tmp_path / S.LAYOUT_CREDENTIALS]
+    assert google_credentials_path(tmp_path).is_file()
     assert S.OAUTH_TEST_ACCESS_TOKEN not in repr(stored)
     assert S.OAUTH_TEST_CLIENT_SECRET not in repr(stored)
 
@@ -148,7 +150,7 @@ def test_failed_refresh_does_not_replace_credentials_or_leak_provider_errors(
     tmp_path: Path,
 ) -> None:
     google_oauth._save(tmp_path, credentials())
-    original = (tmp_path / S.OAUTH_FILE).read_bytes()
+    original = google_credentials_path(tmp_path).read_bytes()
 
     def exchange(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -163,7 +165,7 @@ def test_failed_refresh_does_not_replace_credentials_or_leak_provider_errors(
         google_oauth.access_token(tmp_path, client=client)
     assert str(failure.value) == S.OAUTH_FAILURE
     assert S.OAUTH_TEST_CLIENT_SECRET not in str(failure.value)
-    assert (tmp_path / S.OAUTH_FILE).read_bytes() == original
+    assert google_credentials_path(tmp_path).read_bytes() == original
 
 
 def test_token_redirect_is_not_followed(tmp_path: Path) -> None:
@@ -385,7 +387,7 @@ def test_invalid_refresh_grant_reauthorizes_only_interactively(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interactive: bool
 ) -> None:
     google_oauth._save(tmp_path, credentials())
-    original = (tmp_path / S.OAUTH_FILE).read_bytes()
+    original = google_credentials_path(tmp_path).read_bytes()
     monkeypatch.delenv(S.OAUTH_CLIENT_ID_ENV, raising=C.FALSE)
     monkeypatch.delenv(S.OAUTH_CLIENT_SECRET_ENV, raising=C.FALSE)
     requests: list[httpx.Request] = []
@@ -435,7 +437,7 @@ def test_invalid_refresh_grant_reauthorizes_only_interactively(
                 )
             assert str(failure.value) == S.OAUTH_AUTHORIZATION_REQUIRED
             assert len(requests) == C.ONE
-            assert (tmp_path / S.OAUTH_FILE).read_bytes() == original
+            assert google_credentials_path(tmp_path).read_bytes() == original
 
 
 @pytest.mark.parametrize(S.OAUTH_TEST_REFRESH_FAILURE_PARAMETER, C.OAUTH_TEST_REFRESH_FAILURES)
@@ -443,7 +445,7 @@ def test_refresh_failure_does_not_trigger_consent_or_replace_credentials(
     tmp_path: Path, failure_mode: str
 ) -> None:
     google_oauth._save(tmp_path, credentials())
-    original = (tmp_path / S.OAUTH_FILE).read_bytes()
+    original = google_credentials_path(tmp_path).read_bytes()
 
     def exchange(request: httpx.Request) -> httpx.Response:
         if failure_mode == S.OAUTH_TEST_REFRESH_FAILURE_NETWORK:
@@ -475,7 +477,7 @@ def test_refresh_failure_does_not_trigger_consent_or_replace_credentials(
         )
     assert not isinstance(failure.value, google_oauth.AuthorizationRequired)
     assert str(failure.value) == S.OAUTH_FAILURE
-    assert (tmp_path / S.OAUTH_FILE).read_bytes() == original
+    assert google_credentials_path(tmp_path).read_bytes() == original
 
 
 @pytest.mark.parametrize(S.OAUTH_TEST_INTERACTIVE_PARAMETER, C.OAUTH_TEST_INTERACTIVITY)

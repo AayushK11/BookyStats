@@ -14,6 +14,7 @@ from bookystats.domain.models import (
     PartialDate,
     ReadingEvent,
     Source,
+    SupplementalCompletionDate,
     SyncState,
     utc_now,
 )
@@ -79,6 +80,34 @@ def test_missing_observation_is_not_zero() -> None:
         source_url=S.TEST_MODELS_MISSING_OBSERVATION_IS_THESTORYGRAPH_COM_BOOKS_EXAMPLE,
     )
     assert observed.value == C.TEST_MODELS_MISSING_OBSERVATION_IS_NOT_ZERO
+
+
+def test_supplemental_completion_requires_consistent_reader_evidence() -> None:
+    observed = Observation(
+        field=S.DTX_SUPPLEMENTAL_COMPLETION_DATE,
+        value=S.DTX_TEST_DAY,
+        state=FieldState.PRESENT,
+        scope=S.READER,
+        source_url=S.TEST_IMPORT_ORIGIN,
+    )
+    supplemental = SupplementalCompletionDate(
+        source_id=S.TEST_IMPORT_UID,
+        finished=PartialDate(value=S.DTX_TEST_DAY),
+        observation=observed,
+    )
+    assert supplemental.source == Source.STORYGRAPH
+    with pytest.raises(ValidationError):
+        SupplementalCompletionDate(
+            source_id=supplemental.source_id,
+            finished=PartialDate(value=S.DTX_TEST_YEAR),
+            observation=observed,
+        )
+    with pytest.raises(ValidationError):
+        SupplementalCompletionDate(
+            source_id=supplemental.source_id,
+            finished=supplemental.finished,
+            observation=observed.model_copy(update={S.DTX_SCOPE: S.WORK}),
+        )
 
 
 def test_complete_snapshot_requires_real_termination_and_identity() -> None:
