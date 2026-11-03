@@ -70,8 +70,8 @@ class Context(NamedTuple):
         return self.data.manifest.settings.min_group_size
 
     @property
-    def threshold(self) -> float:
-        return self.summary.favorite_threshold
+    def usual(self) -> float | None:
+        return self.summary.usual_rating
 
     @property
     def year(self) -> int | None:
@@ -159,10 +159,16 @@ def make_context(
     )
 
 
-def tone_of(book: AnalysisBook, threshold: float) -> C.RptTone:
-    if book.rating is C.NONE or book.rating_conflict:
+def tier_tone(rating: float | None, usual: float | None) -> C.RptTone:
+    if rating is C.NONE or usual is C.NONE:
         return C.RptTone.GREY
-    return C.RptTone.TEAL if book.rating >= threshold else C.RptTone.AMBER
+    if rating > usual:
+        return C.RptTone.TEAL
+    return C.RptTone.SLATE if rating == usual else C.RptTone.AMBER
+
+
+def tone_of(book: AnalysisBook, usual: float | None) -> C.RptTone:
+    return C.RptTone.GREY if book.rating_conflict else tier_tone(book.rating, usual)
 
 
 def is_sparse(count: int, minimum: int) -> bool:

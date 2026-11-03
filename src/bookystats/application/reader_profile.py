@@ -13,6 +13,7 @@ from bookystats.application.reader_context import (
     mapping,
     number,
     numeric,
+    tier_tone,
     title_of,
     whole,
     year_entries,
@@ -150,14 +151,14 @@ def glance(ctx: Context) -> Chapter | None:
         detail = S.RPT_TILE_AVERAGE_DETAIL.format(median=F.trimmed(summary.median_rating or C.ZERO))
         value = S.RPT_OUT_OF_FIVE.format(value=F.trimmed(summary.average))
         tiles.append(stat(S.RPT_TILE_AVERAGE, value, detail, C.RptTone.TEAL))
-    if summary.rated:
-        share = S.RPT_TILE_LOVED_DETAIL.format(
-            part=F.count(summary.favorites), total=F.count(summary.rated)
+    if summary.usual_rating is not C.NONE:
+        detail = S.RPT_TILE_STANDOUT_DETAIL.format(
+            part=F.count(summary.standout),
+            total=F.count(summary.rated),
+            rating=F.star_count(summary.usual_rating),
         )
-        label = S.RPT_TILE_LOVED.format(threshold=F.trimmed(summary.favorite_threshold))
-        tiles.append(
-            stat(label, F.percent(summary.favorites, summary.rated), share, C.RptTone.TEAL)
-        )
+        value = F.percent(summary.standout, summary.rated)
+        tiles.append(stat(S.RPT_TILE_STANDOUT, value, detail, C.RptTone.TEAL))
     if summary.typical_pages is not C.NONE:
         detail = S.RPT_TILE_LENGTH_DETAIL.format(books=F.books(summary.pages_known))
         tiles.append(stat(S.RPT_TILE_LENGTH, F.pages(summary.typical_pages), detail))
@@ -214,12 +215,11 @@ def facts(ctx: Context) -> Chapter | None:
             year = str(ctx.plausible_year(book))
             tie = tie_text(ctx, by_year, book, year=C.TRUE)
             found.append(book_fact(headline, S.RPT_FACT_YEAR, book, year=year, tie=tie))
-    if summary.rated:
-        share = F.share_text(summary.favorites, summary.rated)
-        threshold = F.trimmed(summary.favorite_threshold)
-        found.append(
-            fact(S.RPT_FACT_LOVED, S.RPT_FACT_LOVED_BODY.format(share=share, bar=threshold))
-        )
+    if summary.usual_rating is not C.NONE:
+        share = F.share_text(summary.standout, summary.rated)
+        rating = F.star_count(summary.usual_rating)
+        body = S.RPT_FACT_STANDOUT_BODY.format(rating=rating, share=share)
+        found.append(fact(S.RPT_FACT_STANDOUT, body))
     found.append(leader_fact(summary.authors, S.RPT_FACT_AUTHOR, S.RPT_AUTHOR, S.RPT_AUTHORS))
     genre = leader_fact(summary.genres, S.RPT_FACT_GENRE, S.RPT_GENRE, S.RPT_GENRES)
     if genre is not C.NONE:
@@ -472,16 +472,19 @@ def ratings(ctx: Context) -> Chapter | None:
                 label=F.trimmed(rating),
                 value=float(counts.get(rating, C.ZERO)),
                 shown=F.count(counts.get(rating, C.ZERO)),
-                tone=C.RptTone.TEAL if rating >= summary.favorite_threshold else C.RptTone.AMBER,
+                tone=tier_tone(rating, summary.usual_rating),
             )
             for rating in axis
         ]
+        note = S.RPT_HISTOGRAM_NOTE.format(rated=F.books(summary.rated))
+        if summary.usual_rating is not C.NONE:
+            note += S.SPACE + S.RPT_HISTOGRAM_TONES
         blocks.append(
             BarsBlock(
                 heading=S.RPT_HISTOGRAM_HEADING,
                 style=C.RptBarStyle.VERTICAL,
                 rows=tuple(rows),
-                note=S.RPT_HISTOGRAM_NOTE.format(rated=F.books(summary.rated)),
+                note=note,
                 axis=S.RPT_AXIS_BOOKS,
             )
         )
@@ -495,6 +498,17 @@ def ratings(ctx: Context) -> Chapter | None:
         found = [fact(S.RPT_FACT_MOST_USED, body)]
     else:
         found = []
+    if summary.usual_rating is not C.NONE:
+        body = S.RPT_TIERS_BODY.format(
+            rating=F.star_count(summary.usual_rating),
+            rated=F.books(summary.rated),
+            standout=F.count(summary.standout),
+            solid=F.count(summary.solid),
+            below=F.count(summary.below_usual),
+        )
+        if summary.tied_usual_ratings:
+            body += S.SPACE + S.RPT_TIERS_TIED
+        found.append(fact(S.RPT_FACT_TIERS, body))
     unrated = summary.read - summary.rated
     if unrated > C.ZERO:
         body = S.RPT_UNRATED_BODY.format(books=F.books(unrated))

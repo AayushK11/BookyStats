@@ -262,6 +262,12 @@ def test_titles_and_quotes_reach_the_page_whole(read: int, watch: int) -> None:
     assert S.RPT_TEST_FALLBACK_MARK not in page_text
 
 
+@pytest.mark.parametrize(S.RPT_TEST_SIZE_ARGS, C.RPT_TEST_SIZES)
+def test_no_supplemental_date_text_reaches_the_pdf(read: int, watch: int) -> None:
+    text = S.EMPTY.join(_rendered(read, watch).texts).casefold()
+    assert [term for term in C.RPT_TEST_DATE_TERMS if _flat(term).casefold() in text] == []
+
+
 def test_unsupported_characters_are_flagged_instead_of_silently_dropped() -> None:
     chapter = Chapter(
         key=S.RPT_TEST_GLYPH_CHAPTER,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+from collections import Counter
 from collections.abc import Iterator
 from functools import cache
 
@@ -8,8 +10,14 @@ from pydantic import JsonValue
 
 from bookystats import constants as C
 from bookystats import strings as S
+from bookystats.application import reader_context, reader_insights, reader_outlook
+from bookystats.application import reader_profile as profile
+from bookystats.application import reader_report as assembly
 from bookystats.application import report_format as F
-from bookystats.application.reader_report import build_reader_report
+from bookystats.application.reader_context import Context, make_context
+from bookystats.application.reader_report import build_reader_report, cover
+from bookystats.domain import reader_report as model
+from bookystats.domain.reader import build_reader_summary
 from bookystats.domain.reader_report import (
     BarsBlock,
     Block,
@@ -21,10 +29,21 @@ from bookystats.domain.reader_report import (
     ProseBlock,
     QuotesBlock,
     ReaderReport,
+    Stat,
     TilesBlock,
     manifest_digest,
 )
 from tests.support.reader_library import library
+
+_REPORT_MODULES = (
+    reader_context,
+    reader_insights,
+    reader_outlook,
+    profile,
+    assembly,
+    F,
+    model,
+)
 
 
 @cache
@@ -220,6 +239,106 @@ def test_unknown_and_sparse_samples_stay_visible() -> None:
     unknown = [row for row in rows if row.value is C.NONE]
     assert unknown
     assert all(row.caption == S.RPT_UNKNOWN_CAPTION for row in unknown)
+
+
+def _tiles(chapter: Chapter | None) -> dict[str, Stat]:
+    blocks = () if chapter is C.NONE else chapter.blocks
+    return {
+        tile.label: tile
+        for block in blocks
+        if isinstance(block, TilesBlock)
+        for tile in block.tiles
+    }
+
+
+def _facts(chapter: Chapter | None) -> dict[str, str]:
+    blocks = () if chapter is C.NONE else chapter.blocks
+    return {
+        fact.headline: fact.body
+        for block in blocks
+        if isinstance(block, FactsBlock)
+        for fact in block.facts
+    }
+
+
+def _with_summary(read: int, watch: int, **changes: object) -> Context:
+    lib = library(read, watch)
+    ctx = make_context(lib.data, lib.analysis, lib.recommendations, lib.quality)
+    return ctx._replace(summary=ctx.summary.model_copy(update=changes))
+
+
+def test_rating_tiers_compare_with_the_usual_rating_everywhere() -> None:
+    lib = library(*C.RPT_TEST_RICH)
+    summary = build_reader_summary(lib.data)
+    usual = summary.usual_rating
+    assert usual is not C.NONE
+    report = _built(*C.RPT_TEST_RICH)
+    rating = F.star_count(usual)
+    chapters = {chapter.key: chapter for chapter in report.chapters}
+    tile = _tiles(chapters[S.RPT_CHAPTER_GLANCE])[S.RPT_TILE_STANDOUT]
+    assert tile.value == F.percent(summary.standout, summary.rated)
+    assert tile.detail == S.RPT_TILE_STANDOUT_DETAIL.format(
+        part=F.count(summary.standout), total=F.count(summary.rated), rating=rating
+    )
+    tones = Counter(bar.tone for bar in report.cover.skyline)
+    assert report.cover.skyline
+    assert (tones[C.RptTone.TEAL], tones[C.RptTone.SLATE], tones[C.RptTone.AMBER]) == (
+        summary.standout,
+        summary.solid,
+        summary.below_usual,
+    )
+    labels = [swatch.label for swatch in report.cover.legend]
+    assert labels == [
+        S.RPT_LEGEND_STANDOUT,
+        S.RPT_LEGEND_SOLID,
+        S.RPT_LEGEND_BELOW,
+        S.RPT_LEGEND_UNRATED,
+    ]
+    assert S.RPT_SKYLINE_USUAL.format(rating=rating) in report.cover.skyline_caption
+    histogram = next(
+        block
+        for _, block in _blocks(report)
+        if isinstance(block, BarsBlock) and block.heading == S.RPT_HISTOGRAM_HEADING
+    )
+    for row in histogram.rows:
+        value = float(row.label)
+        expected = (
+            C.RptTone.TEAL
+            if value > usual
+            else C.RptTone.SLATE
+            if value == usual
+            else C.RptTone.AMBER
+        )
+        assert row.tone == expected
+    assert S.RPT_HISTOGRAM_TONES in histogram.note
+    body = S.RPT_TIERS_BODY.format(
+        rating=rating,
+        rated=F.books(summary.rated),
+        standout=F.count(summary.standout),
+        solid=F.count(summary.solid),
+        below=F.count(summary.below_usual),
+    )
+    assert _facts(chapters[S.RPT_CHAPTER_RATINGS])[S.RPT_FACT_TIERS] == body
+
+
+def test_tied_and_unknown_usual_ratings_are_disclosed_not_guessed() -> None:
+    tied = _with_summary(*C.RPT_TEST_RICH, **{S.RPT_TEST_TIED_FIELD: C.RPT_TEST_TIED_USUAL})
+    assert S.RPT_TIERS_TIED in _facts(profile.ratings(tied))[S.RPT_FACT_TIERS]
+    lowest = F.star_count(tied.summary.usual_rating or C.ZERO)
+    assert S.RPT_SKYLINE_USUAL_TIED.format(rating=lowest) in cover(tied).skyline_caption
+    unknown = _with_summary(*C.RPT_TEST_RICH, **{S.RPT_TEST_USUAL_FIELD: C.NONE})
+    assert S.RPT_TILE_STANDOUT not in _tiles(profile.glance(unknown))
+    assert S.RPT_FACT_TIERS not in _facts(profile.ratings(unknown))
+    shown = cover(unknown)
+    assert [swatch.label for swatch in shown.legend] == [S.RPT_LEGEND_UNRATED]
+    assert {bar.tone for bar in shown.skyline} == {C.RptTone.GREY}
+    assert shown.skyline_caption == S.RPT_SKYLINE_CAPTION
+
+
+def test_report_never_reads_or_shows_supplemental_dates() -> None:
+    sources = S.EMPTY.join(inspect.getsource(module) for module in _REPORT_MODULES).casefold()
+    shown = S.EMPTY.join(_all_texts(_built(*C.RPT_TEST_RICH))).casefold()
+    assert [term for term in C.RPT_TEST_DATE_TERMS if term in sources or term in shown] == []
 
 
 def test_implausible_values_are_left_out_and_disclosed() -> None:

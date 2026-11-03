@@ -90,19 +90,31 @@ def skyline(ctx: Context) -> tuple[SkylineBar, ...]:
     return tuple(
         SkylineBar(
             height=C.NONE if page is C.NONE else page / tallest,
-            tone=tone_of(book, ctx.threshold),
+            tone=tone_of(book, ctx.usual),
         )
         for book, page in zip(books, pages, strict=C.TRUE)
     )
 
 
 def legend(ctx: Context) -> tuple[Swatch, ...]:
-    threshold = F.trimmed(ctx.threshold)
-    return (
-        Swatch(label=S.RPT_LEGEND_LOVED.format(threshold=threshold), tone=C.RptTone.TEAL),
-        Swatch(label=S.RPT_LEGEND_LOWER.format(threshold=threshold), tone=C.RptTone.AMBER),
-        Swatch(label=S.RPT_LEGEND_UNRATED, tone=C.RptTone.GREY),
+    tiers = (
+        ()
+        if ctx.usual is C.NONE
+        else (
+            Swatch(label=S.RPT_LEGEND_STANDOUT, tone=C.RptTone.TEAL),
+            Swatch(label=S.RPT_LEGEND_SOLID, tone=C.RptTone.SLATE),
+            Swatch(label=S.RPT_LEGEND_BELOW, tone=C.RptTone.AMBER),
+        )
     )
+    return (*tiers, Swatch(label=S.RPT_LEGEND_UNRATED, tone=C.RptTone.GREY))
+
+
+def skyline_caption(ctx: Context) -> str:
+    usual = ctx.usual
+    if usual is C.NONE:
+        return S.RPT_SKYLINE_CAPTION
+    template = S.RPT_SKYLINE_USUAL_TIED if ctx.summary.tied_usual_ratings else S.RPT_SKYLINE_USUAL
+    return S.RPT_SKYLINE_CAPTION + S.SPACE + template.format(rating=F.star_count(usual))
 
 
 def cover(ctx: Context) -> Cover:
@@ -116,7 +128,7 @@ def cover(ctx: Context) -> Cover:
         as_of=S.RPT_COVER_AS_OF.format(date=F.as_of_text(ctx.data.as_of)),
         heroes=heroes(ctx),
         skyline=bars,
-        skyline_caption=S.RPT_SKYLINE_CAPTION if bars else S.EMPTY,
+        skyline_caption=skyline_caption(ctx) if bars else S.EMPTY,
         legend=legend(ctx) if bars else (),
     )
 
