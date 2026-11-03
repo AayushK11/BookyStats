@@ -45,6 +45,13 @@ from bookystats.domain.models import (
     SyncState,
     utc_now,
 )
+from bookystats.persistence.backup import BackupResult, create_backup, protect_migration
+from bookystats.persistence.inspection import (
+    ReadOnlyConnection,
+    StoreChangedDuringRead,
+    open_read_only,
+    require_readable,
+)
 from bookystats.persistence.payloads import PayloadStore
 from bookystats.persistence.payloads import canonical_json as _json
 
@@ -165,11 +172,16 @@ def _insert_id(cursor: sqlite3.Cursor) -> int:
 class Database:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        self.upgrade_pending = C.FALSE
         self._conn: sqlite3.Connection | None = C.NONE
+        self._handle: ReadOnlyConnection | None = C.NONE
         self._payload_store: PayloadStore | None = C.NONE
 
-    def initialize(self, *, require_existing: bool = C.FALSE) -> None:
+    def initialize(self, *, require_existing: bool = C.FALSE, read_only: bool = C.FALSE) -> None:
         if self._conn is not C.NONE:
+            return
+        if read_only:
+            self._open_read_only()
             return
         if not require_existing:
             self.path.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
@@ -195,25 +207,37 @@ class Database:
                     S.DATABASE_INITIALIZE_APPLICATION_ID_PRAGMA_APPLICATION_ID
                 ).fetchone()[C.ZERO]
             )
-            if version not in (
-                C.ZERO,
-                C.STORAGE_LEGACY_VERSION,
-                C.META_COVERAGE_PRIOR_SCHEMA_VERSION,
-                C.STORAGE_SCHEMA_VERSION,
-            ) or application_id not in (
-                C.ZERO,
-                C.STORAGE_APPLICATION_ID,
+            contract = C.DBSAFE_CONTRACTS[C.StoreKind.LIBRARY]
+            if (
+                version not in (C.ZERO, *contract.upgrade_versions, contract.current_version)
+                or application_id not in contract.accepted_application_ids
             ):
                 raise RuntimeError(
                     S.STORAGE_DATABASE_INITIALIZE_UNSUPPORTED_BOOKYSTATS_DATABASE_SCHEMA
                 )
+            tables = {
+                str(row[C.ZERO])
+                for row in connection.execute(
+                    S.DATABASE_INITIALIZE_TABLES_SELECT_NAME_FROM_SQLITE_MASTER_WHERE_TYPE
+                )
+            }
+            if version == C.ZERO and application_id == C.ZERO and tables:
+                # Refuse before the journal-mode change so a foreign file stays untouched.
+                raise RuntimeError(
+                    S.STORAGE_DATABASE_INITIALIZE_REFUSING_UNRECOGNIZED_NONEMPTY_DATABASE
+                )
+            if version in contract.upgrade_versions:
+                if not C.DBSAFE_LIBRARY_LEGACY_TABLES.issubset(tables):
+                    raise RuntimeError(
+                        S.STORAGE_DATABASE_INITIALIZE_UNSUPPORTED_BOOKYSTATS_DATABASE_SCHEMA
+                    )
+                # The integrity gate and verified backup come before any write or journal change.
+                protect_migration(
+                    connection, self.path, C.StoreKind.LIBRARY, reason=S.DBSAFE_REASON_MIGRATION
+                )
             connection.execute(S.STORAGE_DATABASE_INITIALIZE_PRAGMA_JOURNAL_MODE_WAL)
             migrated = C.FALSE
-            if version in (
-                C.ZERO,
-                C.STORAGE_LEGACY_VERSION,
-                C.META_COVERAGE_PRIOR_SCHEMA_VERSION,
-            ):
+            if version != contract.current_version:
                 connection.execute(S.STORAGE_DATABASE_INITIALIZE_BEGIN_IMMEDIATE)
                 locked_version = int(
                     connection.execute(
@@ -221,10 +245,10 @@ class Database:
                     ).fetchone()[C.ZERO]
                 )
                 if locked_version == C.ZERO:
-                    tables = connection.execute(
+                    existing = connection.execute(
                         S.DATABASE_INITIALIZE_TABLES_SELECT_NAME_FROM_SQLITE_MASTER_WHERE_TYPE
                     ).fetchall()
-                    if tables:
+                    if existing:
                         raise RuntimeError(
                             S.STORAGE_DATABASE_INITIALIZE_REFUSING_UNRECOGNIZED_NONEMPTY_DATABASE
                         )
@@ -255,6 +279,7 @@ class Database:
                     migrated = C.TRUE
                 elif locked_version not in (
                     C.META_COVERAGE_PRIOR_SCHEMA_VERSION,
+                    C.DBSAFE_LIBRARY_PRIOR_VERSION,
                     C.STORAGE_SCHEMA_VERSION,
                 ):
                     raise RuntimeError(
@@ -264,6 +289,12 @@ class Database:
                     row[C.ONE] for row in connection.execute(S.META_COVERAGE_ATTEMPT_COLUMNS)
                 }:
                     connection.execute(S.META_COVERAGE_MIGRATE_IMPLEMENTATION)
+                for statement in C.DBSAFE_LIBRARY_INDEXES:
+                    connection.execute(statement)
+                if locked_version != C.ZERO and application_id == C.ZERO:
+                    connection.execute(
+                        S.STORAGE_DATABASE_INITIALIZE_TEMPLATE.format(v0=C.STORAGE_APPLICATION_ID)
+                    )
                 connection.execute(
                     S.STORAGE_DATABASE_INITIALIZE_TEMPLATE_2.format(v0=C.STORAGE_SCHEMA_VERSION)
                 )
@@ -278,11 +309,28 @@ class Database:
         self._conn = connection
         self._payload_store = PayloadStore(connection)
 
+    def _open_read_only(self) -> None:
+        handle = open_read_only(self.path)
+        try:
+            handle.connection.row_factory = sqlite3.Row
+            inspection = require_readable(handle, C.StoreKind.LIBRARY)
+        except BaseException:
+            handle.close()
+            raise
+        self._handle = handle
+        self._conn = handle.connection
+        self._payload_store = PayloadStore(handle.connection)
+        self.upgrade_pending = inspection.state is C.StoreState.UPGRADE_NEEDED
+
     def close(self) -> None:
         if self._conn is not C.NONE:
             self._conn.close()
             self._conn = C.NONE
+            self._handle = C.NONE
             self._payload_store = C.NONE
+
+    def verified_backup(self, reason: str = S.DBSAFE_REASON_MAINTENANCE) -> BackupResult:
+        return create_backup(self._connection(), self.path, C.StoreKind.LIBRARY, reason=reason)
 
     def _connection(self) -> sqlite3.Connection:
         self.initialize()
@@ -300,11 +348,25 @@ class Database:
         connection.execute(S.STORAGE_DATABASE_INITIALIZE_BEGIN_IMMEDIATE if write else S.BEGIN)
         try:
             yield connection
+            self._require_stable()
             connection.execute(S.COMMIT)
-        except BaseException:
+        except BaseException as error:
             if connection.in_transaction:
                 connection.execute(S.ROLLBACK)
+            self._raise_if_changed(error)
             raise
+
+    def _require_stable(self) -> None:
+        if self._handle is not C.NONE and not self._handle.stable():
+            raise StoreChangedDuringRead(C.StoreState.BUSY, S.DBSAFE_MESSAGE_CHANGED)
+
+    def _raise_if_changed(self, error: BaseException) -> None:
+        if (
+            isinstance(error, sqlite3.Error)
+            and self._handle is not C.NONE
+            and not self._handle.stable()
+        ):
+            raise StoreChangedDuringRead(C.StoreState.BUSY, S.DBSAFE_MESSAGE_CHANGED) from error
 
     @staticmethod
     def _open_run(connection: sqlite3.Connection, run_id: int) -> None:

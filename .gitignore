@@ -19,6 +19,7 @@ build/
 /data/inputs/*
 !/data/inputs/*.csv
 profiles/
+backups/
 playwright-state/
 test-results/
 config.json

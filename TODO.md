@@ -55,6 +55,14 @@ versioned. Detailed requirements and historical evidence stay in [PLAN.md](PLAN.
 - [x] Make offline terminal status useful and simplify the root user guide.
 - [x] Pass targeted tests, full Python/JavaScript tests, Ruff lint/format, strict
   mypy, package builds and isolated real-CSV acceptance/repeat checks.
+- [x] Harden storage: read-only `upgrade_needed`-aware status without sidecar
+  creation, verified SQLite backups before library v4/analytics v3/raw v3
+  upgrades, metadata cache identity v1, bounded opens plus explicit
+  `verify_store`, and four library indexes. Fixture/scratch-copy evidence only;
+  no live data directory has been migrated.
+- [ ] Storage follow-ups: migration ledger, owner-approved compaction/reset,
+  stopping redundant historical writes, deep-verification cadence and
+  checkpoint/maintenance policy. No table is dropped and no compression exists.
 
 ## Known limitations
 

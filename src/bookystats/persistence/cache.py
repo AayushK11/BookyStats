@@ -16,6 +16,8 @@ from bookystats import strings as S
 from bookystats.domain.errors import BookyError
 from bookystats.domain.interfaces import HttpRetryState
 from bookystats.domain.models import Source
+from bookystats.persistence.backup import StoreMigrationBlocked, protect_migration
+from bookystats.persistence.inspection import matches_shapes
 
 
 class MetadataCacheError(BookyError):
@@ -44,6 +46,38 @@ def _checksum(payload: str, expires_at: float) -> str:
     ).hexdigest()
 
 
+def _row_intact(payload: object, expires_at: object, checksum: object) -> bool:
+    if (
+        not isinstance(payload, str)
+        or isinstance(expires_at, bool)
+        or not isinstance(expires_at, int | float)
+        or not math.isfinite(expires_at)
+        or not isinstance(checksum, str)
+        or not checksum.isascii()
+    ):
+        return C.FALSE
+    try:
+        return hmac.compare_digest(_checksum(payload, expires_at), checksum)
+    except UnicodeError:
+        return C.FALSE
+
+
+def verify_rows(connection: sqlite3.Connection) -> tuple[int, int]:
+    # Explicit comprehensive check of every cached payload and saved retry gate; normal reads
+    # only verify the row they use.
+    total = damaged = C.ZERO
+    tables = {row[C.ZERO] for row in connection.execute(S.DBSAFE_SELECT_TABLES)}
+    if S.DBSAFE_TABLE_METADATA_CACHE in tables:
+        for payload, expires_at, checksum in connection.execute(S.DBSAFE_SELECT_CACHE_ROWS):
+            total += C.ONE
+            damaged += C.ZERO if _row_intact(payload, expires_at, checksum) else C.ONE
+    if S.DBSAFE_TABLE_METADATA_RETRY in tables:
+        for payload, checksum in connection.execute(S.DBSAFE_SELECT_RETRY_ROWS):
+            total += C.ONE
+            damaged += C.ZERO if _row_intact(payload, C.ZERO, checksum) else C.ONE
+    return total, damaged
+
+
 class MetadataCache:
     def __init__(self, path: Path) -> None:
         self._connection: sqlite3.Connection | None = C.NONE
@@ -57,16 +91,51 @@ class MetadataCache:
                 raise MetadataCacheError(
                     S.CACHE_METADATACACHE_INIT_METADATA_CACHE_IS_CORRUPT_REPAIR_OR_REMOVE
                 )
+            self._establish_identity(path, connection)
             with connection:
                 connection.execute(
                     S.CACHE_METADATACACHE_INIT_CREATE_TABLE_IF_NOT_EXISTS_METADATA_CACHE
                 )
                 connection.execute(S.DR_RETRY_SCHEMA)
-        except (OSError, sqlite3.Error, MetadataCacheError):
+        except MetadataCacheError:
+            self.close()
+            raise
+        except StoreMigrationBlocked:
+            self.close()
+            raise MetadataCacheError(S.DBSAFE_METADATA_BLOCKED) from C.NONE
+        except (OSError, sqlite3.Error):
             self.close()
             raise MetadataCacheError(
                 S.CACHE_METADATACACHE_INIT_METADATA_CACHE_COULD_NOT_BE_OPENED_SAFELY
             ) from C.NONE
+
+    @staticmethod
+    def _establish_identity(path: Path, connection: sqlite3.Connection) -> None:
+        # Only an empty file or an unstamped file whose tables exactly match this cache is claimed;
+        # anything foreign or newer is rejected unmodified. Adopting a legacy file keeps every row,
+        # including saved retry gates, and is preceded by a verified backup.
+        contract = C.DBSAFE_CONTRACTS[C.StoreKind.METADATA]
+        identity = (
+            connection.execute(S.DBSAFE_PRAGMA_APPLICATION_ID).fetchone()[C.ZERO],
+            connection.execute(S.DBSAFE_PRAGMA_USER_VERSION).fetchone()[C.ZERO],
+        )
+        if identity == (contract.application_id, contract.current_version):
+            return
+        tables = frozenset(str(row[C.ZERO]) for row in connection.execute(S.DBSAFE_SELECT_TABLES))
+        if identity != (C.ZERO, C.ZERO) or (
+            tables and not matches_shapes(connection, contract, tables)
+        ):
+            raise MetadataCacheError(S.DBSAFE_METADATA_REJECTED)
+        if tables:
+            protect_migration(
+                connection, path, C.StoreKind.METADATA, reason=S.DBSAFE_REASON_MIGRATION
+            )
+        with connection:
+            connection.execute(S.AN_STORE_BEGIN)
+            connection.execute(S.CACHE_METADATACACHE_INIT_CREATE_TABLE_IF_NOT_EXISTS_METADATA_CACHE)
+            connection.execute(S.DR_RETRY_SCHEMA)
+            connection.execute(S.DBSAFE_SET_APPLICATION_ID.format(value=contract.application_id))
+            connection.execute(S.DBSAFE_SET_USER_VERSION.format(value=contract.current_version))
 
     def _db(self) -> sqlite3.Connection:
         if self._connection is C.NONE:

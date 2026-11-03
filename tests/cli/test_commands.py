@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 import pytest
@@ -32,6 +32,8 @@ from bookystats.runtime.config import (
     save_settings,
 )
 from bookystats.runtime.layout import database_path
+from tests.persistence.test_library import _restore_legacy_layout, book, publish, snapshot
+from tests.persistence.test_storage_safety import fingerprint
 from tests.support.exports import csv_body
 from tests.support.scheduling import activation
 from tests.support.sources import accounts
@@ -169,6 +171,26 @@ def test_status_reads_legacy_database_without_moving_it(
     assert legacy.is_file()
     assert not (tmp_path / S.LAYOUT_DATABASES).exists()
     assert not (tmp_path / S.LAYOUT_RUNTIME).exists()
+
+
+def test_status_surfaces_an_upgrade_without_migrating_or_touching_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    legacy = tmp_path / S.LIBRARY_SQLITE3
+    with closing(Database(legacy)) as database:
+        publish(database, snapshot(book()))
+        _restore_legacy_layout(database)
+    before = fingerprint(legacy)
+    arguments = [S.STATUS, S.CLI_PARSER_DATA_DIR, str(tmp_path)]
+    assert main([*arguments, S.CLI_PARSER_JSON]) == C.ZERO
+    report = json.loads(capsys.readouterr().out)
+    entry = report[S.DBSAFE_STORAGE][S.DBSAFE_STORES][S.DBSAFE_KIND_LIBRARY]
+    assert report[S.STATE] == S.DBSAFE_STATE_UNAVAILABLE
+    assert entry[S.STATE] == S.DBSAFE_STATE_UPGRADE_NEEDED
+    assert main(arguments) == C.ZERO
+    attention = S.DBSAFE_ATTENTION_LINE.format(store=S.DBSAFE_KIND_LIBRARY, detail=entry[S.DETAIL])
+    assert attention in capsys.readouterr().out
+    assert fingerprint(legacy) == before
 
 
 def test_unattended_without_accounts_never_prompts(

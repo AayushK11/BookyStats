@@ -3742,7 +3742,8 @@ AN_CALC_AXIS_NOTE: Final = (
 # Analytics persistence.
 AN_STORE_ERROR: Final = (
     "Analytics storage could not be used safely. Close other users of analytics.sqlite3, "
-    "then remove this rebuildable analytics database and run sync again."
+    "then restore a verified backup or move this rebuildable analytics database aside "
+    "and run sync again."
 )
 AN_STORE_CLOSED: Final = "Analytics storage is closed. Open a new AnalyticsStore."
 AN_STORE_COLLISION: Final = (
@@ -5728,3 +5729,237 @@ EVIDENCE_TIER_DECLARED: Final = "declared"
 EVIDENCE_TIER_SINGLE_SOURCE: Final = "single_source"
 EVIDENCE_TIER_CORROBORATED: Final = "corroborated"
 EVIDENCE_TIER_CONFLICTING: Final = "conflicting"
+
+# Storage safety: read-only inspection, verified backups and integrity checks.
+DBSAFE_KIND_LIBRARY: Final = "library"
+DBSAFE_KIND_ANALYTICS: Final = "analytics"
+DBSAFE_KIND_RAW: Final = "raw"
+DBSAFE_KIND_METADATA: Final = "metadata"
+DBSAFE_STATE_CURRENT: Final = "current"
+DBSAFE_STATE_UPGRADE_NEEDED: Final = "upgrade_needed"
+DBSAFE_STATE_NEWER: Final = "newer_than_supported"
+DBSAFE_STATE_UNRECOGNIZED: Final = "unrecognized"
+DBSAFE_STATE_DAMAGED: Final = "damaged"
+DBSAFE_STATE_ABSENT: Final = "absent"
+DBSAFE_STATE_BUSY: Final = "busy"
+DBSAFE_TARGET_VERSION: Final = "target_version"
+DBSAFE_APPLICATION_ID: Final = "application_id"
+DBSAFE_JOURNAL_MODE: Final = "journal_mode"
+DBSAFE_READABLE: Final = "readable"
+DBSAFE_OK: Final = "ok"
+DBSAFE_COMPREHENSIVE: Final = "comprehensive"
+DBSAFE_CHECKED: Final = "checked"
+DBSAFE_FAILURES: Final = "failures"
+DBSAFE_MODE_READ_BINARY: Final = "rb"
+DBSAFE_MODE_UPDATE_BINARY: Final = "rb+"
+DBSAFE_MODE_CREATE: Final = "x"
+DBSAFE_SQLITE_MAGIC: Final = b"SQLite format 3\x00"
+DBSAFE_URI_READ_ONLY: Final = "?mode=ro"
+DBSAFE_URI_IMMUTABLE: Final = "?mode=ro&immutable=1"
+DBSAFE_JOURNAL_WAL: Final = "wal"
+DBSAFE_JOURNAL_ROLLBACK: Final = "rollback"
+DBSAFE_DOT: Final = "."
+DBSAFE_QUOTE: Final = '"'
+DBSAFE_ESCAPED_QUOTE: Final = '""'
+DBSAFE_WORD_LOCKED: Final = "locked"
+DBSAFE_WORD_BUSY: Final = "busy"
+DBSAFE_WORD_READONLY: Final = "readonly"
+DBSAFE_PRAGMA_APPLICATION_ID: Final = "PRAGMA application_id"
+DBSAFE_PRAGMA_USER_VERSION: Final = "PRAGMA user_version"
+DBSAFE_PRAGMA_INTEGRITY_CHECK: Final = "PRAGMA integrity_check"
+DBSAFE_PRAGMA_FOREIGN_KEY_CHECK: Final = "PRAGMA foreign_key_check"
+DBSAFE_PRAGMA_PAGE_COUNT: Final = "PRAGMA page_count"
+DBSAFE_PRAGMA_PAGE_SIZE: Final = "PRAGMA page_size"
+DBSAFE_PRAGMA_JOURNAL_MODE_DELETE: Final = "PRAGMA journal_mode = DELETE"
+DBSAFE_SELECT_TABLES: Final = (
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' ORDER BY name"
+)
+DBSAFE_TABLE_EXISTS: Final = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+DBSAFE_TABLE_INFO: Final = 'PRAGMA table_info("{table}")'
+DBSAFE_COUNT_ROWS: Final = 'SELECT COUNT(*) FROM "{table}"'
+DBSAFE_PAYLOAD_TABLE: Final = "processed_payloads"
+DBSAFE_SELECT_PAYLOAD_DIGESTS: Final = "SELECT sha256 FROM processed_payloads ORDER BY sha256"
+DBSAFE_DANGLING_PAYLOADS: Final = (
+    "SELECT COUNT(*) FROM {table} WHERE substr({column}, 1, 8) = 'payload:' "
+    "AND substr({column}, 9) NOT IN (SELECT sha256 FROM processed_payloads)"
+)
+DBSAFE_SELECT_COLLECTION_REFERENCES: Final = (
+    "SELECT {column} FROM {table} WHERE substr({column}, 1, 8) = 'payload:'"
+)
+DBSAFE_PAYLOAD_COLUMNS: Final = (
+    "progress.raw_json,snapshots.raw_json,snapshot_records.record_json,"
+    "source_records.latest_json,enrichment_attempts.raw_json,"
+    "enrichment_candidates.candidate_json"
+)
+DBSAFE_COLLECTION_COLUMNS: Final = "progress.raw_json,snapshots.raw_json"
+DBSAFE_LIBRARY_TABLES: Final = (
+    "editions,enrichment_active,enrichment_attempts,enrichment_candidates,match_candidates,"
+    "match_decisions,memberships,metadata_observations,observations,processed_payloads,"
+    "progress,reading_events,reading_observations,record_identifiers,runs,snapshot_records,"
+    "snapshots,source_accounts,source_collections,source_records,works"
+)
+DBSAFE_INDEX_CANDIDATES_ATTEMPT: Final = (
+    "CREATE INDEX IF NOT EXISTS enrichment_candidates_attempt ON enrichment_candidates(attempt_id)"
+)
+DBSAFE_INDEX_RECORDS_WORK: Final = (
+    "CREATE INDEX IF NOT EXISTS source_records_work ON source_records(work_id)"
+)
+DBSAFE_INDEX_DECISIONS_CANDIDATE: Final = (
+    "CREATE INDEX IF NOT EXISTS match_decisions_candidate ON match_decisions(candidate_id)"
+)
+DBSAFE_INDEX_DECISIONS_RECORD: Final = (
+    "CREATE INDEX IF NOT EXISTS match_decisions_record ON match_decisions(record_id)"
+)
+DBSAFE_TABLE_METADATA_CACHE: Final = "metadata_cache"
+DBSAFE_TABLE_METADATA_RETRY: Final = "metadata_retry_state"
+DBSAFE_COLUMN_PROVIDER: Final = "provider"
+DBSAFE_COLUMN_CACHE_KEY: Final = "cache_key"
+DBSAFE_COLUMN_HOST_KEY: Final = "host_key"
+DBSAFE_COLUMN_PAYLOAD: Final = "payload"
+DBSAFE_COLUMN_EXPIRES_AT: Final = "expires_at"
+DBSAFE_COLUMN_CHECKSUM: Final = "checksum"
+DBSAFE_TYPE_TEXT: Final = "TEXT"
+DBSAFE_TYPE_REAL: Final = "REAL"
+DBSAFE_SELECT_CACHE_ROWS: Final = "SELECT payload, expires_at, checksum FROM metadata_cache"
+DBSAFE_SELECT_RAW_DOCUMENTS: Final = DR_RAW_SELECT + "ORDER BY c.sequence"
+DBSAFE_RAW_BLOCKED: Final = (
+    "The raw archive was not changed because its integrity check or verified backup "
+    "failed. Fix the storage problem and run sync again."
+)
+DBSAFE_SELECT_RETRY_ROWS: Final = "SELECT payload, checksum FROM metadata_retry_state"
+DBSAFE_SET_APPLICATION_ID: Final = "PRAGMA application_id = {value}"
+DBSAFE_SET_USER_VERSION: Final = "PRAGMA user_version = {value}"
+DBSAFE_METADATA_REJECTED: Final = (
+    "This file is not a BookyStats metadata cache this version can use, so it was left "
+    "unmodified. Move it aside or choose another data directory."
+)
+DBSAFE_METADATA_BLOCKED: Final = (
+    "The metadata cache was not changed because its integrity check or verified backup "
+    "failed. Fix the storage problem and run sync again."
+)
+DBSAFE_MESSAGE_ABSENT: Final = "The database file does not exist or is empty."
+DBSAFE_MESSAGE_NO_TABLES: Final = "The database file has no tables yet."
+DBSAFE_MESSAGE_FOREIGN: Final = (
+    "The file is not a recognized BookyStats database and was left untouched."
+)
+DBSAFE_MESSAGE_UNREADABLE: Final = "The database file could not be read."
+DBSAFE_MESSAGE_DAMAGED: Final = "The database could not be read safely; it was not modified."
+DBSAFE_MESSAGE_RECOVERY: Final = (
+    "An interrupted write needs recovery; the next sync recovers it. "
+    "This read-only check did not change the database."
+)
+DBSAFE_MESSAGE_BUSY: Final = "The database is busy; try again shortly."
+DBSAFE_MESSAGE_CHANGED: Final = "The database changed while it was being read; try again."
+DBSAFE_MESSAGE_NEWER: Final = (
+    "The database was written by a newer BookyStats version and was not modified."
+)
+DBSAFE_MESSAGE_CURRENT: Final = "Schema is current."
+DBSAFE_MESSAGE_MISSING_TABLES: Final = "Required tables are missing: {tables}."
+DBSAFE_MESSAGE_UPGRADE: Final = (
+    "Schema upgrade needed (version {version} to {target}); "
+    "the next sync takes a verified backup first."
+)
+DBSAFE_MESSAGE_ADOPT: Final = (
+    "Legacy unversioned cache; the next sync marks it after a verified backup."
+)
+DBSAFE_BACKUPS_DIRECTORY: Final = "backups"
+DBSAFE_MANIFEST_NAME: Final = "manifest.json"
+DBSAFE_STAMP_FORMAT: Final = "%Y%m%dT%H%M%SZ"
+DBSAFE_INCOMPLETE_SUFFIX: Final = ".incomplete"
+DBSAFE_FAILED_SUFFIX: Final = ".failed"
+DBSAFE_RESTORING_SUFFIX: Final = ".restoring"
+DBSAFE_REASON_PATTERN: Final = r"[a-z0-9][a-z0-9-]{0,47}"
+DBSAFE_REASON_MIGRATION: Final = "pre-migration"
+DBSAFE_REASON_MAINTENANCE: Final = "maintenance"
+DBSAFE_FORMAT: Final = "format"
+DBSAFE_CREATED_AT: Final = "created_at"
+DBSAFE_SQLITE_VERSION: Final = "sqlite_version"
+DBSAFE_FILE: Final = "file"
+DBSAFE_NAME: Final = "name"
+DBSAFE_SHA256: Final = "sha256"
+DBSAFE_SIZE: Final = "size"
+DBSAFE_TABLES: Final = "tables"
+DBSAFE_BACKUP_NO_SPACE: Final = "Not enough free disk space to create a verified backup."
+DBSAFE_BACKUP_NAME_EXHAUSTED: Final = "Could not reserve a unique backup folder name."
+DBSAFE_BACKUP_COPY_DAMAGED: Final = "The backup copy failed its integrity verification."
+DBSAFE_BACKUP_REASON_INVALID: Final = "The backup reason must be a short lowercase token."
+DBSAFE_BACKUP_MANIFEST_INVALID: Final = "The backup manifest is missing or invalid."
+DBSAFE_BACKUP_FILE_MISSING: Final = "The backup database file is missing."
+DBSAFE_BACKUP_HASH_MISMATCH: Final = (
+    "The backup file does not match its recorded size and SHA-256 hash."
+)
+DBSAFE_RESTORE_TARGET_EXISTS: Final = (
+    "The restore target already exists; move the damaged file aside first."
+)
+DBSAFE_BLOCKED_INTEGRITY: Final = (
+    "Schema upgrade not started: the database failed its integrity check. No data was changed."
+)
+DBSAFE_BLOCKED_BACKUP: Final = (
+    "Schema upgrade not started: a verified backup could not be created. No data was changed."
+)
+DBSAFE_FAILURE_INTEGRITY: Final = "integrity_check"
+DBSAFE_FAILURE_FOREIGN_KEY: Final = "foreign_key_check"
+DBSAFE_FAILURE_UNREADABLE: Final = "unreadable"
+DBSAFE_FAILURE_PAYLOAD_DAMAGED: Final = "payload_damaged"
+DBSAFE_FAILURE_PAYLOAD_DANGLING: Final = "payload_dangling"
+DBSAFE_FAILURE_DOCUMENT_DAMAGED: Final = "raw_document_damaged"
+DBSAFE_FAILURE_ROW_DAMAGED: Final = "cache_row_damaged"
+DBSAFE_FAILURE_HISTORY_DAMAGED: Final = "analytics_history_damaged"
+DBSAFE_CHECKED_FOREIGN_KEYS: Final = "foreign_key_violations"
+DBSAFE_CHECKED_PAYLOADS: Final = "payloads"
+DBSAFE_CHECKED_DANGLING: Final = "dangling_payload_references"
+DBSAFE_CHECKED_DOCUMENTS: Final = "raw_documents"
+DBSAFE_CHECKED_ROWS: Final = "cache_rows"
+DBSAFE_CHECKED_COMPONENTS: Final = "analytics_components"
+DBSAFE_CHECKED_REPORTS: Final = "analytics_reports"
+DBSAFE_CHECKED_CACHE_ROWS: Final = "recommendation_cache_rows"
+DBSAFE_CHECKED_RECOMMENDATIONS: Final = "recommendation_reports"
+DBSAFE_STORAGE: Final = "storage"
+DBSAFE_ACCESS: Final = "access"
+DBSAFE_ACCESS_READ_ONLY: Final = "read_only"
+DBSAFE_STORES: Final = "stores"
+DBSAFE_STATE_UNAVAILABLE: Final = "library_unavailable"
+DBSAFE_ATTENTION_LINE: Final = "Storage attention - {store}: {detail}"
+
+# Storage safety tests.
+DBSAFE_TEST_PARAM_VERSION: Final = "version"
+DBSAFE_TEST_PARAM_DAMAGE: Final = "statement,failure"
+DBSAFE_TEST_PARAM_PLAN: Final = "query,index"
+DBSAFE_TEST_PARAM_SCENARIO: Final = "scenario"
+DBSAFE_TEST_SCENARIO_FOREIGN: Final = "foreign"
+DBSAFE_TEST_SCENARIO_NEWER: Final = "newer"
+DBSAFE_TEST_SCENARIO_EXTRA: Final = "extra"
+DBSAFE_TEST_RESTORED: Final = "restored"
+DBSAFE_TEST_FRESH: Final = "fresh"
+DBSAFE_TEST_FOREIGN_BYTES: Final = b"not a database"
+DBSAFE_TEST_DROP_INDEX: Final = "DROP INDEX IF EXISTS {name}"
+DBSAFE_TEST_VERSION_THREE: Final = "PRAGMA user_version = 3"
+DBSAFE_TEST_VERSION_NEWER: Final = "PRAGMA user_version = 2"
+DBSAFE_TEST_RESET_APPLICATION_ID: Final = "PRAGMA application_id = 0"
+DBSAFE_TEST_RESET_USER_VERSION: Final = "PRAGMA user_version = 0"
+DBSAFE_TEST_EXTRA_TABLE: Final = "CREATE TABLE extra_state (value TEXT)"
+DBSAFE_TEST_SELECT_INDEXES: Final = (
+    "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+)
+DBSAFE_TEST_SELECT_ROWS: Final = 'SELECT * FROM "{table}"'
+DBSAFE_TEST_CORRUPT_PAYLOADS: Final = "UPDATE processed_payloads SET body = X'00'"
+DBSAFE_TEST_DELETE_PAYLOADS: Final = "DELETE FROM processed_payloads"
+DBSAFE_TEST_DAMAGE_COMPONENT: Final = (
+    "UPDATE analysis_components SET payload_hash = ? WHERE cache_key = ?"
+)
+DBSAFE_TEST_EXPLAIN: Final = "EXPLAIN QUERY PLAN "
+DBSAFE_TEST_INDEX_CANDIDATES: Final = "enrichment_candidates_attempt"
+DBSAFE_TEST_INDEX_RECORDS: Final = "source_records_work"
+DBSAFE_TEST_INDEX_DECISIONS_CANDIDATE: Final = "match_decisions_candidate"
+DBSAFE_TEST_INDEX_DECISIONS_RECORD: Final = "match_decisions_record"
+DBSAFE_TEST_QUERY_CANDIDATES: Final = "SELECT * FROM enrichment_candidates WHERE attempt_id = ?"
+DBSAFE_TEST_QUERY_RECORDS: Final = "SELECT * FROM source_records WHERE work_id = ?"
+DBSAFE_TEST_QUERY_DECISIONS_CANDIDATE: Final = (
+    "SELECT * FROM match_decisions WHERE candidate_id = ?"
+)
+DBSAFE_TEST_QUERY_DECISIONS_RECORD: Final = "SELECT * FROM match_decisions WHERE record_id = ?"
+DBSAFE_TEST_STABLE: Final = "stable"
+DBSAFE_TEST_CREATE_BACKUP: Final = "create_backup"
+DBSAFE_TEST_VERIFY_CONNECTION: Final = "verify_connection"
+DBSAFE_TEST_INVALID_REASON: Final = "../Escape"
+DBSAFE_TEST_BACKUP_FAILED: Final = "backup failed"

@@ -351,12 +351,12 @@ def test_damaged_hash_and_internally_mismatched_component_fail_closed(tmp_path: 
             store.get_component(report.taste.key)
         with pytest.raises(AnalyticsStoreError):
             store.latest()
-    with pytest.raises(AnalyticsStoreError):
-        AnalyticsStore(path)
+    with AnalyticsStore(path) as store, pytest.raises(AnalyticsStoreError):
+        store.verify_history()
     text, digest = _payload(_component(key=C.AN_STORE_TEST_KEYS[C.TWO]))
     _tamper(path, S.AN_STORE_TEST_BAD_PAYLOAD, (text, digest, report.taste.key))
-    with pytest.raises(AnalyticsStoreError):
-        AnalyticsStore(path)
+    with AnalyticsStore(path) as store, pytest.raises(AnalyticsStoreError):
+        store.verify_history()
 
 
 def test_report_hash_bindings_and_foreign_keys_are_verified(tmp_path: Path) -> None:
@@ -367,8 +367,8 @@ def test_report_hash_bindings_and_foreign_keys_are_verified(tmp_path: Path) -> N
         _tamper(path, S.AN_STORE_TEST_BAD_BINDING)
         with pytest.raises(AnalyticsStoreError):
             store.latest()
-    with pytest.raises(AnalyticsStoreError):
-        AnalyticsStore(path)
+    with AnalyticsStore(path) as store, pytest.raises(AnalyticsStoreError):
+        store.verify_history()
     _tamper(path, S.AN_STORE_TEST_BAD_FK, (C.AN_STORE_TEST_KEYS[C.TWO],))
     with pytest.raises(AnalyticsStoreError):
         AnalyticsStore(path)
@@ -399,8 +399,8 @@ def test_report_hash_and_typed_payload_are_verified_even_when_hash_is_recomputed
         _tamper(path, S.AN_STORE_TEST_TAMPER_REPORT, (text, digest))
         with pytest.raises(AnalyticsStoreError):
             store.latest()
-    with pytest.raises(AnalyticsStoreError):
-        AnalyticsStore(path)
+    with AnalyticsStore(path) as store, pytest.raises(AnalyticsStoreError):
+        store.verify_history()
 
 
 def test_closed_store_never_reopens_and_first_use_creates_parent_directories(

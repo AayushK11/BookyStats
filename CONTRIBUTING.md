@@ -187,6 +187,28 @@ runtime folders/files only when needed.
 Normal sync must not delete user data or backups. Any owner-requested reset is
 a separate, explicit operation, not an automatic retention policy.
 
+Storage safety lives in `persistence\inspection.py`, `integrity.py` and
+`backup.py`, with status wiring in `cli\storage_status.py`:
+
+- `booky status` is read-only. It must not migrate, checkpoint, write a journal or
+  create `-wal`/`-shm` files; an older store is reported as `upgrade_needed`.
+  `open_read_only` uses SQLite `immutable` only for a WAL database with no
+  sidecars and rechecks stability afterwards. Never use it with live WAL data and
+  never unlink WAL/SHM files by hand.
+- Before a schema migration or explicit maintenance, create a SQLite online-backup
+  copy under `data\backups\<UTC>-<store>-<reason>\` with a SHA-256 manifest and
+  verify it; a failed integrity check or backup raises `StoreMigrationBlocked`
+  and leaves the database unchanged. Backups are never pruned automatically and
+  `restore_backup` never overwrites. Migrations must be additive and must not
+  drop historical tables or delete rows.
+- Opening a store checks identity, version and structure but does not decode all
+  history. Latest/selected reads verify what they use; the comprehensive path is
+  `verify_store`, `AnalyticsStore.verify_history` and
+  `RecommendationStore.verify_history`.
+- Current versions: library v4, analytics v3 (v2 readable until upgraded), raw v3
+  and metadata v1 (application id `0x42594D44`). Cover changes with
+  `tests\persistence\test_storage_safety.py` and scratch copies, never live data.
+
 Runtime path resolution lives in `runtime\layout.py`: databases belong under
 `databases`, OAuth under `credentials`, and locks/helpers under `runtime`.
 Status recognizes legacy flat paths read-only. `SyncLock` checks the legacy

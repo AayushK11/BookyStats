@@ -13,6 +13,7 @@ from bookystats.domain.analytics import AnalyticsSettings
 from bookystats.domain.errors import BookyError
 from bookystats.domain.recommendations import RecommendationItem, RecommendationReport
 from bookystats.persistence.analytics import AnalyticsStore, AnalyticsStoreError
+from bookystats.persistence.inspection import open_read_only
 
 
 class RecommendationStoreError(BookyError):
@@ -71,39 +72,40 @@ def _decode(key: object, payload: object, digest: object) -> RecommendationRepor
 
 
 class RecommendationStore:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, read_only: bool = C.FALSE) -> None:
         self._connection: sqlite3.Connection | None = C.NONE
+        self.upgrade_pending = C.FALSE
         try:
-            with AnalyticsStore(path):
-                pass
-            path.parent.mkdir(parents=C.TRUE, exist_ok=C.TRUE)
-            self._connection = sqlite3.connect(path, timeout=C.FIVE)
+            # AnalyticsStore creates or upgrades the shared schema and validates its identity,
+            # exact tables, integrity and foreign keys; saved reports are verified when read.
+            with AnalyticsStore(path, require_existing=read_only, read_only=read_only) as store:
+                self.upgrade_pending = store.upgrade_pending
+            if read_only:
+                self._connection = open_read_only(path).connection
+            else:
+                self._connection = sqlite3.connect(path, timeout=C.FIVE)
+                self._db().execute(S.AN_STORE_FOREIGN_KEYS)
+        except (OSError, sqlite3.Error, ValueError, RecommendationStoreError, AnalyticsStoreError):
+            self.close()
+            raise RecommendationStoreError(S.REC_STORE_ERROR) from C.NONE
+
+    def verify_history(self) -> dict[str, int]:
+        checked = {S.DBSAFE_CHECKED_CACHE_ROWS: C.ZERO, S.DBSAFE_CHECKED_RECOMMENDATIONS: C.ZERO}
+        if self.upgrade_pending:
+            return checked
+        try:
             connection = self._db()
-            connection.execute(S.AN_STORE_FOREIGN_KEYS)
-            with connection:
-                connection.execute(S.AN_STORE_BEGIN)
-                connection.execute(S.REC_CREATE_CACHE)
-                connection.execute(S.REC_CREATE_REPORTS)
-            schema = connection.execute(S.REC_SCHEMA).fetchall()
-            expected = [
-                (S.REC_CACHE_TABLE, S.REC_CREATE_CACHE.replace(S.REC_IF_NOT_EXISTS, S.EMPTY)),
-                (S.REC_REPORT_TABLE, S.REC_CREATE_REPORTS.replace(S.REC_IF_NOT_EXISTS, S.EMPTY)),
-            ]
-            if schema != expected or connection.execute(S.AN_STORE_INTEGRITY).fetchall() != [
-                (S.OK,)
-            ]:
-                raise RecommendationStoreError(S.REC_STORE_ERROR)
-            if connection.execute(S.AN_STORE_FK_CHECK).fetchall():
-                raise RecommendationStoreError(S.REC_STORE_ERROR)
             for row in connection.execute(S.REC_ALL_CACHE):
                 report = _decode(*row)
                 if _payload(_unbound(report)) != row[C.ONE]:
                     raise RecommendationStoreError(S.REC_STORE_ERROR)
+                checked[S.DBSAFE_CHECKED_CACHE_ROWS] += C.ONE
             for row in connection.execute(S.REC_ALL_REPORTS):
                 self._report(row)
-        except (OSError, sqlite3.Error, ValueError, RecommendationStoreError, AnalyticsStoreError):
-            self.close()
+                checked[S.DBSAFE_CHECKED_RECOMMENDATIONS] += C.ONE
+        except (sqlite3.Error, UnicodeError):
             raise RecommendationStoreError(S.REC_STORE_ERROR) from C.NONE
+        return checked
 
     def _db(self) -> sqlite3.Connection:
         if self._connection is C.NONE:
