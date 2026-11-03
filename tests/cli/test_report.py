@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from bookystats import constants as C
@@ -172,6 +174,64 @@ def test_issue_grouping_requires_both_code_and_message_to_match() -> None:
     lines = receipt_lines(receipt, issue_limit=C.NONE)
     for issue in issues:
         assert S.REPORT_ISSUE_LINE.format(code=issue.code, message=issue.message) in lines
+
+
+def test_status_explains_the_last_attempt_and_retry_gates_without_promising_a_reset() -> None:
+    report = {
+        S.RUNSUM_KEY: {
+            S.RUNSUM_FINISHED_KEY: S.TEST_OPLOG_FINISHED_UTC,
+            S.RUNSUM_LINES_KEY: [S.TEST_REPORTING_MESSAGE_ONE],
+            S.RUNSUM_GATES_KEY: [
+                {
+                    S.RUNSUM_PROVIDER_KEY: Source.GOOGLE_BOOKS.value,
+                    S.RUNSUM_RETRY_KEY: S.TEST_OPLOG_ACTIVE_RETRY,
+                },
+                {
+                    S.RUNSUM_PROVIDER_KEY: Source.OPEN_LIBRARY.value,
+                    S.RUNSUM_RETRY_KEY: S.TEST_OPLOG_PASSED_RETRY,
+                },
+            ],
+        }
+    }
+    lines = status_lines(report, now=datetime.fromisoformat(S.TEST_OPLOG_STATUS_NOW))
+    attempt = S.RUNSUM_ATTEMPT_LINE.format(finished=S.TEST_OPLOG_FINISHED_INSTANT)
+    block = lines[lines.index(attempt) : lines.index(attempt) + C.FOUR]
+    assert block == [
+        attempt,
+        S.RUNSUM_TEXT_LINE.format(text=S.TEST_REPORTING_MESSAGE_ONE),
+        S.RUNSUM_GATE_ACTIVE.format(
+            provider=S.OUTCOME_GOOGLE_BOOKS,
+            until=S.TEST_OPLOG_GATE_INSTANT,
+            remaining=S.TEST_OPLOG_REMAINING_TEXT,
+        ),
+        S.RUNSUM_GATE_PASSED.format(
+            provider=S.OUTCOME_OPEN_LIBRARY, until=S.TEST_OPLOG_PASSED_INSTANT
+        ),
+    ]
+    assert not any(
+        word in line.lower() for line in block for word in (S.TEST_OPLOG_QUOTA, S.TEST_OPLOG_RESET)
+    )
+    assert not any(
+        line.startswith(S.TEST_OPLOG_ATTEMPT_PREFIX)
+        for line in status_lines({}, now=datetime.fromisoformat(S.TEST_OPLOG_STATUS_NOW))
+    )
+
+
+def test_run_lines_show_a_provider_deferral_as_a_dated_instant_not_a_raw_epoch() -> None:
+    cooldown = Issue(
+        code=S.PROVIDER_COOLDOWN,
+        message=S.DR_COOLDOWN_MESSAGE.format(deadline=C.TEST_OPLOG_GATE_EPOCH),
+    )
+    receipt = run_receipt(
+        metadata=(
+            MetadataReceipt(
+                provider=Source.GOOGLE_BOOKS, state=SyncState.PARTIAL, issues=(cooldown,)
+            ),
+        )
+    )
+    text = S.NEWLINE.join(run_lines(receipt, issue_limit=C.FIVE))
+    assert S.TEST_OPLOG_UTC_FRAGMENT in text
+    assert str(C.TEST_OPLOG_GATE_EPOCH) not in text
 
 
 def test_empty_status_preserves_missing_local_state() -> None:

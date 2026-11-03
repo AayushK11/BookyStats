@@ -693,7 +693,16 @@ class SyncService:
                     except (BookyError, ValidationError) as exc:
                         analytics = AnalyticsReceipt(
                             state=SyncState.FAILED,
-                            issues=(Issue(code=S.AN_FAILED_CODE, message=str(exc)),),
+                            issues=(
+                                Issue(
+                                    code=S.AN_FAILED_CODE,
+                                    message=S.OPLOG_ANALYTICS_FAILED.format(
+                                        error_type=type(exc).__name__
+                                    )
+                                    if isinstance(exc, ValidationError)
+                                    else str(exc),
+                                ),
+                            ),
                         )
                 else:
                     analytics = AnalyticsReceipt(

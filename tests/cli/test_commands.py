@@ -16,7 +16,6 @@ from bookystats.cli.commands import main
 from bookystats.domain.errors import ConfigurationError
 from bookystats.domain.interfaces import HttpResponse
 from bookystats.domain.models import (
-    CollectionProgress,
     Issue,
     Source,
     SyncState,
@@ -74,11 +73,10 @@ def test_metadata_progress_is_percentage_bounded_without_timeout_boilerplate(
     assert all(S.LOG2_TEST_ZERO_TIMEOUT not in line for line in lines)
 
 
-def test_source_progress_is_time_bounded_and_completion_has_no_row_examples(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_source_completion_events_have_no_row_examples(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     events: list[str] = []
-    monkeypatch.setattr(cli, S.LOG2_TEST_MONOTONIC, lambda: C.ZERO)
     with ExitStack() as stack:
         service = cli._build_service(
             tmp_path,
@@ -91,19 +89,7 @@ def test_source_progress_is_time_bounded_and_completion_has_no_row_examples(
             inputs={},
             on_event=events.append,
         )
-        assert service.on_progress is not C.NONE
-        for page in range(C.ONE, C.LOG2_TEST_LARGE_TOTAL + C.ONE):
-            service.on_progress(
-                CollectionProgress(source=Source.GOODREADS, collection=S.READ, pages_seen=page)
-            )
-        monkeypatch.setattr(cli, S.LOG2_TEST_MONOTONIC, lambda: C.LOG2_PROGRESS_SECONDS)
-        service.on_progress(
-            CollectionProgress(
-                source=Source.GOODREADS,
-                collection=S.READ,
-                pages_seen=C.LOG2_TEST_LARGE_TOTAL + C.ONE,
-            )
-        )
+        assert service.on_progress is C.NONE
         assert service.on_source_complete is not C.NONE
         service.on_source_complete(
             SourceReceipt(
@@ -127,15 +113,15 @@ def test_source_progress_is_time_bounded_and_completion_has_no_row_examples(
             )
         )
     lines = capsys.readouterr().err.splitlines()
-    assert len(lines) == len(events) == C.FOUR
+    assert len(lines) == len(events) == C.TWO
     assert S.TEST_REPORTING_MESSAGE_ONE not in S.NEWLINE.join(lines)
-    assert lines[-C.TWO] == S.LOG2_SOURCE.format(
+    assert lines[C.ZERO] == S.LOG2_SOURCE.format(
         source=S.GOODREADS,
         collection=S.READ,
         state=S.COMPLETE,
         records=C.LOG2_TEST_LARGE_TOTAL,
     )
-    assert lines[-C.ONE] == S.LOG2_SOURCE_RETAINED.format(
+    assert lines[C.ONE] == S.LOG2_SOURCE_RETAINED.format(
         source=S.GOODREADS, collection=S.READ, state=S.FAILED
     )
 
@@ -722,9 +708,10 @@ def test_separate_goodreads_shelves_survive_later_import_replay_and_failure(
     assert not imported.account_sync_complete
     assert imported.log_file is not C.NONE
     log = Path(imported.log_file).read_text(encoding=S.UTF_8)
-    assert S.LOG2_VERIFICATION.format(result=S.SUCCESS) in log
+    checks = len(imported.verification.checks)
+    assert S.OPLOG_VERIFICATION.format(result=S.SUCCESS, passed=checks, total=checks) in log
     assert S.TEST_BROWSER_EXPORT_READ_NAME not in log
-    assert S.RUNLOG_FILES_HEADING not in log
+    assert log.count(S.OPLOG_START_TOKEN) == log.count(S.OPLOG_END_TOKEN) > C.ZERO
     assert str(tmp_path) not in log
     archive = RawStore(database_path(tmp_path, S.CLI_RAW_DATABASE))
     try:

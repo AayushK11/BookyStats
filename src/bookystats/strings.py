@@ -291,7 +291,6 @@ WWW_GOOGLEAPIS_COM: Final = "www.googleapis.com"
 CLI_BUILD_SERVICE_USER_AGENT_BOOKYSTATS: Final = "BookyStats/0.1"
 CLI_BUILD_SERVICE_TEMPLATE: Final = " ({v0})"
 OPENLIBRARY_ORG: Final = "openlibrary.org"
-CLI_BUILD_SERVICE_PROGRESS_TEMPLATE: Final = "{v0}: {v1}, {v2} pages checked"
 CLI_PRINT_RECEIPT_LAST_GOOD_SOURCE_SNAPSHOTS_REMAIN_AVAILABLE_THIS: Final = (
     "Last good source snapshots remain available; this is not a complete account sync."
 )
@@ -2556,24 +2555,7 @@ TEST_REPORTING_UNMANAGED_LOG: Final = "notes.log"
 RUNLOG_STAMP_FORMAT: Final = "%Y-%m-%d_%H-%M-%SZ"
 RUNLOG_FILE_NAME: Final = "{stamp}_run{run_id}.log"
 RUNLOG_FAILED_FILE_NAME: Final = "{stamp}_failed.log"
-RUNLOG_TITLE: Final = "BookyStats run log"
-RUNLOG_FAILED_TITLE: Final = "BookyStats run failed"
-RUNLOG_VERSION_LINE: Final = "Version: {version}"
-RUNLOG_RUN_LINE: Final = "Run: {run_id} (trigger: {trigger})"
-RUNLOG_STATE_LINE: Final = "State: {state}"
-RUNLOG_STARTED_LINE: Final = "Started: {started}"
-RUNLOG_FINISHED_LINE: Final = "Finished: {finished}"
-RUNLOG_TIME_LINE: Final = "Time: {time}"
-RUNLOG_FILES_HEADING: Final = "Files used"
-RUNLOG_FILE_LINE: Final = (
-    "  {source}: {origin}, {size} bytes, sha256 {sha256}, captured {captured}, "
-    "raw document {document}"
-)
-RUNLOG_FAILURE_LINE: Final = "Failure: {message}"
 RUNLOG_FAILURE_TYPE: Final = "{type} (details withheld because they can contain private data)"
-CLI_LOG_WRITE_WARNING: Final = (
-    "Warning: the run log could not be written. The sync itself was not affected."
-)
 
 # Default data folder inside a source checkout (tracked in git).
 CHECKOUT_DATA_FOLDER: Final = "data"
@@ -2768,8 +2750,6 @@ TEST_REPORTING_COUNT_FIELDS: Final = "count"
 TEST_REPORTING_LINEAGE_FIELDS: Final = "field,value"
 TEST_REPORTING_RESULT_FIELDS: Final = "result"
 TEST_REPORTING_LIMIT_FIELDS: Final = "limit,shown"
-TEST_REPORTING_CLOCK: Final = "bookystats.runtime.runlog.utc_now"
-TEST_REPORTING_OPEN: Final = "open"
 TEST_REPORTING_CHECKOUT_ROOT: Final = "_checkout_root"
 TEST_REPORTING_USER_DATA_PATH: Final = "user_data_path"
 TEST_REPORTING_FILE_ATTRIBUTE: Final = "__file__"
@@ -2803,7 +2783,6 @@ TEST_REPORTING_SECRET_MESSAGE: Final = (
     "https://example.invalid/?key=synthetic-key-secret Bearer synthetic-bearer-secret"
 )
 TEST_REPORTING_FAILURE: Final = "Synthetic pre-run failure."
-TEST_REPORTING_IO_FAILURE: Final = "Synthetic log write failure."
 TEST_REPORTING_OLDER_LOG: Final = "2099-01-01_00-00-00Z_run9.log"
 TEST_REPORTING_NEWER_LOG: Final = "2000-01-01_00-00-00Z_failed.log"
 TEST_REPORTING_NOT_LOG: Final = "notes.txt"
@@ -5624,10 +5603,6 @@ LOG_RUN_START: Final = "=== RUN START {time} UTC | trigger: {trigger} ==="
 LOG_RUN_END: Final = "=== RUN END {time} UTC | outcome: {outcome} ==="
 LOG_EVENT: Final = "[{time} UTC] {message}"
 LOG_FAILURE_TRIGGER: Final = "failure"
-LOG_INTERRUPTED: Final = (
-    "Run interrupted or exited without a final receipt; saved history is retained."
-)
-LOG_EXCEPTION: Final = "{type}: {message}"
 LOG_ALREADY_FINISHED: Final = "Cannot append progress to a finished run."
 LOG_SYMLINK_ERROR: Final = "Refusing to append the operational log through a symbolic link."
 LOG_SECRET_QUERY_PATTERN: Final = (
@@ -5660,49 +5635,16 @@ LOG_TEST_JSON: Final = "private-json"
 LOG_TEST_USER: Final = "private-user"
 LOG_TEST_PASSWORD: Final = "private-password"
 LOG_TEST_DICT: Final = "private-dict"
-LOG_TEST_START_TOKEN: Final = "=== RUN START"
-LOG_TEST_END_TOKEN: Final = "=== RUN END"
-LOG_TEST_PROGRESS: Final = "Metadata: processed 2 of 8 books — continuing."
-LOG_TEST_INTERRUPT_TYPE: Final = "KeyboardInterrupt"
-LOG_TEST_WRITE: Final = "write"
-LOG_TEST_FLUSH: Final = "flush"
-LOG_TEST_METHOD_PARAMETER: Final = "method"
-LOG_ISSUES_HEADING: Final = "Issue totals by scope and code (all occurrences; limited examples)"
-LOG_ISSUE_COUNT: Final = "  {scope} | {code}: {count} occurrences"
-LOG_ISSUE_EXAMPLE: Final = "    Example: {message}"
-LOG_ISSUE_TRUNCATED: Final = "… [message shortened]"
 LOG_ANALYTICS_SCOPE: Final = "analytics"
 LOG_DELIVERY_SCOPE: Final = "delivery"
 
-LOG2_RUN_START: Final = "=== RUN START {time} | trigger: {trigger} ==="
-LOG2_RUN_END: Final = "=== RUN END {time} | outcome: {outcome} ==="
-LOG2_EVENT: Final = "[{time}] {message}"
 LOG2_SOURCE: Final = "Source {source}/{collection}: {state}; {records:,} active records."
-LOG2_SOURCES: Final = (
-    "Sources: {complete}/{total} imports complete; {records:,} records in successful imports. "
-    "File imports do not verify account completeness."
-)
-LOG2_METADATA: Final = (
-    "Metadata {provider}: {state}; {processed:,}/{requested:,} lookups processed, "
-    "{deferred:,} deferred."
-)
-LOG2_CORE: Final = (
-    "  Core-gap fallback: {unresolved:,} records still missing description/genre evidence; "
-    "{skipped:,} strategy skips (not provider matches)."
-)
-LOG2_ANALYTICS: Final = (
-    "Analytics: {state}; report {report_id}, {read:,} Read works, {rated:,} rating-linked."
-)
 LOG2_PRODUCTS: Final = (
     "Reports: {state}; PDF and JSON bundle published for analytics report {report_id}."
 )
 LOG2_PRODUCTS_RETAINED: Final = (
     "Reports: {state}; no new bundle published; any last-good bundle retained."
 )
-LOG2_VERIFICATION: Final = (
-    "Verification: {result}; full checks and lineage remain in saved receipts."
-)
-LOG2_RECEIPT: Final = "Run {run_id}: {state}."
 LOG2_METADATA_PROGRESS: Final = "Metadata {source}: {completed:,}/{total:,} books ({percent}%)."
 LOG2_PATH_PATTERN: Final = r"""(?i)(?<![\w:/])(?:[a-z]:[\\/]|\\\\[^\\\s]+\\)[^\r\n"'<>|]*"""
 LOG2_NOTICE_EXPLANATION: Final = (
@@ -5712,17 +5654,280 @@ LOG2_TEST_LARGE_TOTAL: Final = "total"
 LOG2_TEST_PRIVATE_PATH_MESSAGE: Final = (
     'Cannot read "Q:\\private\\reader\\inputs\\library.csv"; check the configured input.'
 )
-LOG2_TEST_ACTION: Final = "check the configured input"
 LOG2_TEST_ZERO_TIMEOUT: Final = "timeout"
-LOG2_TEST_UTC_DUPLICATE: Final = "+00:00 UTC"
-LOG2_TEST_MONOTONIC: Final = "monotonic"
 LOG2_TEST_SYMLINK: Final = "is_symlink"
 LOG2_TEST_PROGRESS_FINISHED: Final = "2,153/2,153 books (100%)"
-LOG2_TEST_PARTIAL_END: Final = "| outcome: partial ==="
 LOG2_SOURCE_RETAINED: Final = (
     "Source {source}/{collection}: {state}; no complete replacement; "
     "any last-good snapshot retained."
 )
+
+# Plain-language run outcome: causes, safe retry times, lookups and next actions.
+OUTCOME_DURATION_SECONDS: Final = "{seconds:.1f} s"
+OUTCOME_DURATION_MINUTES: Final = "{minutes}m {seconds:02d}s"
+OUTCOME_DURATION_HOURS: Final = "{hours}h {minutes:02d}m {seconds:02d}s"
+OUTCOME_TIME_UNKNOWN: Final = "an unknown time"
+OUTCOME_INSTANT: Final = "{local} ({utc} UTC)"
+OUTCOME_SECONDS: Final = "seconds"
+OUTCOME_UTC_FORMAT: Final = "%Y-%m-%d %H:%M:%S"
+OUTCOME_EPOCH_PATTERN: Final = r"UTC timestamp (\d{9,11}(?:\.\d+)?)"
+OUTCOME_GOOGLE_BOOKS: Final = "Google Books"
+OUTCOME_OPEN_LIBRARY: Final = "Open Library"
+OUTCOME_BOOK_ONE: Final = "{count} book"
+OUTCOME_BOOKS: Final = "{count:,} books"
+OUTCOME_NEEDS_ATTENTION: Final = "needs_attention"
+OUTCOME_HEADLINE: Final = "Outcome: {state} (exit code {exit_code}) after {duration}"
+OUTCOME_COMPLETE: Final = (
+    "Result: {finished} of {total} source imports completed; nothing needs attention."
+)
+OUTCOME_CAUSE_LINE: Final = "Why: {text}"
+OUTCOME_MORE: Final = "Why: {count} further causes are not listed here."
+OUTCOME_NEXT_LINE: Final = "Next: {action}"
+OUTCOME_LOOKUPS: Final = (
+    "Lookups: {provider} {state}; {processed:,} of {requested:,} books processed, "
+    "{deferred:,} deferred, {hits:,} from cache, {network}."
+)
+OUTCOME_NETWORK: Final = "{count:,} network requests"
+OUTCOME_NETWORK_ONE: Final = "1 network request"
+OUTCOME_NETWORK_UNKNOWN: Final = "network requests not measured"
+OUTCOME_PAUSED: Final = "{provider} is paused until {until}{reason}{waiting}."
+OUTCOME_AFTER_HTTP: Final = " after HTTP {status}"
+OUTCOME_AFTER_PENDING: Final = " after a request that did not finish"
+OUTCOME_WAITING: Final = "; {waiting} waiting"
+OUTCOME_BUDGET: Final = "{provider} used this run's lookup allowance; {waiting} waiting."
+OUTCOME_SIGN_IN: Final = "{provider} needs Google sign-in or an API key; {waiting} waiting."
+OUTCOME_ACCESS_FAILED: Final = "{provider} sign-in or key access failed."
+OUTCOME_CACHE_ERROR: Final = "The {provider} lookup cache could not be read."
+OUTCOME_EARLIER_PAUSE: Final = (
+    "{provider} lookups were deferred by a provider pause that has since ended; {waiting} waiting."
+)
+OUTCOME_DEFERRED: Final = "{provider} deferred {waiting}."
+OUTCOME_PARKED: Final = (
+    "{provider} has no further lookups due; earlier incomplete lookups stay parked "
+    "until the record or provider changes."
+)
+OUTCOME_PROVIDER_STATE: Final = "{provider} ended {state}."
+OUTCOME_SOURCES: Final = (
+    "{count} of {total} source imports did not complete ({names}); "
+    "the last complete snapshot is kept."
+)
+OUTCOME_SOURCE_NAME: Final = "{source}/{collection} {state}"
+OUTCOME_VERIFICATION: Final = (
+    "Verification ended {result}; {failed} of {total} checks did not pass ({names})."
+)
+OUTCOME_VERIFICATION_SHORT: Final = "Verification ended {result}."
+OUTCOME_STAGE: Final = (
+    "{stage} ended {state}; nothing new was published and any earlier good result is kept."
+)
+OUTCOME_ANALYTICS: Final = "Analytics"
+OUTCOME_REPORTS: Final = "Reports"
+OUTCOME_LOG_INCOMPLETE: Final = "The run log is incomplete ({reason})."
+OUTCOME_UNSPECIFIED: Final = (
+    "The run did not finish cleanly and no more specific cause was recorded."
+)
+OUTCOME_ACTION_PAUSED: Final = (
+    "Run booky sync again after {until}; the provider may still ask for more waiting."
+)
+OUTCOME_ACTION_BUDGET: Final = "Run booky sync again to continue the remaining lookups."
+OUTCOME_ACTION_SIGN_IN: Final = (
+    "Run booky sync in an interactive terminal to sign in, or set {key}."
+)
+OUTCOME_ACTION_NOTHING: Final = (
+    "Nothing to do now; these books are retried only when their records or lookup rules change."
+)
+OUTCOME_ACTION_SOURCES: Final = (
+    "Fix the input named above (or configure the account), then run booky sync again."
+)
+OUTCOME_ACTION_VERIFICATION: Final = "Review the failed checks above, then run booky sync again."
+OUTCOME_ACTION_STAGE: Final = (
+    "Run booky sync again; if it repeats, read the run log for the stage error."
+)
+OUTCOME_ACTION_LOG: Final = (
+    "Check free space and permissions for the data\\logs folder, then run booky sync again."
+)
+OUTCOME_ACTION_GENERIC: Final = "Run booky sync again; if the cause repeats, read the run log."
+OUTCOME_ACTION_FAILED: Final = "Fix the cause above, then run booky sync again."
+OUTCOME_ACTION_INTERRUPTED: Final = "Run booky sync again; sources that already completed are kept."
+
+# Append-only operational run log (format 2).
+OPLOG_START_TOKEN: Final = "=== RUN START"
+OPLOG_END_TOKEN: Final = "=== RUN END"
+OPLOG_START: Final = "=== RUN START {instant} | trigger: {trigger} ==="
+OPLOG_END: Final = (
+    "=== RUN END {instant} | run: {run_id} | outcome: {state} | "
+    "exit code: {exit_code} | duration: {duration} ==="
+)
+OPLOG_VERSION_LINE: Final = "Version: {version} | log format: {format}"
+OPLOG_EVENT: Final = "[{stamp}] {message}"
+OPLOG_NO_RUN: Final = "none"
+OPLOG_INDENT: Final = "  "
+OPLOG_DEEP_INDENT: Final = "    "
+OPLOG_EXAMPLE_INDENT: Final = "      "
+OPLOG_SUMMARY_HEADING: Final = "Run summary:"
+OPLOG_RUN_LINE: Final = "Run {run_id}: {state}."
+OPLOG_SOURCES: Final = (
+    "Sources: {complete} of {total} imports complete; {records:,} records in complete imports."
+)
+OPLOG_FILE_SCOPE: Final = "File imports do not verify account completeness."
+OPLOG_SOURCE_LINE: Final = (
+    "{source}/{collection}: {state}; {records:,} records ({added:,} added, "
+    "{updated:,} updated, {unchanged:,} unchanged, {removed:,} removed)."
+)
+OPLOG_SOURCE_UNPUBLISHED: Final = (
+    "{source}/{collection}: {state}; no new snapshot published; any last-good snapshot is kept."
+)
+OPLOG_CORE: Final = (
+    "{provider} core-gap fallback: {unresolved:,} records still missing description/genre "
+    "evidence; {skipped:,} strategy skips (not provider matches)."
+)
+OPLOG_ANALYTICS: Final = (
+    "Analytics: {state}; report {report_id}, {read:,} Read works, {rated:,} rating-linked; "
+    "calculations reused: taste {taste}, watchlist {watchlist}."
+)
+OPLOG_YES: Final = "yes"
+OPLOG_NO: Final = "no"
+OPLOG_VERIFICATION: Final = "Verification: {result}; {passed} of {total} checks passed."
+OPLOG_VERIFICATION_NONE: Final = "Verification: not run."
+OPLOG_CHECK_LINE: Final = "{name} {result}: {detail}"
+OPLOG_CHECKS_MORE: Final = "{count} further checks did not pass and are not listed here."
+OPLOG_ISSUES_HEADING: Final = (
+    "Issues (every occurrence is counted; at most {limit} examples per kind):"
+)
+OPLOG_ISSUES_NONE: Final = "Issues: none."
+OPLOG_ISSUE_COUNT: Final = "{scope} | {code}: {count:,} occurrences"
+OPLOG_ISSUE_COUNT_ONE: Final = "{scope} | {code}: 1 occurrence"
+OPLOG_ISSUE_EXAMPLE: Final = "Example: {message}"
+OPLOG_TRUNCATED: Final = "... [message shortened]"
+OPLOG_TIME_HEADING: Final = "Time spent by stage:"
+OPLOG_TIME_LINE: Final = "{duration:>9}  {stage}"
+OPLOG_TIME_OTHER: Final = "Other (start-up, verification, summary)"
+OPLOG_STAGE_PREFIX: Final = "Stage: "
+OPLOG_PERIOD: Final = "."
+OPLOG_RUN_ID_FIELD: Final = "{run_id}"
+OPLOG_STATE_FIELD: Final = "{state}"
+OPLOG_DIGITS: Final = r"(\d+)"
+OPLOG_WORD: Final = r"\w+"
+OPLOG_START_STRIP: Final = " ="
+OPLOG_UNTERMINATED: Final = (
+    "Notice: the log shows no RUN END for the previous run ({start}); "
+    "it may have been interrupted or killed."
+)
+OPLOG_DEGRADED: Final = (
+    "Log notice: {count:,} lines could not be written during this run ({reason})."
+)
+OPLOG_START_FAILED: Final = "The run log could not be opened ({reason})."
+OPLOG_WARNING: Final = (
+    "Warning: the run log is incomplete ({reason}); the final outcome will say so."
+)
+OPLOG_SUMMARY_WARNING: Final = (
+    "Warning: the last-run summary could not be saved ({reason}); status may show an older run."
+)
+OPLOG_FAILURE_NOT_LOGGED: Final = (
+    "Warning: this failure could not be recorded in the run log ({reason}); "
+    "the message above is the only record."
+)
+OPLOG_SYNC_NOT_STARTED: Final = "The sync was not started."
+OPLOG_NO_RECEIPT: Final = "The run ended without a final receipt."
+OPLOG_INTERRUPTED: Final = (
+    "The run was interrupted before it finished; completed source snapshots are kept."
+)
+OPLOG_UNEXPECTED: Final = (
+    "Unexpected {type} at {module}:{line} in {function}; "
+    "details are withheld because they can contain private data."
+)
+OPLOG_UNEXPECTED_BARE: Final = (
+    "Unexpected {type}; details are withheld because they can contain private data."
+)
+OPLOG_MODULE_KEY: Final = "__name__"
+OPLOG_MODULE_PREFIX: Final = "bookystats"
+OPLOG_URL_QUERY_PATTERN: Final = r"(?i)(https?://[^\s?#]+)\?[^\s#]*"
+OPLOG_URL_QUERY_REPLACEMENT: Final = r"\1?[query removed]"
+OPLOG_READ_BINARY: Final = "rb"
+OPLOG_BACKSLASHREPLACE: Final = "backslashreplace"
+OPLOG_RECONFIGURE: Final = "reconfigure"
+OPLOG_ANALYTICS_FAILED: Final = (
+    "Analytics calculation failed ({error_type}); the previous report is retained."
+)
+
+# Saved last-run summary shown by offline status.
+RUNSUM_FILE_NAME: Final = "last-run.json"
+RUNSUM_KEY: Final = "run_summary"
+RUNSUM_FINISHED_KEY: Final = "finished_utc"
+RUNSUM_LINES_KEY: Final = "lines"
+RUNSUM_GATES_KEY: Final = "gates"
+RUNSUM_PROVIDER_KEY: Final = "provider"
+RUNSUM_RETRY_KEY: Final = "retry_at_utc"
+RUNSUM_TIME_FORMAT: Final = "%Y-%m-%dT%H:%M:%SZ"
+RUNSUM_ATTEMPT_LINE: Final = "Last sync attempt, finished {finished}:"
+RUNSUM_TEXT_LINE: Final = "  {text}"
+RUNSUM_GATE_ACTIVE: Final = (
+    "Retry gate after that attempt: {provider} until {until}, in {remaining}; "
+    "the provider may still refuse."
+)
+RUNSUM_GATE_PASSED: Final = (
+    "Retry gate after that attempt: {provider} until {until}; "
+    "that time has passed, and the provider may still refuse."
+)
+
+# Logging, outcome and last-run summary tests.
+TEST_OPLOG_APPEND_ATTRIBUTE: Final = "_append"
+TEST_OPLOG_RUN_ATTRIBUTE: Final = "run"
+TEST_OPLOG_DISK_FULL: Final = "disk full"
+TEST_OPLOG_LEGACY_TEXT: Final = "legacy history line\n"
+TEST_OPLOG_PERSONAL: Final = "personal-review-text"
+TEST_OPLOG_API_KEY: Final = "private-api-key"
+TEST_OPLOG_URL_USER: Final = "private-url-user"
+TEST_OPLOG_URL_PASSWORD: Final = "private-url-password"
+TEST_OPLOG_URL_HOST: Final = "books.invalid"
+TEST_OPLOG_URL_MESSAGE: Final = (
+    "Request to https://private-url-user:private-url-password@books.invalid/volumes"
+    "?q=personal-review-text&key=private-api-key failed."
+)
+TEST_OPLOG_PATH_FRAGMENT: Final = "library.csv"
+TEST_OPLOG_CLOCK_INSTANT: Final = "2026-11-02 13:30:00+05:30 (2026-11-02 08:00:00 UTC)"
+TEST_OPLOG_LOCAL_STAMP: Final = "2026-11-02 13:30:00+05:30"
+TEST_OPLOG_GATE_INSTANT: Final = "2026-11-03 18:19:24+05:30 (2026-11-03 12:49:24 UTC)"
+TEST_OPLOG_DEFERRED_TEXT: Final = (
+    "Provider host is deferred until 2026-11-03 18:19:24+05:30 (2026-11-03 12:49:24 UTC)."
+)
+TEST_OPLOG_SECONDS_TEXT: Final = "12.3 s"
+TEST_OPLOG_MINUTES_TEXT: Final = "9m 08s"
+TEST_OPLOG_HOURS_TEXT: Final = "1h 02m 05s"
+TEST_OPLOG_ZERO_TEXT: Final = "0.0 s"
+TEST_OPLOG_WHY: Final = "Why:"
+TEST_OPLOG_PAUSED_WORDS: Final = "is paused until"
+TEST_OPLOG_QUOTA: Final = "quota"
+TEST_OPLOG_RESET: Final = "reset"
+TEST_OPLOG_FILLER: Final = "synthetic noise "
+TEST_OPLOG_FINISHED_UTC: Final = "2026-11-03T12:00:00Z"
+TEST_OPLOG_STATUS_NOW: Final = "2026-11-03T18:00:00+05:30"
+TEST_OPLOG_ACTIVE_RETRY: Final = "2026-11-03T12:49:24Z"
+TEST_OPLOG_PASSED_RETRY: Final = "2026-11-03T11:00:00Z"
+TEST_OPLOG_NOT_JSON: Final = "not json"
+TEST_OPLOG_SCHEME: Final = "://"
+TEST_OPLOG_INTERRUPTED_END: Final = "| outcome: interrupted | exit code: 130 |"
+TEST_OPLOG_FAILED_END: Final = "| outcome: failed | exit code: 1 |"
+TEST_OPLOG_VALUE_ERROR: Final = "ValueError"
+TEST_OPLOG_TRIGGER_FIELD: Final = "trigger"
+TEST_OPLOG_RUN_ID_FIELD: Final = "run_id"
+TEST_OPLOG_OUTCOME_FIELD: Final = "outcome"
+TEST_OPLOG_EXIT_FIELD: Final = "exit_code"
+TEST_OPLOG_DURATION_FIELD: Final = "duration_seconds"
+TEST_OPLOG_NETWORK_FIELD: Final = "network_requests"
+TEST_OPLOG_SCHEMA_FIELD: Final = "schema_version"
+TEST_OPLOG_CLOCK_UTC: Final = "2026-11-02T08:00:00Z"
+TEST_OPLOG_QUERY_REMOVED: Final = "[query removed]"
+TEST_OPLOG_UNTERMINATED_FRAGMENT: Final = "the log shows no RUN END for the previous run"
+TEST_OPLOG_PROBE_FRAME: Final = "in RunProbe._read;"
+TEST_OPLOG_EXAMPLE_PREFIX: Final = "Example: "
+TEST_OPLOG_DISTINCT: Final = "distinct synthetic message {number}"
+TEST_OPLOG_REPLACE_ATTRIBUTE: Final = "replace"
+TEST_OPLOG_PARTIAL_END: Final = "| outcome: partial | exit code: 3 |"
+TEST_OPLOG_ATTEMPT_PREFIX: Final = "Last sync attempt, finished "
+TEST_OPLOG_FINISHED_INSTANT: Final = "2026-11-03 17:30:00+05:30 (2026-11-03 12:00:00 UTC)"
+TEST_OPLOG_PASSED_INSTANT: Final = "2026-11-03 16:30:00+05:30 (2026-11-03 11:00:00 UTC)"
+TEST_OPLOG_REMAINING_TEXT: Final = "19m 24s"
+TEST_OPLOG_UTC_FRAGMENT: Final = "2026-11-03 12:49:24 UTC"
 
 # Shared cross-lane analysis contract.
 EVIDENCE_TIER_DECLARED: Final = "declared"
