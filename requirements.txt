@@ -16,7 +16,27 @@ pydantic-core==2.50.1
 reportlab==4.4.10
 pillow==12.0.0
 charset-normalizer==3.4.4
+click==8.5.0
+fastembed==0.9.1
+filelock==4.2.4
+flatbuffers==25.12.19
+fsspec==2026.9.0
+hf-xet==1.7.0
+huggingface-hub==1.33.0
+loguru==0.7.3
+mmh3==5.3.1
+numpy==2.5.4
+onnxruntime==1.23.2; sys_platform == "darwin" and platform_machine == "x86_64"
+onnxruntime==1.31.1; sys_platform != "darwin" or platform_machine != "x86_64"
+protobuf==7.36.2
+py-rust-stemmers==0.1.8
+pyyaml==6.0.3
+requests==2.34.2
 soupsieve==3.0.4
+tokenizers==0.23.3
+tqdm==4.70.1
 typing-extensions==4.16.0
 typing-inspection==0.4.4
+urllib3==2.8.0
+win32-setctime==1.2.1; sys_platform == "win32"
 -e .

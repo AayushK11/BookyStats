@@ -66,6 +66,8 @@ class MetadataReceipt(Model):
     state: SyncState
     requested: int = C.ZERO
     processed: int = C.ZERO
+    # Saved per-book results, including cached and incomplete outcomes; not wire requests.
+    attempted: int | None = C.NONE
     candidates: int = C.ZERO
     cache_hits: int = C.ZERO
     skipped_by_strategy: int = C.ZERO
@@ -337,6 +339,7 @@ class SyncService:
             receipt = MetadataReceipt(
                 provider=source,
                 state=SyncState.COMPLETE,
+                attempted=C.ZERO,
             )
         else:
             receipt = self._metadata_targets(source, targets)
@@ -362,7 +365,11 @@ class SyncService:
             update={
                 S.ENR_SKIPPED_BY_STRATEGY: fallback_skipped,
                 S.ENR_COVERAGE_SCOPE: (
-                    S.ENR_CORE_COVERAGE_SCOPE if fallback_fields else S.ENR_LOOKUP_COVERAGE_SCOPE
+                    S.WIKIDATA_SCOPE
+                    if source == Source.WIKIDATA
+                    else S.ENR_CORE_COVERAGE_SCOPE
+                    if fallback_fields
+                    else S.ENR_LOOKUP_COVERAGE_SCOPE
                 ),
                 S.ENR_FALLBACK_FIELDS: fallback_fields,
                 S.ENR_FALLBACK_UNRESOLVED: unresolved,
@@ -383,6 +390,8 @@ class SyncService:
             if setup_issue is not C.NONE:
                 return MetadataReceipt(
                     provider=source,
+                    attempted=C.ZERO,
+                    deferred=len(targets),
                     state=(
                         SyncState.NEEDS_AUTH
                         if setup_issue.code == S.OAUTH_AUTHORIZATION_REQUIRED_CODE
@@ -393,6 +402,8 @@ class SyncService:
             return MetadataReceipt(
                 provider=source,
                 state=SyncState.NOT_CONFIGURED,
+                attempted=C.ZERO,
+                deferred=len(targets),
                 issues=(
                     Issue(
                         code=S.METADATA_NOT_CONFIGURED,
@@ -430,6 +441,7 @@ class SyncService:
             return MetadataReceipt(
                 provider=source,
                 state=SyncState.COMPLETE if issue is C.NONE else SyncState.PARTIAL,
+                attempted=C.ZERO,
                 issues=() if issue is C.NONE else (issue,),
             )
         results: tuple[EnrichmentResult, ...]
@@ -579,6 +591,7 @@ class SyncService:
                 state=SyncState.FAILED,
                 requested=requested,
                 processed=sum(result.state == SyncState.COMPLETE for result in saved),
+                attempted=len(saved),
                 candidates=sum(len(result.candidates) for result in saved),
                 cache_hits=sum(result.cache_hit for result in saved),
                 deferred=len(targets) - len(saved),
@@ -615,6 +628,7 @@ class SyncService:
             state=SyncState.COMPLETE if complete else SyncState.PARTIAL,
             requested=requested,
             processed=sum(result.state == SyncState.COMPLETE for result in results),
+            attempted=len(results),
             candidates=sum(len(result.candidates) for result in results),
             cache_hits=sum(result.cache_hit for result in results),
             deferred=deferred,
@@ -663,18 +677,33 @@ class SyncService:
                             self.on_source_complete(receipt)
             metadata: list[MetadataReceipt] = []
             provider_order = (
-                (Source.OPEN_LIBRARY, Source.GOOGLE_BOOKS)
+                C.METADATA_OPEN_LIBRARY_FIRST_ORDER
                 if self.settings.metadata.strategy == S.ENR_STRATEGY_OPEN_LIBRARY_FIRST
-                else (Source.GOOGLE_BOOKS, Source.OPEN_LIBRARY)
+                else C.METADATA_INDEPENDENT_ORDER
             )
             enabled = {
                 Source.GOOGLE_BOOKS: self.settings.metadata.google_books,
                 Source.OPEN_LIBRARY: self.settings.metadata.open_library,
+                Source.WIKIDATA: self.settings.metadata.wikidata,
             }
+            if not any(enabled.values()):
+                self._event(S.LOG3_LOOKUPS_OFF)
             for provider in provider_order:
                 if enabled[provider]:
                     self._event(S.PROD_STAGE_METADATA.format(provider=provider.value))
                     metadata.append(self._metadata(provider))
+                    result = metadata[-C.ONE]
+                    self._event(
+                        S.LOG3_METADATA_RESULT.format(
+                            provider=C.LOG3_SOURCE_NAMES.get(provider.value, provider.value),
+                            attempted=result.attempted
+                            if result.attempted is not C.NONE
+                            else result.processed,
+                            complete=result.processed,
+                            waiting=result.deferred,
+                            state=result.state.value,
+                        )
+                    )
             sources_complete = all(item.state == SyncState.COMPLETE for item in sources)
             if sources_complete:
                 self._event(S.PROD_STAGE_RECONCILE)

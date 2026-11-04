@@ -84,6 +84,16 @@ def _quota_fields(source: Mapping[str, object]) -> dict[str, str]:
     return fields
 
 
+def _wikidata_api_pause(body: bytes) -> bool:
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeError, RecursionError):
+        return C.FALSE
+    error = payload.get(S.ERROR) if isinstance(payload, dict) else C.NONE
+    code = error.get(S.CODE) if isinstance(error, dict) else C.NONE
+    return isinstance(code, str) and code in C.WD_TRANSIENT_API_CODES
+
+
 def google_quota_evidence(body: bytes) -> dict[str, str]:
     try:
         payload = json.loads(body)
@@ -297,6 +307,23 @@ class HttpClient:
                     self._save_state(host, state)
                 elif quota and state.error_code == S.DR_HTTP_RETRYABLE:
                     state = replace(state, quota=quota)
+                    self._save_state(host, state)
+                if (
+                    self._provider == Source.WIKIDATA
+                    and host == S.WIKIDATA_HOST
+                    and response.status_code == C.INTERFACES_PAGEDOCUMENT_STATUS_CODE
+                    and _wikidata_api_pause(body)
+                ):
+                    delay = max(
+                        C.WIKIDATA_API_RETRY_FLOOR_SECONDS,
+                        self._retry_delay(safe_headers.get(S.RETRY_AFTER), state.failures),
+                    )
+                    state = replace(
+                        state,
+                        retry_at=self._wall_clock() + delay,
+                        failures=state.failures + C.ONE,
+                        error_code=S.DR_HTTP_RETRYABLE,
+                    )
                     self._save_state(host, state)
                 result = HttpResponse(
                     url=public_url(str(response.url)),

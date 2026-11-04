@@ -1,0 +1,36 @@
+{
+  "search": [{"id": "Q191838"}],
+  "entities": {
+    "Q191838": {
+      "id": "Q191838",
+      "labels": {"en": {"value": "Matilda"}},
+      "aliases": {},
+      "claims": {
+        "P31": [{"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q8261"}}}}],
+        "P50": [{"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q25167"}}}}],
+        "P648": [{"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": "OL123W"}}}],
+        "P8383": [{"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": "123"}}}],
+        "P136": [{"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q132311"}}}}],
+        "P179": [
+          {"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q277759"}}},
+           "qualifiers": {"P1545": [{"snaktype": "value", "datavalue": {"value": "2"}}]}},
+          {"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q1667921"}}},
+           "qualifiers": {"P1545": [{"snaktype": "value", "datavalue": {"value": "5"}}]}}
+        ],
+        "P407": [{"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value": {"id": "Q1860"}}}}],
+        "P577": [{"rank": "normal", "mainsnak": {"snaktype": "value", "datavalue": {"value":
+          {"time": "+1988-10-01T00:00:00Z", "precision": 11, "calendarmodel": "http://www.wikidata.org/entity/Q1985727", "before": 0, "after": 0, "timezone": 0}
+        }}}]
+      }
+    }
+  },
+  "related": {
+    "entities": {
+      "Q25167": {"id": "Q25167", "labels": {"en": {"value": "Roald Dahl"}}, "aliases": {}},
+      "Q132311": {"id": "Q132311", "labels": {"en": {"value": "fantasy"}}, "aliases": {}},
+      "Q277759": {"id": "Q277759", "labels": {"en": {"value": "First series"}}, "aliases": {}},
+      "Q1667921": {"id": "Q1667921", "labels": {"en": {"value": "Second series"}}, "aliases": {}},
+      "Q1860": {"id": "Q1860", "labels": {"en": {"value": "English"}}, "aliases": {}}
+    }
+  }
+}

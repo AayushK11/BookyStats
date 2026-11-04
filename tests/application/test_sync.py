@@ -89,6 +89,55 @@ def test_source_scope_closes_before_enrichment_and_progress_follows_checkpoints(
     ]
 
 
+def test_source_only_run_explicitly_disclaims_metadata_completion() -> None:
+    events: list[str] = []
+    configured = accounts()
+    receipt = SyncService(
+        MemoryStorage(),
+        Settings(
+            accounts=configured,
+            metadata=MetadataSettings(google_books=C.FALSE, open_library=C.FALSE),
+        ),
+        {account.source: FixtureConnector(complete_snapshot(account)) for account in configured},
+        {},
+        on_event=events.append,
+    ).run()
+    assert receipt.state == SyncState.COMPLETE
+    assert receipt.metadata == ()
+    assert S.LOG3_LOOKUPS_OFF in events
+
+
+def test_wikidata_only_sync_reports_supplementary_work_coverage() -> None:
+    storage = MemoryStorage()
+    storage.targets = _metadata_books()
+    events: list[str] = []
+
+    class Provider:
+        def lookup(self, book: BookRecord) -> EnrichmentResult:
+            return EnrichmentResult(source_id=book.source_id, state=SyncState.COMPLETE)
+
+    configured = accounts()
+    receipt = SyncService(
+        storage,
+        Settings(
+            accounts=configured,
+            metadata=MetadataSettings(
+                google_books=C.FALSE,
+                open_library=C.FALSE,
+                wikidata=C.TRUE,
+            ),
+        ),
+        {account.source: FixtureConnector(complete_snapshot(account)) for account in configured},
+        {Source.WIKIDATA: Provider()},
+        on_event=events.append,
+    ).run()
+    assert len(receipt.metadata) == C.ONE
+    assert receipt.metadata[C.ZERO].provider == Source.WIKIDATA
+    assert receipt.metadata[C.ZERO].coverage_scope == S.WIKIDATA_SCOPE
+    assert receipt.metadata[C.ZERO].attempted == C.TWO
+    assert S.LOG3_LOOKUPS_OFF not in events
+
+
 def test_interrupted_enrichment_keeps_completed_book_in_sqlite(tmp_path: Path) -> None:
     configured = accounts()
     books = _metadata_books()
@@ -143,9 +192,33 @@ def test_late_metadata_identity_mismatch_preserves_only_valid_prior_results() ->
     )._metadata(Source.GOOGLE_BOOKS)
     assert receipt.state == SyncState.FAILED
     assert receipt.processed == C.ONE
+    assert receipt.attempted == C.ONE
     assert receipt.deferred == C.ONE
     assert len(storage.enriched) == C.ONE
     assert storage.enriched[C.ZERO][C.TWO].source_id == storage.targets[C.ZERO].source_id
+
+
+def test_metadata_reviewed_counter_includes_incomplete_results_not_only_complete_outcomes() -> None:
+    storage = MemoryStorage()
+    storage.targets = _metadata_books()
+
+    class Provider:
+        def lookup(self, book: BookRecord) -> EnrichmentResult:
+            return EnrichmentResult(
+                source_id=book.source_id,
+                state=SyncState.COMPLETE if book == storage.targets[C.ZERO] else SyncState.PARTIAL,
+            )
+
+    receipt = SyncService(
+        storage,
+        Settings(metadata=MetadataSettings(google_books=C.TRUE, open_library=C.FALSE)),
+        {},
+        {Source.GOOGLE_BOOKS: Provider()},
+    )._metadata(Source.GOOGLE_BOOKS)
+    assert receipt.state == SyncState.PARTIAL
+    assert receipt.attempted == receipt.requested == C.TWO
+    assert receipt.processed == C.ONE
+    assert receipt.deferred == C.ZERO
 
 
 def test_streaming_open_library_checkpoints_survive_interruption(tmp_path: Path) -> None:

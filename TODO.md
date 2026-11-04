@@ -1,13 +1,156 @@
 # Delivery status
 
-The implementation lanes are integrated on the local `main` branch and the
-code-level gate passes. The owner explicitly stopped the clean-slate E2E and
-independent review, so this integration has no fresh real-data coverage,
-accuracy or generated-report claims. Use `booky status` for actual saved state.
-Databases and credentials remain local. See [PLAN.md](PLAN.md) for requirements
-and dated historical evidence.
+Reader-experience repairs, complementary metadata and learned ranking passed
+the release gate and backed-up real-data validation. The owner reset removed
+the earlier report 7. A fresh provider-enabled rebuild and repeat now published
+`data\reports\report-2\library.pdf` (19 pages). Source import, analytics and delivery
+passed; the overall run remains partial because enrichment is incomplete.
+Implementation and acceptance evidence are tracked here; runtime data stays local.
+See [PLAN.md](PLAN.md) for requirements and historical evidence.
 
-## Latest integration
+## Owner-requested local reset — 2026-11-04
+
+- [x] Remove repository databases, backups, reports, logs, model/vector runtime
+  caches, `.venv`, build outputs and test/type/lint/Python caches.
+  Removed 9,877 files and 267 pytest symlinks, about 1.09 GiB.
+- [x] Preserve the three supplied CSVs, Google credentials, root configuration
+  and every source/test change, including the 12 untracked implementation files.
+  Verify all 191 retained files by SHA-256. Immediately after reset, `data`
+  contained only `inputs` and `credentials`, without databases or reports.
+- [x] Recreate the pinned CPU environment at the owner's request. Preserve only
+  genuine provider cooldowns/counters from a verified validation copy; do not
+  restore old catalog responses, library data, vectors or report caches.
+- [x] Complete the requested fresh provider-enabled rebuild in 25m 11s and an
+  unchanged provider-enabled repeat in 33.8s. Both correctly returned partial
+  (exit 3), while all three imports, analytics and report delivery completed.
+- [x] Verify 2,153 source records, all four stores comprehensively, immutable
+  bundle hashes/shared manifest/as-of, original CSV/config bytes, Monte Cristo's
+  1,276 pages and byte-preserving offline status. Render/inspect the 19-page PDF.
+- [x] Measure first-run network requests: Open Library 1,420, Google 0 under its
+  preserved quota gate, Wikidata 1 followed by maxlag deferral. Repeat: 0/0/1
+  respectively; Wikidata's one request was a due retry, not zero-wire reuse.
+  Taste/watchlist/recommendations reused with no encoder calls/runtime imports;
+  source identities, previous report bytes and append-only log prefix survived.
+- [ ] Complete remaining enrichment when providers permit it. The fresh cache
+  currently has only 31 usable descriptions (22 rated Read, none watchlist).
+  Learned ranking correctly stays inactive because per-fold description support
+  is insufficient. Current coverage is 436 ranked/377 abstained, 10 shortlisted,
+  not the earlier cache's 809 ranked. Open Library incomplete outcomes stay
+  parked; Google cannot retry before 18:00:37 +05:30, which is not a promised
+  quota reset. Wikidata maxlag remains external provider evidence.
+
+## Complementary metadata and ranking integration — 2026-11-04
+
+The semantic/learned recommendation upgrade was delivered on the actual local
+data before reset. Optional GPU support is implemented and CPU-host tested;
+real GPU execution and configured cross-platform CI are not yet verified.
+
+- [x] Integrate pinned local CPU embeddings, verified atomic caches and explicit
+  offline/setup failure behavior without loading a model in `status` or `fetch`.
+- [x] Fit training-only cross-fitted hybrid weights, evaluate same-cohort ranking
+  with connected coauthors held together, and apply predefined activation gates.
+- [x] Add quality-bounded content/genre/author diversity with unchanged eligibility,
+  possible-Read abstention and verified series ordering.
+- [x] Preserve v1/v2 and early-v3 report bytes, run full CPU validation and actual
+  model smoke, and publish backed-up real-data report/repeat acceptance.
+  **1,425 Python tests** (one opt-in smoke skipped in the normal suite),
+  51 JavaScript tests, Ruff lint/format, strict mypy and builds passed before the
+  optional GPU extension. A clean noneditable Windows installation passed.
+- [x] Rank **809/813** watchlist works (previously 539), with 10 shortlisted and
+  four explicit abstentions. Same-cohort learned NDCG@10 **0.6242** beats mean
+  **0.5262**, current/genre **0.5480** and simple length **0.5616**. Top-ten
+  high-rating precision is **26.0%**, versus **14.3%** current and **16.3%**
+  length. These retrospective results are not future recommendation accuracy.
+- [x] Keep learned description/era weights at zero when unsupported; categorical
+  and length evidence drive this fit. Retain descriptive public-blurb neighbors
+  without claiming that semantic vectors improved rating prediction.
+- [x] Reuse all 483 vectors on actual report 7 without encoder calls or model
+  imports. Preserve all provider counters/gates and source/history bytes.
+  Verify offline status is byte-preserving; render the 20-page PDF and inspect
+  the shortlist/evidence pages.
+- [x] Complete exclusive CPU/CUDA installations, lazy automatic device selection,
+  explicit fallback/required-CUDA behavior and final clean-profile validation.
+  Final gate: **1,444 Python tests** (two opt-in checks skipped in the normal
+  suite), 51 JavaScript tests, Ruff lint/format, strict mypy and builds.
+  Actual socket-blocked CPU inference, CUDA-profile CPU fallback, required-CUDA
+  rejection and fresh-process no-runtime-import cache reuse passed on Windows.
+  CPU fingerprint compatibility preserves all existing report-7 vectors.
+- [ ] Exercise real compatible NVIDIA hardware; Windows CPU-host injected/provider
+  fallback tests do not establish GPU performance, and Linux/macOS CI is pending.
+
+- [x] Add an optional public Wikidata adapter with strict work/type identity,
+  selected catalog-ID conflict vetoes, claim ranks/date precision, paired series
+  membership/order and separately scoped original-work language.
+- [x] Wire configuration, raw capture, durable cache/gates, queue versions,
+  work-level analytics/quality and bounded request deferral. Reuse existing
+  schema versions; do not rebuild stores or retry unchanged legacy attempts.
+- [x] Add verified series context and earlier eligible installment ordering,
+  equal-score shortlist variety and typed connected-coauthor-held-out
+  baseline/current/shadow evaluation. Keep richer scoring inactive.
+- [x] Preserve original v1 recommendation payloads/checksums/cache keys under
+  strict version-specific decoding; test historical reads and corruption.
+- [x] Complete the final gate: **1,361 Python tests, 51 JavaScript tests**,
+  Ruff lint/format, strict mypy and sdist/wheel builds; packages exclude runtime
+  data/configuration/credentials and include the provider/helper resources.
+- [x] Run backed-up provider-enabled real-data E2E on copies and default stores;
+  measure added coverage, settled-work zero-wire reuse, retained history,
+  coherent report delivery and offline status.
+- [x] Fix two live-discovered integration defects: persist HTTP-200 API pauses
+  across clients and remove recognized numbered-series display suffixes from
+  search queries without relaxing original-book identity checks.
+- [x] Preserve all 2,153 source identities and original CSV/credential/history
+  bytes. Keep schema versions unchanged; verify all four stores comprehensively.
+  Actual default Wikidata results: four saved attempts, three selected works,
+  one unresolved, 2,149 deferred. Read-series coverage **89 -> 90**; other headline
+  coverage remains unchanged. Three settled-work lookups reused saved responses
+  with zero new wire requests. Google/Open Library counters remain **998/1,421**.
+- [x] Evaluate 572 rated works across 304 connected-author components. Same-cohort
+  mean/current/shadow MAE: **0.2036 / 0.2272 / 0.2133 stars**. Shadow does not beat
+  the mean and remains inactive; this is not recommendation accuracy.
+- [x] Publish coherent report 5; verify all 20 pages' text frames and inspect the
+  rendered reader experience. Offline status changes no database/sidecar bytes.
+- [ ] Complete broader Wikidata acquisition when provider pauses permit it;
+  Google remains under its existing quota gate and Open Library has parked
+  incomplete outcomes. Successful report delivery is not full provider recovery.
+
+## Reader-experience repair — 2026-11-04
+
+- [x] Consume selected identity-valid saved Google descriptions/genres, retain
+  work/edition boundaries, reject clipped previews as full descriptions, and
+  preserve canonical Google book citations.
+- [x] Recover grouped labeled page counts, including Monte Cristo's **1,276**
+  pages, without changing source CSVs or book identity hashes.
+- [x] Introduce bookish chapter styling, hide printed version bookkeeping,
+  simplify new report paths, and retain immutable historical layouts.
+- [x] Refine real-library pagination: intact charts and chapter-opening tile
+  grids, with duplicate cover metrics removed only from the visible overview.
+- [x] Explain progress, attempts/completions, partial metadata and report
+  readiness; preserve append-only logs and complete grouped issue counts.
+- [x] Final integrated gate: **1,264 Python tests, 51 JavaScript tests**, Ruff
+  lint/format, strict mypy and package builds passed.
+- [x] Final real-data refresh: 730 Read/813 watchlist works, 572 linked ratings,
+  483 substantive descriptions and 1,033 genre-covered works. First-publication
+  years cover 1,516 works; edition-publication dates cover 1,539. Clipped previews
+  no longer count as full descriptions; coverage is not factual accuracy.
+- [x] Recover strictly labeled publication dates and six exact genre aliases.
+  Keep work/edition scope, precision and candidate provenance separate; report
+  incompatible direct/row candidates without failing the collection.
+- [x] Create verified backups of all four default stores, refresh offline, and
+  repeat unchanged. All 2,153 records were unchanged on repeat; taste, watchlist
+  and recommendation caches reused. Comprehensive verification passed for all
+  four stores. CSV/config/credential bytes and historical reports were preserved.
+- [x] Inspect the actual appended log and saved status; status changed no database
+  bytes or sidecars. Report 3 matches all 20 visually accepted preview pages and
+  passed text-frame and coherent-bundle hash/manifest checks.
+- [x] Keep Google/Open Library wire counts at 998/1,421 and retry diagnostics
+  unchanged. Both acceptance runs explicitly disabled online lookups; provider
+  coverage remains partial and Google recovery was not tested.
+- [x] Investigate Wikidata using seven public requests for five titles and
+  offline refinement: three compatible work candidates, including explicit
+  series order. No production integration; catalog disagreements remain vetoes,
+  and this is not representative coverage or independently measured accuracy.
+
+## Earlier integration — 2026-11-03
 
 - [x] Integrate conservative matching/enrichment, evidence-aware analytics,
   read-only storage inspection/verified backups, operational logging and a
@@ -88,8 +231,9 @@ no independently labeled matching or recommendation accuracy benchmark.
   cannot be removed by raising the local book budget or restarting a process.
 - More linked ratings are not measured matching accuracy. Historical prediction
   checks did not establish gains over their same-cohort baselines.
-- Supplemental completion dates cover a subset; library-addition, publication
-  and capture dates do not fill missing personal reading history.
+- The current saved inputs provide no trusted completion-date evidence;
+  library-addition, publication and capture dates do not fill that missing
+  personal reading history.
 - Description rules are transparent text evidence, not validated whole-book
   labels, reader personality, official colors or recommendation accuracy.
 - Manual capture helper tests do not establish current live-site compatibility,
@@ -113,7 +257,7 @@ no independently labeled matching or recommendation accuracy benchmark.
 - [ ] Clean-slate runtime cleanup and fresh rebuild remain stopped; no user
   databases, logs, bundles, credentials or retry gates were deleted.
 
-## Current saved products
+## Historical saved products — prior acceptance, not current output
 
 - `data\reports\latest.json` identifies the latest complete bundle. The
   reader-first PDF is 15 pages, replacing the former 150-page presentation

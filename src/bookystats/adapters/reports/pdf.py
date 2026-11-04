@@ -15,16 +15,18 @@ from reportlab.platypus.tableofcontents import TableOfContents
 
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.adapters.reports.blocks import Composer
+from bookystats.adapters.reports.blocks import Composer, ReadingGroup
 from bookystats.adapters.reports.charts import BarCell, Dumbbell, Legend, LegendEntry, Skyline
 from bookystats.adapters.reports.document import ReportDocument
 from bookystats.adapters.reports.theme import Theme
 from bookystats.domain.reader_report import (
     BarRow,
     BarsBlock,
+    Chapter,
     CompareBlock,
     CompareRow,
     ReaderReport,
+    TilesBlock,
 )
 
 
@@ -53,6 +55,8 @@ def marks_of(report: ReaderReport) -> Marks:
 def cover_story(report: ReaderReport, composer: Composer) -> list[Flowable]:
     cover = report.cover
     flows: list[Flowable] = list(composer.tile_grid(cover.heroes, hero=C.TRUE))
+    flows.append(Spacer(C.ONE, C.RPT_COVER_GAP))
+    flows.append(composer.para(S.RPT_COVER_INVITATION, C.RptText.LEAD))
     if cover.skyline:
         flows.append(Spacer(C.ONE, C.RPT_COVER_GAP))
         flows.append(Skyline(cover.skyline))
@@ -118,7 +122,9 @@ def front_story(report: ReaderReport, composer: Composer) -> list[Flowable]:
     flows: list[Flowable] = []
     listed = len(report.chapters) >= C.RPT_TOC_MINIMUM
     if listed:
-        flows.extend(composer.header(S.RPT_TOC_KICKER, S.RPT_TOC_TITLE, S.EMPTY, listed=C.FALSE))
+        flows.extend(
+            composer.header(S.RPT_TOC_KICKER, S.RPT_TOC_TITLE, S.RPT_TOC_INTRO, listed=C.FALSE)
+        )
         toc = TableOfContents()
         toc.levelStyles = [composer.theme.styles[C.RptText.TOC]]
         toc.dotsMinLevel = C.ZERO
@@ -131,38 +137,43 @@ def front_story(report: ReaderReport, composer: Composer) -> list[Flowable]:
 
 def about_story(report: ReaderReport, composer: Composer) -> list[Flowable]:
     flows = composer.header(S.RPT_ABOUT_KICKER, S.RPT_ABOUT_TITLE, S.RPT_ABOUT_INTRO)
-    flows.extend(composer.para(text, C.RptText.BULLET, S.RPT_BULLET) for text in report.fine_print)
-    if report.technical_notes:
-        flows.append(
-            KeepTogether(
-                [
-                    composer.heading(S.RPT_TECHNICAL_HEAD, C.RptText.H2, C.ONE),
-                    composer.para(S.RPT_TECHNICAL_INTRO, C.RptText.NOTE),
-                ]
-            )
-        )
-        flows.extend(
-            composer.para(text, C.RptText.BULLET, S.RPT_BULLET) for text in report.technical_notes
-        )
-    stored = report.analysis_report_id
-    details = S.RPT_DETAILS.format(
-        model=report.model_version,
-        layout=C.RPT_LAYOUT_VERSION,
-        report=S.RPT_DETAILS_UNSAVED if stored is C.NONE else stored,
-        digest=report.manifest_digest[: C.RPT_DIGEST_SHOWN],
-    )
-    notes = [details, S.RPT_UNTAGGED]
+    sources = [composer.para(text, C.RptText.BULLET, S.RPT_BULLET) for text in report.fine_print]
+    if sources:
+        flows = [ReadingGroup([*flows, sources[C.ZERO]]), *sources[C.ONE :]]
+    notes = [S.RPT_COMPANION_NOTE, S.RPT_UNTAGGED]
     if composer.theme.fallbacks:
         notes.append(S.RPT_FALLBACK_NOTE.format(count=composer.theme.fallbacks))
     flows.append(
         KeepTogether(
             [
-                composer.heading(S.RPT_DETAILS_HEAD, C.RptText.H2, C.ONE),
+                composer.heading(S.RPT_READING_NOTES_HEAD, C.RptText.H2, C.ONE),
                 *(composer.para(text, C.RptText.NOTE) for text in notes),
             ]
         )
     )
     return flows
+
+
+def display_chapter(chapter: Chapter, report: ReaderReport) -> Chapter:
+    if chapter.key != S.RPT_CHAPTER_GLANCE:
+        return chapter
+    covered = {
+        (C.RPT_COVER_TILE_LABELS.get(hero.label, hero.label), hero.value)
+        for hero in report.cover.heroes
+    }
+    blocks = tuple(
+        block.model_copy(
+            update={
+                S.RPT_TILES_FIELD: tuple(
+                    tile for tile in block.tiles if (tile.label, tile.value) not in covered
+                )
+            }
+        )
+        if isinstance(block, TilesBlock)
+        else block
+        for block in chapter.blocks
+    )
+    return chapter.model_copy(update={S.RPT_BLOCKS_FIELD: blocks, S.RPT_INTRO_FIELD: S.EMPTY})
 
 
 def render_pdf(report: ReaderReport, stream: BinaryIO) -> int:
@@ -173,8 +184,8 @@ def render_pdf(report: ReaderReport, stream: BinaryIO) -> int:
         *cover_story(report, composer),
         *front_story(report, composer),
     ]
-    for chapter in report.chapters:
-        story.extend(composer.chapter(chapter))
+    for number, chapter in enumerate(report.chapters, start=C.ONE):
+        story.extend(composer.chapter(display_chapter(chapter, report), number))
     story.extend(about_story(report, composer))
     document.multiBuild(story)
     return int(document.page)

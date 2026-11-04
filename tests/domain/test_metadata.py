@@ -153,3 +153,47 @@ def test_primary_public_description_avoids_redundant_google_fallback() -> None:
     assert missing_fallback_fields(
         book.model_copy(update={S.OBSERVATIONS: (edition,)}), (work,)
     ) == (S.DESCRIPTION,)
+
+
+def test_clipped_primary_and_provider_previews_do_not_close_description_gap() -> None:
+    book, candidate = _evidence()
+    preview = candidate.observations[C.ZERO].model_copy(update={S.VALUE: S.METADATA_TEST_PREVIEW})
+    candidate = candidate.model_copy(
+        update={S.OBSERVATIONS: (preview, candidate.observations[C.ONE])}
+    )
+    book = book.model_copy(
+        update={
+            S.SOURCE_ID: S.MQ_REPORT_TEST_GOODREADS_ID,
+            S.URL: S.MQ_REPORT_TEST_GOODREADS_URL,
+            S.OBSERVATIONS: (preview,),
+        }
+    )
+    assert missing_fallback_fields(book, (candidate,)) == (S.DESCRIPTION,)
+
+
+def test_google_edition_genres_are_public_descriptors_not_reader_or_edition_facts() -> None:
+    book, candidate = _evidence()
+    url = S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE.format(v0=S.TESTVOLUME_1)
+    google = candidate.model_copy(
+        update={
+            S.PROVIDER: Source.GOOGLE_BOOKS,
+            S.PROVIDER_ID: S.TESTVOLUME_1,
+            S.URL: url,
+            S.OBSERVATIONS: tuple(
+                item.model_copy(
+                    update={S.ENR_OBSERVATION_SCOPE: S.EDITION, S.META_COVERAGE_SOURCE_URL: url}
+                )
+                for item in candidate.observations
+            ),
+        }
+    )
+    assert missing_fallback_fields(book, (google,)) == ()
+    unsafe = google.model_copy(
+        update={
+            S.OBSERVATIONS: tuple(
+                item.model_copy(update={S.META_COVERAGE_SOURCE_URL: candidate.url})
+                for item in google.observations
+            )
+        }
+    )
+    assert missing_fallback_fields(book, (unsafe,)) == C.ENR_FALLBACK_FIELDS

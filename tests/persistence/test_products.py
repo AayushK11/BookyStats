@@ -199,6 +199,37 @@ def test_each_layout_version_has_its_own_verified_bundle(tmp_path: Path) -> None
     assert store.for_report(_report(C.TWO), layout_version=C.RPT_LAYOUT_VERSION) is C.NONE
 
 
+def test_new_report_directory_does_not_expose_rendering_versions(tmp_path: Path) -> None:
+    store = ReportBundleStore(tmp_path)
+    report = _report()
+    layout = C.PROD_READER_DIRECTORY_VERSION
+    receipt = _publish_layout(store, report, layout=layout)
+    assert receipt.output_directory is not C.NONE
+    assert Path(receipt.output_directory).name == S.PROD_BUNDLE_NAME.format(
+        report_id=report.report_id
+    )
+    assert store.latest() == receipt
+    assert store.for_report(report, layout_version=layout) == receipt
+    assert store.for_report(report) is C.NONE
+    newer = _publish_layout(store, report, layout=layout + C.ONE)
+    assert newer.output_directory != receipt.output_directory
+    assert store.latest() == newer
+    assert store.for_report(report, layout_version=layout) == receipt
+
+
+def test_existing_layout_directories_remain_readable_beside_new_report(tmp_path: Path) -> None:
+    store = ReportBundleStore(tmp_path)
+    report = _report()
+    historical = _publish_layout(store, report, layout=C.THREE)
+    assert historical.output_directory is not C.NONE
+    directory = Path(historical.output_directory)
+    original = {path.name: path.read_bytes() for path in directory.iterdir()}
+    current = _publish_layout(store, report, layout=C.PROD_READER_DIRECTORY_VERSION)
+    assert store.latest() == current
+    assert store.for_report(report, layout_version=C.THREE) == historical
+    assert {path.name: path.read_bytes() for path in directory.iterdir()} == original
+
+
 @pytest.mark.parametrize(S.PROD_TEST_FILENAME, C.PROD_BUNDLE_FILES_V2)
 def test_status_rejects_modified_layout_bundle_files(tmp_path: Path, filename: str) -> None:
     store = ReportBundleStore(tmp_path)

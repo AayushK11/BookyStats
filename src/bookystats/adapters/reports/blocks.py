@@ -7,7 +7,6 @@ from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
 from reportlab.platypus import (
-    CondPageBreak,
     Flowable,
     HRFlowable,
     KeepTogether,
@@ -58,6 +57,18 @@ class Card(NamedTuple):
     tone: C.RptTone
 
 
+class ReadingGroup(KeepTogether):
+    parts: list[Flowable]
+
+    def __init__(self, parts: list[Flowable]) -> None:
+        self.parts = [
+            item
+            for part in parts
+            for item in (part.parts if isinstance(part, ReadingGroup) else [part])
+        ]
+        super().__init__(self.parts)
+
+
 def safe_link(url: str) -> bool:
     try:
         parts = urlsplit(url)
@@ -96,7 +107,17 @@ class Composer:
         self.theme = theme
         self.document = document
         self.width = document.frame_width
-        self.room = document.frame_height * C.RPT_CHAPTER_ROOM
+        self.room = document.frame_height
+
+    def height(self, parts: list[Flowable]) -> float:
+        flattened = ReadingGroup(parts).parts
+        height = float(C.ZERO)
+        after = float(C.ZERO)
+        for part in flattened:
+            height += max(after, part.getSpaceBefore())
+            height += part.wrap(self.width, self.document.frame_height)[C.ONE]
+            after = part.getSpaceAfter()
+        return height + after
 
     def heading(self, text: str, name: C.RptText, level: int, listed: bool = C.FALSE) -> Heading:
         return Heading(self.document, self.theme, text, name, level, listed)
@@ -129,19 +150,48 @@ class Composer:
         )
         if intro:
             parts.append(self.para(intro, C.RptText.LEAD))
-        return [CondPageBreak(self.room), KeepTogether(parts)]
+        return [ReadingGroup(parts)]
 
-    def chapter(self, chapter: Chapter) -> list[Flowable]:
-        flows = self.header(chapter.kicker, chapter.title, chapter.intro)
-        for block in chapter.blocks:
-            flows.extend(self.render(block))
-        return flows
+    def chapter(self, chapter: Chapter, number: int) -> list[Flowable]:
+        kicker = S.RPT_CHAPTER_LABEL.format(number=number, kicker=chapter.kicker)
+        opening = self.header(kicker, chapter.title, chapter.intro)
+        if not chapter.blocks:
+            return opening
+        first = Composer(self.theme, self.document)
+        first.room -= self.height(opening)
+        body = [
+            *first.render(chapter.blocks[C.ZERO]),
+            *(flow for block in chapter.blocks[C.ONE :] for flow in self.render(block)),
+        ]
+        if not body:
+            return opening
+        if (
+            len(body) > C.TWO
+            and self.height([body[-C.ONE]]) < self.document.frame_height * C.RPT_CHAPTER_TAIL_SHARE
+            and self.height(body[-C.TWO :])
+            <= self.document.frame_height * C.RPT_COMPACT_CHAPTER_SHARE
+        ):
+            body = [*body[: -C.TWO], ReadingGroup(body[-C.TWO :])]
+        whole = ReadingGroup([*opening, *body])
+        height = self.height(whole.parts)
+        if height <= self.document.frame_height * C.RPT_COMPACT_CHAPTER_SHARE:
+            return [Spacer(C.ONE, C.RPT_CHAPTER_GAP), whole]
+        return [
+            Spacer(C.ONE, C.RPT_CHAPTER_GAP),
+            ReadingGroup([*opening, body[C.ZERO]]),
+            *body[C.ONE :],
+        ]
 
     def render(self, block: Block) -> list[Flowable]:
         if isinstance(block, ProseBlock):
             return self.prose(block)
         if isinstance(block, TilesBlock):
-            return self.assemble(block.heading, [self.tile_grid(block.tiles)], block.note)
+            return self.assemble(
+                block.heading,
+                [[row] for row in self.tile_grid(block.tiles)],
+                block.note,
+                loose=C.TRUE,
+            )
         if isinstance(block, FactsBlock):
             return self.facts(block)
         if isinstance(block, BarsBlock):
@@ -167,8 +217,9 @@ class Composer:
         else:
             lead = [Spacer(C.ONE, C.RPT_BLOCK_GAP)]
         tail: list[Flowable] = [self.para(note, C.RptText.NOTE)] if note else []
-        if not loose:
-            return [KeepTogether([*lead, *(part for unit in units for part in unit), *tail])]
+        together = [*lead, *(part for unit in units for part in unit), *tail]
+        if not loose or self.height(together) <= self.room:
+            return [ReadingGroup(together)]
         flows: list[Flowable] = []
         for index, unit in enumerate(units):
             parts = list(unit)
@@ -176,7 +227,7 @@ class Composer:
                 parts = [*lead, *parts]
             if index == len(units) - C.ONE:
                 parts = [*parts, *tail]
-            flows.append(KeepTogether(parts) if len(parts) > C.ONE else parts[C.ZERO])
+            flows.append(ReadingGroup(parts) if len(parts) > C.ONE else parts[C.ZERO])
         return flows
 
     def prose(self, block: ProseBlock) -> list[Flowable]:
@@ -191,7 +242,7 @@ class Composer:
             content.append(self.para(block.heading, C.RptText.CALLOUT_HEAD))
         content.extend(self.para(text, C.RptText.CALLOUT_BODY) for text in block.paragraphs)
         grid = self.card_grid([[Card(content, block.tone)]], C.ONE)
-        return [KeepTogether([Spacer(C.ONE, C.RPT_BLOCK_GAP), grid])]
+        return [ReadingGroup([Spacer(C.ONE, C.RPT_BLOCK_GAP), grid])]
 
     def card_grid(self, rows: list[list[Card]], per_row: int, after: float = C.ZERO) -> Table:
         columns = per_row * C.TWO - C.ONE
@@ -252,7 +303,7 @@ class Composer:
         names = C.RPT_HERO_VALUES if hero else C.RPT_TILE_VALUES
         cards = [self.tile_card(tile, names, inner) for tile in tiles]
         rows = [cards[start : start + per_row] for start in range(C.ZERO, len(cards), per_row)]
-        return [self.card_grid(rows, per_row)]
+        return [self.card_grid([row], per_row, after=C.RPT_GAP) for row in rows]
 
     def tile_card(self, tile: Stat, names: tuple[C.RptText, ...], inner: float) -> Card:
         content: list[Flowable] = [self.para(tile.label, C.RptText.TILE_LABEL)]
@@ -292,10 +343,17 @@ class Composer:
             if notes:
                 chart.append(self.para(notes, C.RptText.CAPTION))
             return self.assemble(block.heading, [chart], block.note)
-        table: list[Flowable] = [self.bar_table(block, maximum)]
+        size = balanced(len(block.rows), C.RPT_TABLE_CHUNK)
+        units: list[list[Flowable]] = [
+            [self.bar_table(block.model_copy(update={S.RPT_ROWS_FIELD: rows}), maximum)]
+            for start in range(C.ZERO, len(block.rows), size)
+            if (rows := block.rows[start : start + size])
+        ]
         if block.axis:
-            table.append(self.para(S.RPT_SCALE_CAPTION.format(axis=block.axis), C.RptText.CAPTION))
-        return self.assemble(block.heading, [table], block.note)
+            units[-C.ONE].append(
+                self.para(S.RPT_SCALE_CAPTION.format(axis=block.axis), C.RptText.CAPTION)
+            )
+        return self.assemble(block.heading, units, block.note, loose=C.TRUE)
 
     def column_notes(self, block: BarsBlock) -> str:
         notes = [S.RPT_SCALE_CAPTION.format(axis=block.axis)] if block.axis else []

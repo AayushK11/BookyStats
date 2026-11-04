@@ -47,6 +47,24 @@ class ReportBundleStore:
     def _path(self, report_id: int, layout_version: int = C.RPT_LEGACY_LAYOUT_VERSION) -> Path:
         if _legacy(layout_version):
             return self.root / S.PROD_BUNDLE_NAME.format(report_id=report_id)
+        if layout_version >= C.PROD_READER_DIRECTORY_VERSION:
+            primary = self.root / S.PROD_BUNDLE_NAME.format(report_id=report_id)
+            revision = self.root / S.PROD_BUNDLE_REVISION_NAME.format(
+                report_id=report_id, revision=layout_version
+            )
+            if primary.is_symlink():
+                raise ReportBundleError(S.PROD_INVALID_BUNDLE)
+            if not primary.exists():
+                return revision if revision.exists() or revision.is_symlink() else primary
+            try:
+                manifest = BundleManifest.model_validate_json(
+                    (primary / S.PROD_MANIFEST_FILE).read_bytes()
+                )
+            except (ValidationError, FileNotFoundError) as exc:
+                raise ReportBundleError(S.PROD_INVALID_BUNDLE) from exc
+            if manifest.analytics_report_id != report_id:
+                raise ReportBundleError(S.PROD_INVALID_BUNDLE)
+            return primary if manifest.layout_version == layout_version else revision
         return self.root / S.RPT_BUNDLE_LAYOUT_NAME.format(
             report_id=report_id, layout=layout_version
         )
@@ -134,6 +152,20 @@ class ReportBundleStore:
         directory = self._path(report.report_id, layout_version)
         if not directory.exists() and not directory.is_symlink():
             return C.NONE
+        if directory.is_symlink():
+            raise ReportBundleError(S.PROD_INVALID_BUNDLE)
+        if _legacy(layout_version):
+            try:
+                stored = BundleManifest.model_validate_json(
+                    (directory / S.PROD_MANIFEST_FILE).read_bytes()
+                )
+            except (ValidationError, FileNotFoundError) as exc:
+                raise ReportBundleError(S.PROD_INVALID_BUNDLE) from exc
+            if (
+                stored.analytics_report_id == report.report_id
+                and stored.layout_version >= C.PROD_READER_DIRECTORY_VERSION
+            ):
+                return C.NONE
         manifest = self._read(report.report_id, layout_version)
         if manifest.analysis_manifest != report.manifest:
             raise ReportBundleError(S.PROD_INPUT_MISMATCH)

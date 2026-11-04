@@ -9,7 +9,13 @@ import pytest
 from bookystats import __version__
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.application.outcome import RunProbe, format_duration
+from bookystats.application.outcome import (
+    RunProbe,
+    format_duration,
+    human_event,
+    human_issue,
+    human_source,
+)
 from bookystats.application.sync import MetadataReceipt
 from bookystats.domain.errors import BookyError
 from bookystats.domain.models import Issue, Source, SyncState
@@ -19,6 +25,7 @@ from bookystats.runtime.runlog import (
     latest_log,
     log_directory,
     write_failure_log,
+    write_report_refresh_event,
 )
 from bookystats.runtime.runsummary import read_summary, summary_path
 from tests.support.outcomes import (
@@ -82,7 +89,9 @@ def test_a_run_appends_one_readable_block_after_the_existing_history(tmp_path: P
         S.OPLOG_ISSUES_NONE,
     ):
         assert S.OPLOG_INDENT + expected in lines
-    assert lines[-C.ONE - len(outcome.lines) : -C.ONE] == list(outcome.lines)
+    summary_start = lines.index(outcome.lines[C.ZERO])
+    assert lines[summary_start : summary_start + len(outcome.lines)] == list(outcome.lines)
+    assert summary_start < lines.index(S.OPLOG_SUMMARY_HEADING)
     assert lines[-C.ONE] == S.OPLOG_END.format(
         instant=S.TEST_OPLOG_CLOCK_INSTANT,
         run_id=C.TEST_OPLOG_RUN_ID,
@@ -102,6 +111,26 @@ def test_a_run_appends_one_readable_block_after_the_existing_history(tmp_path: P
     assert saved.lines == outcome.lines
 
 
+def test_offline_report_refresh_event_appends_without_replacing_sync_history_or_summary(
+    tmp_path: Path,
+) -> None:
+    receipt = sync_receipt()
+    with _open(tmp_path) as log:
+        log.finish(receipt, explainer(receipt))
+    before = _text(tmp_path)
+    saved = summary_path(tmp_path).read_bytes()
+    write_report_refresh_event(
+        tmp_path, S.TEST_REPORTING_SECRET_MESSAGE, secrets=C.TEST_REPORTING_SECRETS
+    )
+    after = _text(tmp_path)
+    assert after.startswith(before)
+    assert summary_path(tmp_path).read_bytes() == saved
+    assert after.count(S.OPLOG_START_TOKEN) == before.count(S.OPLOG_START_TOKEN)
+    assert after.count(S.OPLOG_END_TOKEN) == before.count(S.OPLOG_END_TOKEN)
+    assert S.TEST_REPORTING_SECRET not in after
+    assert S.TEST_REPORTING_KEY_SECRET not in after
+
+
 def test_stage_durations_come_from_the_orchestration_events(tmp_path: Path) -> None:
     receipt = sync_receipt()
     timer = StepTimer()
@@ -117,7 +146,7 @@ def test_stage_durations_come_from_the_orchestration_events(tmp_path: Path) -> N
         log.finish(receipt, explainer(receipt))
 
     def name(stage: str) -> str:
-        return stage.removeprefix(S.OPLOG_STAGE_PREFIX).removesuffix(S.OPLOG_PERIOD)
+        return human_event(stage).removeprefix(S.OPLOG_STAGE_PREFIX).removesuffix(S.OPLOG_PERIOD)
 
     spent = C.TEST_OPLOG_STAGES_END - C.TEST_OPLOG_SOURCES_START
     expected = [
@@ -234,10 +263,10 @@ def test_issue_counts_are_complete_while_examples_stay_bounded_and_clipped(
     with _open(tmp_path) as log:
         log.finish(receipt, explainer(receipt, exit_code=C.THREE))
     lines = _text(tmp_path).splitlines()
-    scope = Source.GOOGLE_BOOKS.value
+    scope = human_source(Source.GOOGLE_BOOKS.value)
     for code in (S.TEST_REPORTING_ISSUE_ONE, notice):
         counted = S.OPLOG_ISSUE_COUNT.format(
-            scope=scope, code=code, count=C.LOG2_TEST_LARGE_NOTICE_COUNT
+            scope=scope, code=human_issue(code), count=C.LOG2_TEST_LARGE_NOTICE_COUNT
         )
         assert S.OPLOG_DEEP_INDENT + counted in lines
     single = S.OPLOG_ISSUE_COUNT_ONE.format(scope=scope, code=S.TEST_REPORTING_ISSUE_TWO)

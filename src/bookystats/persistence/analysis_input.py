@@ -22,6 +22,7 @@ from bookystats.domain.analytics import (
 )
 from bookystats.domain.categories import analytical_categories
 from bookystats.domain.errors import BookyError
+from bookystats.domain.metadata import public_work_descriptor, substantive_description
 from bookystats.domain.models import (
     Account,
     BookRecord,
@@ -58,9 +59,20 @@ def _present(evidence: list[AnalysisEvidence], field: str) -> list[AnalysisEvide
     ]
 
 
+def _publication_conflict(evidence: list[AnalysisEvidence], field: str) -> bool:
+    return any(
+        item.source == Source.GOODREADS.value
+        and item.observation.value == field
+        and item.observation.scope == (S.EDITION if field == S.PUBLICATION_DATE else S.WORK)
+        for item in _present(evidence, S.METADATA_PUBLICATION_CONFLICT)
+    )
+
+
 def _scalar(
     evidence: list[AnalysisEvidence], field: str, *, scope: S.ObservationScope | None = C.NONE
 ) -> str | int | float | None:
+    if field == S.PUBLICATION_DATE and _publication_conflict(evidence, field):
+        return C.NONE
     items = [
         item
         for item in _present(evidence, field)
@@ -91,15 +103,14 @@ def _description(evidence: list[AnalysisEvidence]) -> str | None:
     items = [
         item
         for item in _present(evidence, S.DESCRIPTION)
-        if item.observation.scope == S.WORK
-        and isinstance(item.observation.value, str)
-        and item.observation.value.strip()
+        if (
+            (item.source == Source.GOODREADS.value and item.observation.scope == S.WORK)
+            or public_work_descriptor(item.source, item.source_id, item.observation)
+        )
+        and substantive_description(item.observation.value)
     ]
-    preferred = [item for item in items if item.source == Source.GOODREADS.value]
     descriptions = [
-        item.observation.value
-        for item in preferred or items
-        if isinstance(item.observation.value, str)
+        item.observation.value for item in items if isinstance(item.observation.value, str)
     ]
     return max(descriptions, key=lambda value: (len(value), value)) if descriptions else C.NONE
 
@@ -163,7 +174,7 @@ def _work(
             items = [
                 item
                 for item in items
-                if item.source in C.ANALYTIC_CATEGORY_SOURCES and item.observation.scope == S.WORK
+                if public_work_descriptor(item.source, item.source_id, item.observation)
             ]
         preferred = [item for item in items if item.source == Source.GOODREADS.value]
         labels: set[str] = set()
@@ -263,6 +274,8 @@ def _work(
         and not isinstance(item.observation.value, bool)
     }
     first_year = next(iter(first_years)) if len(first_years) == C.ONE else C.NONE
+    if _publication_conflict(evidence, S.IMPORT_BROWSER_FIRST_PUBLICATION):
+        first_year = C.NONE
     description = _description(evidence)
     review = _scalar([item for item in evidence if item.source == Source.GOODREADS.value], S.REVIEW)
     year = _publication_year(publication)
@@ -278,6 +291,12 @@ def _work(
         states[field] = (
             FieldState.PRESENT if value is not C.NONE else _missing_state(evidence, field)
         )
+    if description is C.NONE and any(
+        isinstance(item.observation.value, str)
+        and item.observation.value.rstrip().endswith(C.METADATA_PREVIEW_ENDINGS)
+        for item in _present(evidence, S.DESCRIPTION)
+    ):
+        states[S.DESCRIPTION] = FieldState.UNAVAILABLE
     states[S.FIRST_PUBLICATION_YEAR] = (
         FieldState.PRESENT
         if first_year is not C.NONE
@@ -287,6 +306,13 @@ def _work(
             evidence, S.FIRST_PUBLICATION_YEAR, aliases=(S.IMPORT_BROWSER_FIRST_PUBLICATION,)
         )
     )
+    for field in (S.PUBLICATION_DATE, S.IMPORT_BROWSER_FIRST_PUBLICATION):
+        if _publication_conflict(evidence, field):
+            states[
+                S.FIRST_PUBLICATION_YEAR
+                if field == S.IMPORT_BROWSER_FIRST_PUBLICATION
+                else S.PUBLICATION_DATE
+            ] = FieldState.FAILED
     added = {record.book.added_at.value for record in records if record.book.added_at is not C.NONE}
     return AnalysisBook(
         work_id=work_id,
@@ -431,13 +457,25 @@ def read_analytics_input(
             )
             for observation in candidate.observations
             if observation.scope != S.READER
-            and (not via_personal_source or observation.scope == S.WORK)
+            and (
+                not via_personal_source
+                or observation.scope == S.WORK
+                or public_work_descriptor(
+                    candidate.provider.value, candidate.provider_id, observation
+                )
+            )
         ]
         work_metadata[records[record_id].work_id].extend(
-            item for item in provider_evidence if item.observation.scope == S.WORK
+            item
+            for item in provider_evidence
+            if item.observation.scope == S.WORK
+            or public_work_descriptor(item.source, item.source_id, item.observation)
         )
         metadata[record_id].extend(
-            item for item in provider_evidence if item.observation.scope != S.WORK
+            item
+            for item in provider_evidence
+            if item.observation.scope != S.WORK
+            and not public_work_descriptor(item.source, item.source_id, item.observation)
         )
         if not provider_evidence:
             continue

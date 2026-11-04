@@ -680,12 +680,13 @@ class _ExportRow:
         page_match = C.BROWSER_PAGE_DETAILS.match(page_text)
         pages = (
             page_text
-            if C.IMPORT_INTEGER.fullmatch(page_text)
+            if C.BROWSER_PAGE_NUMBER.fullmatch(page_text)
             else (page_match[S.VALUE] if page_match else S.EMPTY)
-        )
-        if pages and extracted.get(S.IMPORT_PAGES) and pages != extracted[S.IMPORT_PAGES]:
+        ).replace(S.COMMA, S.EMPTY)
+        recovered_pages = extracted.get(S.IMPORT_PAGES, S.EMPTY).replace(S.COMMA, S.EMPTY)
+        if pages and recovered_pages and pages != recovered_pages:
             raise self.invalid(S.IMPORT_PAGES)
-        self.values[S.IMPORT_PAGES.casefold()] = pages or extracted.get(S.IMPORT_PAGES, S.EMPTY)
+        self.values[S.IMPORT_PAGES.casefold()] = pages or recovered_pages
         if page_text and not pages:
             self.issue(
                 S.IMPORT_BROWSER_UNMAPPED,
@@ -697,33 +698,7 @@ class _ExportRow:
         self.text(S.DESCRIPTION, S.DESCRIPTION, S.WORK, verbatim=C.TRUE)
         self.browser_capture_labels()
         self.text(S.LANGUAGE, S.LANGUAGE, S.EDITION)
-        publication = (self.get(S.IMPORT_BROWSER_PUBLICATION) or S.EMPTY).strip()
-        publication_match = C.BROWSER_FIRST_PUBLISHED.search(publication)
-        publication_field = S.IMPORT_BROWSER_FIRST_PUBLICATION
-        if publication_match is C.NONE:
-            publication_match = C.BROWSER_EDITION_PUBLISHED.search(publication)
-            publication_field = S.PUBLICATION_DATE
-        if publication_match:
-            date = parse_date(publication_match[S.VALUE])
-            assert date is not C.NONE
-            self.observe(
-                publication_field,
-                date.value,
-                S.WORK if publication_field == S.IMPORT_BROWSER_FIRST_PUBLICATION else S.EDITION,
-            )
-        else:
-            self.observe(
-                S.IMPORT_BROWSER_FIRST_PUBLICATION,
-                C.NONE,
-                S.WORK,
-                FieldState.UNAVAILABLE if publication else FieldState.EMPTY,
-            )
-            if publication:
-                self.issue(
-                    S.IMPORT_BROWSER_UNMAPPED,
-                    S.IMPORT_BROWSER_UNMAPPED_MESSAGE,
-                    field=S.IMPORT_BROWSER_PUBLICATION,
-                )
+        self.browser_publications(details)
         events = self.browser_personal_fields(book.source_id) if structured else ()
         return book.model_copy(
             update={
@@ -735,6 +710,95 @@ class _ExportRow:
                 S.READING_EVENTS: events,
             }
         )
+
+    def catalog_date_candidate(
+        self, value: str, field: str, scope: S.ObservationScope
+    ) -> PartialDate | None:
+        if value.strip().casefold() in C.METADATA_PUBLICATION_MISSING:
+            self.observe(field, C.NONE, scope, FieldState.UNAVAILABLE)
+            return C.NONE
+        try:
+            date = parse_date(value)
+        except (ValueError, OverflowError):
+            date = C.NONE
+        if date is C.NONE:
+            self.observe(field, C.NONE, scope, FieldState.UNAVAILABLE)
+            self.issue(S.IMPORT_BROWSER_UNMAPPED, S.IMPORT_BROWSER_UNMAPPED_MESSAGE, field=field)
+        else:
+            self.observe(field, date.value, scope)
+        return date
+
+    def browser_publications(self, details: str) -> None:
+        publication = (self.get(S.IMPORT_BROWSER_PUBLICATION) or S.EMPTY).strip()
+        row_matches = tuple(C.METADATA_ROW_PUBLICATIONS.finditer(details))
+        has_row_label = S.METADATA_ROW_PUBLICATION_LABEL in details
+        for field, scope, pattern, direct_field, row_field in C.METADATA_PUBLICATION_FIELDS:
+            existing = [item for item in self.observations if item.field == field]
+            self.observations = [item for item in self.observations if item.field != field]
+            dates: list[PartialDate] = []
+            for item in existing:
+                self.observe(direct_field, item.value, scope, item.state)
+                if item.state == FieldState.PRESENT and isinstance(item.value, str):
+                    date = parse_date(item.value)
+                    if date is not C.NONE:
+                        dates.append(date)
+            direct_matches = tuple(pattern.finditer(publication))
+            if len(direct_matches) == C.ONE:
+                date = self.catalog_date_candidate(
+                    direct_matches[C.ZERO][S.VALUE], direct_field, scope
+                )
+                if date is not C.NONE:
+                    dates.append(date)
+            elif direct_matches:
+                self.observe(direct_field, C.NONE, scope, FieldState.UNAVAILABLE)
+                self.issue(
+                    S.IMPORT_BROWSER_UNMAPPED, S.IMPORT_BROWSER_UNMAPPED_MESSAGE, field=direct_field
+                )
+            if len(row_matches) == C.ONE:
+                date = self.catalog_date_candidate(row_matches[C.ZERO][scope], row_field, scope)
+                if date is not C.NONE:
+                    dates.append(date)
+            elif has_row_label:
+                self.observe(row_field, C.NONE, scope, FieldState.UNAVAILABLE)
+                self.issue(
+                    S.IMPORT_BROWSER_UNMAPPED, S.IMPORT_BROWSER_UNMAPPED_MESSAGE, field=row_field
+                )
+            if dates:
+                selected = max(dates, key=lambda date: len(date.value))
+                if all(
+                    selected.value == date.value or selected.value.startswith(date.value + S.HYPHEN)
+                    for date in dates
+                ):
+                    self.observe(field, selected.value, scope)
+                else:
+                    self.observe(field, C.NONE, scope, FieldState.UNAVAILABLE)
+                    self.observe(S.METADATA_PUBLICATION_CONFLICT, field, scope)
+                    self.issue(
+                        S.METADATA_PUBLICATION_CONFLICT,
+                        S.METADATA_PUBLICATION_CONFLICT_MESSAGE,
+                        field=field,
+                    )
+            else:
+                self.observe(
+                    field,
+                    C.NONE,
+                    scope,
+                    FieldState.UNAVAILABLE
+                    if publication or has_row_label
+                    else FieldState.EMPTY
+                    if scope == S.WORK
+                    else existing[C.ZERO].state
+                    if existing
+                    else FieldState.UNSUPPORTED,
+                )
+        if publication and not any(
+            pattern.search(publication) for _, _, pattern, _, _ in C.METADATA_PUBLICATION_FIELDS
+        ):
+            self.issue(
+                S.IMPORT_BROWSER_UNMAPPED,
+                S.IMPORT_BROWSER_UNMAPPED_MESSAGE,
+                field=S.IMPORT_BROWSER_PUBLICATION,
+            )
 
     def browser_capture_labels(self) -> None:
         # The legacy collector queried the whole document. Shelf-v1 versions

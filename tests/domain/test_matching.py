@@ -58,6 +58,37 @@ def test_isbn10_and_isbn13_corroborate_without_using_source_ids() -> None:
     )
 
 
+def test_wikidata_confirms_only_canonical_work_identity_not_an_edition() -> None:
+    reference = S.WIKIDATA_WORK_URL.format(v0=S.WIKIDATA_TEST_ID)
+    work = candidate(
+        provider=Source.WIKIDATA,
+        provider_id=S.WIKIDATA_TEST_ID,
+        work_id=S.WIKIDATA_TEST_ID,
+        edition_id=C.NONE,
+        isbns=(),
+        url=reference,
+        observations=(
+            Observation(
+                field=S.GENRES,
+                value=[S.ANALYTIC_CATEGORY_FANTASY],
+                state=FieldState.PRESENT,
+                scope=S.WORK,
+                source_url=reference,
+            ),
+        ),
+    )
+    assert select_metadata_candidate(book(isbns=()), (work,)) == work
+    assert compare_books(book(isbns=()), work).kind == MatchKind.LIKELY
+    edition = work.model_copy(update={S.EDITION_ID: S.VOLUME_ONE})
+    assert select_metadata_candidate(book(isbns=()), (edition,)) is C.NONE
+    other_author = work.model_copy(
+        update={S.AUTHORS: (S.TEST_MATCHING_METADATA_REQUIRES_CANDIDATE_AUTHORS_DIFFERENT_AUTHOR,)}
+    )
+    assert select_metadata_candidate(book(isbns=()), (other_author,)) is C.NONE
+    noncanonical = work.model_copy(update={S.URL: S.TEST_RAW_FILE})
+    assert select_metadata_candidate(book(isbns=()), (noncanonical,)) is C.NONE
+
+
 @pytest.mark.parametrize(
     S.CHANGES,
     [

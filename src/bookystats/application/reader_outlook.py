@@ -281,6 +281,21 @@ def shortlist_item(
             )
     if text(item.get(S.PDF_KEY_PREFERENCE_TIER)) == S.REC_LIMITED:
         lines.append(S.RPT_THIN_EVIDENCE.format(books=C.RPT_THIN_SAMPLE))
+    for context in records(item.get(S.REC2_SERIES_CONTEXT)):
+        explanation = text(context.get(S.REC2_EXPLANATION))
+        if explanation:
+            lines.append(explanation)
+    neighbors = records(item.get(S.REC3_NEIGHBORS))
+    if neighbors:
+        neighbor = neighbors[C.ZERO]
+        rating = number(neighbor.get(S.RATING))
+        title_of_neighbor = text(neighbor.get(S.TITLE))
+        if rating is not C.NONE and title_of_neighbor:
+            lines.append(
+                S.REC3_PDF_NEIGHBOR.format(
+                    title=F.display_title(title_of_neighbor), rating=F.trimmed(rating)
+                )
+            )
     added = text(item.get(S.ADDED_AT))
     detail = S.RPT_ON_LIST_SINCE.format(added=F.month_year(added)) if added else S.EMPTY
     authors = tuple(text(author) for author in items(item.get(S.AUTHORS)))
@@ -309,6 +324,11 @@ def missing_line(shortlist: list[dict[str, JsonValue]]) -> str | None:
     return S.RPT_SHORTLIST_MISSING.format(parts=S.COMMA_SPACE.join(parts))
 
 
+def rating_error(evaluation: dict[str, JsonValue], key: str) -> str:
+    value = number(evaluation.get(key))
+    return F.trimmed(value, C.THREE) if value is not C.NONE else S.RPT_UNKNOWN
+
+
 def shortlist(ctx: Context) -> Chapter | None:
     report = ctx.recommendations
     ranked = items(report.get(S.PDF_KEY_RANKED))
@@ -328,7 +348,69 @@ def shortlist(ctx: Context) -> Chapter | None:
         unrankable=F.count(len(unrankable)),
         excluded=F.count(len(excluded)),
     )
-    notes = [S.RPT_SHORTLIST_CAVEAT, counts]
+    notes = [S.RPT_SHORTLIST_CAVEAT, counts, S.REC3_DIVERSITY_NOTE]
+    learning = mapping(report.get(S.REC3_LEARNING))
+    ranking = mapping(report.get(S.REC3_RANKING_EVALUATION))
+    if learning:
+        notes.append(
+            S.REC3_PDF_SUMMARY.format(
+                status=text(ranking.get(S.STATUS)) or S.RPT_UNKNOWN,
+                active=S.REC3_PDF_ACTIVE
+                if learning.get(S.REC3_PDF_ACTIVE) is C.TRUE
+                else S.REC3_PDF_INACTIVE,
+                descriptions=integer(learning.get(S.REC3_USABLE_DESCRIPTIONS)) or C.ZERO,
+                encoded=integer(learning.get(S.REC3_ENCODED_DESCRIPTIONS)) or C.ZERO,
+            )
+        )
+        notes.extend(text(reason) for reason in items(ranking.get(S.REC_REASONS)) if text(reason))
+        used = [
+            C.REC3_CHANNEL_LABELS[channel]
+            for weight in records(learning.get(S.REC3_KEY_WEIGHTS))
+            if (channel := text(weight.get(S.REC3_KEY_CHANNEL))) in C.REC3_CHANNEL_LABELS
+            and (value := number(weight.get(S.REC3_KEY_WEIGHT))) is not C.NONE
+            and value > C.ZERO
+        ]
+        if used and learning.get(S.REC3_PDF_ACTIVE) is C.TRUE:
+            notes.append(S.REC3_PDF_SIGNALS.format(signals=S.COMMA_SPACE.join(used)))
+        precisions = {
+            model: number(
+                mapping(mapping(ranking.get(model)).get(S.REC3_KEY_METRICS)).get(
+                    S.REC3_KEY_PRECISION
+                )
+            )
+            for model in (S.REC3_KEY_CANDIDATE, S.REC3_KEY_CURRENT, S.REC3_KEY_LENGTH)
+        }
+        candidate, current, length = (
+            precisions[model]
+            for model in (S.REC3_KEY_CANDIDATE, S.REC3_KEY_CURRENT, S.REC3_KEY_LENGTH)
+        )
+        if candidate is not C.NONE and current is not C.NONE and length is not C.NONE:
+            notes.append(
+                S.REC3_PDF_RANKING_DETAIL.format(
+                    count=integer(ranking.get(S.REC3_KEY_COHORT)) or C.ZERO,
+                    candidate=F.fraction(candidate),
+                    current=F.fraction(current),
+                    length=F.fraction(length),
+                )
+            )
+    evaluation = mapping(report.get(S.REC2_EVALUATION))
+    if evaluation and not ranking:
+        notes.append(S.REC2_EVALUATION_SCOPE)
+        if text(evaluation.get(S.STATUS)) == S.REC2_AVAILABLE:
+            notes.append(
+                S.REC2_PDF_SUMMARY.format(
+                    count=integer(evaluation.get(S.REC2_COHORT)) or C.ZERO,
+                    mean=rating_error(evaluation, S.REC2_MEAN_MAE),
+                    simple=rating_error(evaluation, S.REC2_SIMPLE_MAE),
+                    current=rating_error(evaluation, S.REC2_CURRENT_MAE),
+                    shadow=rating_error(evaluation, S.REC2_SHADOW_MAE),
+                    fallback=integer(evaluation.get(S.REC2_CURRENT_FALLBACKS)) or C.ZERO,
+                    shadow_fallback=integer(evaluation.get(S.REC2_SHADOW_FALLBACKS)) or C.ZERO,
+                )
+            )
+        else:
+            notes.append(text(evaluation.get(S.REC2_REASON)) or S.REC2_INSUFFICIENT)
+        notes.append(S.REC2_SHADOW_POLICY)
     missing = missing_line(picks)
     if missing is not C.NONE:
         notes.append(missing)

@@ -116,6 +116,58 @@ def test_coverage_includes_unrated_read_and_distinguishes_language_scopes() -> N
     assert MetadataQualityReport.model_validate_json(report.model_dump_json()) == report
 
 
+def test_google_edition_descriptors_have_work_coverage_without_false_provenance_warnings() -> None:
+    description = _evidence(
+        S.DESCRIPTION,
+        S.METADATA_TEST_RICH_DESCRIPTION,
+        source=Source.GOOGLE_BOOKS,
+        scope=S.EDITION,
+    )
+    genres = _evidence(
+        S.GENRES,
+        [S.ANALYTIC_CATEGORY_FANTASY],
+        source=Source.GOOGLE_BOOKS,
+        scope=S.EDITION,
+    )
+    book = _book(
+        description=S.METADATA_TEST_RICH_DESCRIPTION,
+        features={S.GENRES: (S.ANALYTIC_CATEGORY_FANTASY,)},
+        evidence=(description, genres),
+    )
+    data = _data(book)
+    report = build_metadata_quality(data, _analysis(data), {})
+    assert _row(report, S.DESCRIPTION).available == C.ONE
+    assert _row(report, S.DESCRIPTION).sources == {Source.GOOGLE_BOOKS.value: C.ONE}
+    assert _row(report, S.GENRES).sources == {Source.GOOGLE_BOOKS.value: C.ONE}
+    assert not report.diagnostics
+    assert book.evidence[C.ZERO].observation.scope == S.EDITION
+
+
+def test_optional_source_publication_disagreement_is_an_explicit_quality_diagnostic() -> None:
+    flag = AnalysisEvidence(
+        source=Source.GOODREADS.value,
+        source_id=S.MQ_REPORT_TEST_GOODREADS_ID,
+        public_url=S.MQ_REPORT_TEST_GOODREADS_URL,
+        observation=Observation(
+            field=S.METADATA_PUBLICATION_CONFLICT,
+            value=S.IMPORT_BROWSER_FIRST_PUBLICATION,
+            state=FieldState.PRESENT,
+            scope=S.WORK,
+            source_url=S.MQ_REPORT_TEST_CSV_ORIGIN,
+        ),
+    )
+    data = _data(
+        _book(field_states={S.FIRST_PUBLICATION_YEAR: FieldState.FAILED}, evidence=(flag,))
+    )
+    report = build_metadata_quality(data, _analysis(data), {})
+    assert len(report.diagnostics) == C.ONE
+    diagnostic = report.diagnostics[C.ZERO]
+    assert diagnostic.code == S.METADATA_PUBLICATION_CONFLICT
+    assert diagnostic.field == S.FIRST_PUBLICATION_YEAR
+    assert diagnostic.work_ids == (C.ONE,)
+    assert _row(report, S.FIRST_PUBLICATION_YEAR).available == C.ZERO
+
+
 def test_work_consistency_is_not_accuracy_or_alternative_description_conflict() -> None:
     shared = (
         _evidence(S.TITLE, S.MATILDA),

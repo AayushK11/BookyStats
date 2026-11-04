@@ -261,7 +261,14 @@ def facts(ctx: Context) -> Chapter | None:
         title=S.RPT_FACTS_TITLE,
         kicker=S.RPT_FACTS_KICKER,
         intro=S.RPT_FACTS_INTRO,
-        blocks=(FactsBlock(facts=kept),),
+        blocks=(
+            FactsBlock(
+                facts=kept,
+                note=S.RPT_FACTS_LENGTH_NOTE
+                if C.ZERO < pages_known(ctx) < ctx.summary.read
+                else S.EMPTY,
+            ),
+        ),
     )
 
 
@@ -367,7 +374,15 @@ def shape(ctx: Context) -> Chapter | None:
             item_of(book, F.pages(ctx.plausible_pages(book) or C.ZERO)) for book in longest
         )
         group = BookGroup(heading=S.EMPTY, books=books)
-        blocks.append(BooksBlock(heading=S.RPT_LONGEST_HEADING, groups=(group,)))
+        blocks.append(
+            BooksBlock(
+                heading=S.RPT_LONGEST_HEADING,
+                groups=(group,),
+                note=S.RPT_LONGEST_NOTE.format(
+                    known=F.count(pages_known(ctx)), read=F.count(ctx.summary.read)
+                ),
+            )
+        )
     decades, known, excluded = decade_rows(ctx)
     if known >= C.TWO and len(decades) >= C.TWO:
         note = S.RPT_DECADE_NOTE.format(known=F.count(known), read=F.count(ctx.summary.read))

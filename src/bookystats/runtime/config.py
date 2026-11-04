@@ -21,6 +21,12 @@ from bookystats.domain.models import Account, Model, Source
 class MetadataSettings(Model):
     google_books: bool = C.TRUE
     open_library: bool = C.TRUE
+    wikidata: bool = C.FALSE
+    wikidata_max_requests_per_run: int = Field(
+        default=C.WIKIDATA_MAX_REQUESTS_DEFAULT,
+        ge=C.ONE,
+        le=C.WIKIDATA_MAX_REQUESTS_LIMIT,
+    )
     strategy: S.MetadataStrategy = S.ENR_STRATEGY_OPEN_LIBRARY_FIRST
     max_books_per_run: int = Field(
         default=C.METADATASETTINGS_MAX_BOOKS_PER_RUN_DEFAULT,
@@ -100,6 +106,14 @@ class WeeklySettings(Model):
         return self
 
 
+class RecommendationSettings(Model):
+    semantic_enabled: bool = C.TRUE
+    allow_model_download: bool = C.TRUE
+    acceleration: S.EmbeddingAcceleration = S.EM3_AUTO
+    threads: int = Field(default=C.REC3_DEFAULT_THREADS, ge=C.ONE, le=C.REC3_MAX_THREADS)
+    batch_size: int = Field(default=C.REC3_DEFAULT_BATCH, ge=C.ONE, le=C.REC3_MAX_BATCH)
+
+
 class Settings(Model):
     schema_version: int = Field(default=C.ONE, ge=C.ONE, le=C.ONE)
     accounts: tuple[Account, ...] = Field(default_factory=tuple)
@@ -110,6 +124,7 @@ class Settings(Model):
     )
     files: FileSettings = Field(default_factory=FileSettings)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
+    recommendations: RecommendationSettings = Field(default_factory=RecommendationSettings)
     metadata: MetadataSettings = Field(default_factory=MetadataSettings)
     weekly: WeeklySettings = Field(default_factory=WeeklySettings)
 

@@ -33,3 +33,11 @@ def test_new_aliases_are_specific_known_families_without_overrides() -> None:
     assert all(
         C.ANALYTIC_CATEGORY_ALIASES[key] == family for key, family in C.L1_GEN_EXACT_ALIASES.items()
     )
+
+
+@pytest.mark.parametrize(
+    S.METADATA_GENRE_TEST_PARAMETERS, tuple(C.METADATA_EXACT_GENRE_ALIASES.items())
+)
+def test_additional_catalog_aliases_are_exact_and_family_specific(label: str, family: str) -> None:
+    assert analytical_categories((label,)) == (family,)
+    assert not analytical_categories((label + S.SPACE + S.ANALYTIC_CATEGORY_TEST_BESTSELLER,))

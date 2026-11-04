@@ -16,6 +16,74 @@ from bookystats.domain.models import Source
 from bookystats.persistence.cache import MetadataCache
 
 
+@pytest.mark.parametrize(S.CODE, tuple(C.WD_TRANSIENT_API_CODES))
+@pytest.mark.parametrize(S.WIKIDATA_TEST_RETRY_FIELDS, C.WIKIDATA_TEST_RETRY_DELAYS)
+def test_wikidata_http_success_api_pause_survives_fresh_clients(
+    tmp_path: Path, code: str, retry_header: str | None, expected_delay: int
+) -> None:
+    calls: list[httpx.Request] = []
+    now = [C.DR_TEST_NOW]
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            C.INTERFACES_PAGEDOCUMENT_STATUS_CODE,
+            json={S.ERROR: {S.CODE: code}} if len(calls) == C.ONE else {},
+            headers={} if retry_header is C.NONE else {S.RETRY_AFTER: retry_header},
+        )
+
+    for attempt in range(C.THREE):
+        cache = MetadataCache(tmp_path / S.CATALOG_SQLITE)
+        try:
+            with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+                fetcher = HttpClient(
+                    allowed_hosts=(S.WIKIDATA_HOST,),
+                    client=client,
+                    min_interval=C.ZERO,
+                    max_attempts=C.ONE,
+                    retry_store=cache,
+                    provider=Source.WIKIDATA,
+                    wall_clock=lambda: now[C.ZERO],
+                )
+                if attempt == C.ONE:
+                    with pytest.raises(ProviderDeferredError):
+                        fetcher.fetch(S.WD_ENDPOINT)
+                    assert fetcher.requests == C.ZERO
+                    now[C.ZERO] += expected_delay
+                else:
+                    response = fetcher.fetch(S.WD_ENDPOINT)
+                    assert response.wire_attempts == len(calls)
+                    assert response.retry_at == (
+                        C.DR_TEST_NOW + expected_delay if attempt == C.ZERO else C.NONE
+                    )
+                    assert response.error_code == (
+                        S.DR_HTTP_RETRYABLE if attempt == C.ZERO else C.NONE
+                    )
+        finally:
+            cache.close()
+    assert len(calls) == C.TWO
+
+
+@pytest.mark.parametrize(S.CODE, (S.TEST, [], C.NONE))
+def test_wikidata_unknown_or_malformed_api_code_does_not_create_a_pause(code: object) -> None:
+    with httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                C.INTERFACES_PAGEDOCUMENT_STATUS_CODE, json={S.ERROR: {S.CODE: code}}
+            )
+        )
+    ) as client:
+        fetcher = HttpClient(
+            allowed_hosts=(S.WIKIDATA_HOST,),
+            client=client,
+            min_interval=C.ZERO,
+            provider=Source.WIKIDATA,
+        )
+        response = fetcher.fetch(S.WD_ENDPOINT)
+        assert response.retry_at is C.NONE
+        assert response.error_code is C.NONE
+
+
 def test_redirect_outside_source_is_never_followed() -> None:
     requests: list[httpx.Request] = []
 

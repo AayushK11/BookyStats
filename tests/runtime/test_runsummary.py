@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from bookystats import constants as C
 from bookystats import strings as S
+from bookystats.domain.interfaces import HttpRetryState
+from bookystats.domain.models import Source
+from bookystats.persistence.cache import MetadataCache
+from bookystats.runtime.layout import database_path
 from bookystats.runtime.runsummary import (
     RunSummary,
     RunSummaryGate,
+    read_provider_gates,
     read_summary,
     save_summary,
     summary_path,
@@ -84,6 +91,59 @@ def test_missing_summary_reads_as_absent_without_creating_the_runtime_folder(
 ) -> None:
     assert read_summary(tmp_path) is C.NONE
     assert not (tmp_path / S.LAYOUT_RUNTIME).exists()
+
+
+def test_daily_limit_reason_is_preserved_and_older_summary_gates_still_load(
+    tmp_path: Path,
+) -> None:
+    summary = _summary()
+    daily = summary.gates[C.ZERO].model_copy(update={S.LOG3_DAILY_KEY: C.TRUE})
+    save_summary(tmp_path, summary.model_copy(update={S.RUNSUM_GATES_KEY: (daily,)}))
+    restored = read_summary(tmp_path)
+    assert restored is not C.NONE
+    assert restored.gates[C.ZERO].daily_limit is C.TRUE
+    legacy = json.loads(summary.model_dump_json())
+    del legacy[S.RUNSUM_GATES_KEY][C.ZERO][S.LOG3_DAILY_KEY]
+    summary_path(tmp_path).write_text(json.dumps(legacy), encoding=S.UTF_8)
+    restored = read_summary(tmp_path)
+    assert restored is not C.NONE
+    assert restored.gates[C.ZERO].daily_limit is C.FALSE
+
+
+def test_current_retry_evidence_is_read_offline_without_sidecars_or_summary_changes(
+    tmp_path: Path,
+) -> None:
+    save_summary(tmp_path, _summary())
+    path = database_path(tmp_path, S.METADATA_SQLITE3)
+    with closing(MetadataCache(path)) as cache:
+        cache.save_retry_state(
+            Source.GOOGLE_BOOKS,
+            S.WWW_GOOGLEAPIS_COM,
+            HttpRetryState(
+                retry_at=C.TEST_OPLOG_GATE_EPOCH,
+                status_code=C.TEST_OPLOG_HTTP_STATUS,
+                quota=C.L1_DAILY_FIXTURE_EVIDENCE,
+            ),
+        )
+    before = {
+        entry: entry.read_bytes() for entry in tmp_path.rglob(S.L1_GLOB_ALL) if entry.is_file()
+    }
+    gates = read_provider_gates(tmp_path)
+    after = {
+        entry: entry.read_bytes() for entry in tmp_path.rglob(S.L1_GLOB_ALL) if entry.is_file()
+    }
+    assert before == after
+    assert gates == (
+        RunSummaryGate(
+            provider=S.GOOGLE_BOOKS,
+            retry_at_utc=S.TEST_OPLOG_ACTIVE_RETRY,
+            http_status=C.TEST_OPLOG_HTTP_STATUS,
+            daily_limit=C.TRUE,
+        ),
+    )
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(S.LOG3_TEST_CORRUPT_GATES)
+    assert read_provider_gates(tmp_path) == ()
 
 
 def test_unreadable_or_foreign_summaries_read_as_absent(

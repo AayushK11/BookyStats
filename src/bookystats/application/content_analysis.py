@@ -19,6 +19,7 @@ from bookystats.domain.analytics import (
     CatalogAppetiteLabel,
     Finding,
 )
+from bookystats.domain.metadata import public_work_descriptor, substantive_description
 from bookystats.domain.models import FieldState, ReadingStatus
 
 
@@ -34,7 +35,7 @@ def _description(book: AnalysisBook) -> _Description | None:
     if (
         book.field_states.get(S.DESCRIPTION) not in (C.NONE, FieldState.PRESENT)
         or not book.description
-        or not book.description.strip()
+        or not substantive_description(book.description)
     ):
         return C.NONE
     for source in C.CONTENT_ANALYSIS_PUBLIC_SOURCES:
@@ -44,7 +45,10 @@ def _description(book: AnalysisBook) -> _Description | None:
                 item.source != source
                 or observation.field != S.DESCRIPTION
                 or observation.state != FieldState.PRESENT
-                or observation.scope != S.WORK
+                or not (
+                    (source == S.GOODREADS and observation.scope == S.WORK)
+                    or public_work_descriptor(source, item.source_id, observation)
+                )
                 or observation.value != book.description
             ):
                 continue
@@ -61,7 +65,11 @@ def _description(book: AnalysisBook) -> _Description | None:
                 continue
             if url.username or url.password:
                 continue
-            public_url = urlunsplit((url.scheme, url.netloc, url.path, S.EMPTY, S.EMPTY))
+            public_url = (
+                reference
+                if source == S.GOOGLE_BOOKS
+                else urlunsplit((url.scheme, url.netloc, url.path, S.EMPTY, S.EMPTY))
+            )
             text = C.CONTENT_ANALYSIS_SPACE.sub(
                 S.SPACE,
                 unescape(
@@ -127,6 +135,11 @@ def _proof(description: _Description, pattern: Pattern[str]) -> dict[str, JsonVa
     return C.NONE
 
 
+def public_description(book: AnalysisBook) -> str | None:
+    description = _description(book)
+    return description.text if description is not C.NONE else C.NONE
+
+
 def description_provenance(book: AnalysisBook) -> dict[str, JsonValue] | None:
     description = _description(book)
     if description is C.NONE:
@@ -135,6 +148,7 @@ def description_provenance(book: AnalysisBook) -> dict[str, JsonValue] | None:
         S.CONTENT_ANALYSIS_SOURCE: description.evidence.source,
         S.SOURCE_ID: description.evidence.source_id,
         S.CONTENT_ANALYSIS_URL: description.public_url,
+        S.CONTENT_ANALYSIS_SCOPE: description.evidence.observation.scope,
     }
 
 

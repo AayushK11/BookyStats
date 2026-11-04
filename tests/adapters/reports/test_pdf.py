@@ -12,17 +12,25 @@ from reportlab.lib.colors import Color
 
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.adapters.reports.blocks import safe_link
-from bookystats.adapters.reports.pdf import render_pdf
-from bookystats.adapters.reports.theme import paint
+from bookystats.adapters.reports.blocks import Composer, safe_link
+from bookystats.adapters.reports.document import ReportDocument
+from bookystats.adapters.reports.pdf import display_chapter, render_pdf
+from bookystats.adapters.reports.theme import Theme, paint
 from bookystats.application.reader_report import build_reader_report
 from bookystats.domain.reader_report import (
+    BarRow,
+    BarsBlock,
+    BooksBlock,
     Chapter,
+    CompareBlock,
+    CoverageBlock,
+    FactsBlock,
     Link,
     ProseBlock,
     Quote,
     QuotesBlock,
     ReaderReport,
+    TilesBlock,
 )
 from tests.support.reader_library import library
 
@@ -313,6 +321,156 @@ def test_rendering_is_byte_for_byte_repeatable() -> None:
     again = BytesIO()
     assert render_pdf(rendered.report, again) == rendered.declared
     assert again.getvalue() == rendered.payload
+
+
+@pytest.mark.parametrize(S.RPT_TEST_SIZE_ARGS, C.RPT_TEST_SIZES)
+def test_implementation_versions_stay_in_json_not_on_the_reader_pages(
+    read: int, watch: int
+) -> None:
+    rendered = _rendered(read, watch)
+    text = S.EMPTY.join(rendered.texts).casefold()
+    assert not [term for term in C.RPT_READER_INTERNAL_TERMS if _flat(term).casefold() in text]
+    assert _flat(S.RPT_COMPANION_NOTE).casefold() in text
+    decoded = ReaderReport.model_validate_json(rendered.report.model_dump_json())
+    assert decoded.model_version == C.RPT_MODEL_VERSION
+    assert decoded.technical_notes == rendered.report.technical_notes
+    assert decoded.manifest_digest == rendered.report.manifest_digest
+
+
+@pytest.mark.parametrize(S.RPT_TEST_SIZE_ARGS, C.RPT_TEST_CONTENT_SIZES)
+def test_chapter_openings_share_the_page_with_useful_content(read: int, watch: int) -> None:
+    rendered = _rendered(read, watch)
+    outline = _outline(rendered.reader)
+    for saved in rendered.report.chapters:
+        chapter = display_chapter(saved, rendered.report)
+        page = rendered.texts[outline[_flat(chapter.title)]]
+        block = chapter.blocks[C.ZERO]
+        match block:
+            case TilesBlock():
+                anchors = (block.tiles[C.ZERO].label, block.tiles[C.ZERO].value)
+            case FactsBlock():
+                anchors = (block.facts[C.ZERO].headline, block.facts[C.ZERO].body)
+            case BarsBlock() | CompareBlock():
+                row = block.rows[C.ZERO]
+                anchors = (row.label,) if isinstance(block, BarsBlock) else (row.title,)
+            case BooksBlock():
+                anchors = (block.groups[C.ZERO].books[C.ZERO].title,)
+            case QuotesBlock():
+                anchors = (block.quotes[C.ZERO].text,)
+            case CoverageBlock():
+                anchors = (block.rows[C.ZERO].label,)
+            case _:
+                anchors = (block.paragraphs[C.ZERO],)
+        assert all(_flat(anchor) in page for anchor in anchors)
+
+
+def test_complete_charts_and_opening_tile_grids_stay_on_one_page_when_they_fit() -> None:
+    rendered = _rendered(*C.RPT_TEST_RICH)
+    theme = Theme()
+    document = ReportDocument(BytesIO(), rendered.report, theme)
+    composer = Composer(theme, document)
+    outline = _outline(rendered.reader)
+    for saved in rendered.report.chapters:
+        chapter = display_chapter(saved, rendered.report)
+        first = chapter.blocks[C.ZERO]
+        if isinstance(first, TilesBlock):
+            page = rendered.texts[outline[_flat(chapter.title)]]
+            assert all(
+                _flat(tile.label) in page and _flat(tile.value) in page for tile in first.tiles
+            )
+        if isinstance(first, BarsBlock):
+            opening = [
+                *composer.header(chapter.kicker, chapter.title, chapter.intro),
+                *composer.render(first),
+            ]
+            if composer.height(opening) <= document.frame_height:
+                page = rendered.texts[outline[_flat(chapter.title)]]
+                assert all(_flat(row.label) in page for row in first.rows)
+                assert _flat(first.note) in page
+        for block in chapter.blocks:
+            if isinstance(block, BarsBlock) and block.style is C.RptBarStyle.HORIZONTAL:
+                flows = composer.render(block)
+                if composer.height(flows) <= document.frame_height:
+                    anchors = (block.heading, block.note, *(row.label for row in block.rows))
+                    assert any(
+                        all(_flat(anchor) in page for anchor in anchors) for page in rendered.texts
+                    )
+
+
+@pytest.mark.parametrize(S.RPT_TEST_SIZE_ARGS, C.RPT_TEST_CONTENT_SIZES)
+def test_overview_omits_only_duplicate_cover_metrics_without_changing_saved_evidence(
+    read: int, watch: int
+) -> None:
+    report = _rendered(read, watch).report
+    before = report.model_dump_json()
+    chapter = next(chapter for chapter in report.chapters if chapter.key == S.RPT_CHAPTER_GLANCE)
+    displayed = display_chapter(chapter, report)
+    original = {
+        (tile.label, tile.value)
+        for block in chapter.blocks
+        if isinstance(block, TilesBlock)
+        for tile in block.tiles
+    }
+    visible = {
+        (tile.label, tile.value)
+        for block in displayed.blocks
+        if isinstance(block, TilesBlock)
+        for tile in block.tiles
+    }
+    covered = {
+        (C.RPT_COVER_TILE_LABELS.get(hero.label, hero.label), hero.value)
+        for hero in report.cover.heroes
+    }
+    assert visible == original - covered
+    assert visible
+    assert report.model_dump_json() == before
+
+
+def test_compact_shelf_awards_and_individual_cards_do_not_dangle_across_pages() -> None:
+    rendered = _rendered(*C.RPT_TEST_RICH)
+    chapter = next(
+        chapter for chapter in rendered.report.chapters if chapter.key == S.RPT_CHAPTER_FACTS
+    )
+    awards_page = rendered.texts[_outline(rendered.reader)[_flat(chapter.title)]]
+    for block in chapter.blocks:
+        if isinstance(block, FactsBlock):
+            assert all(_flat(fact.body) in awards_page for fact in block.facts)
+    for quote in _quotes(rendered.report):
+        assert any(
+            _flat(quote.text) in page and _flat(quote.title) in page for page in rendered.texts
+        )
+    for chapter in rendered.report.chapters:
+        for block in chapter.blocks:
+            if isinstance(block, BooksBlock):
+                for group in block.groups:
+                    for book in group.books:
+                        if book.lines:
+                            assert any(
+                                all(_flat(text) in page for text in (book.title, *book.lines))
+                                for page in rendered.texts
+                            )
+
+
+def test_large_tables_paginate_without_losing_rows_or_stranding_the_heading() -> None:
+    rows = tuple(
+        BarRow(
+            label=S.RPT_TEST_NEW_AUTHOR.format(index=index),
+            value=float(index),
+            shown=str(index),
+        )
+        for index in range(C.RPT_TEST_RICH_READ)
+    )
+    chapter = Chapter(
+        key=S.RPT_TEST_GLYPH_CHAPTER,
+        title=S.RPT_TEST_GLYPH_TITLE,
+        blocks=(BarsBlock(heading=S.RPT_GENRE_HEADING, rows=rows),),
+    )
+    reader, texts = _with_chapter(chapter)
+    first = texts[_outline(reader)[_flat(chapter.title)]]
+    assert _flat(S.RPT_GENRE_HEADING) in first
+    assert _flat(rows[C.ZERO].label) in first
+    assert all(any(_flat(row.label) in page for page in texts) for row in rows)
+    assert len(texts) > C.THREE
 
 
 def _channel(value: float) -> float:

@@ -70,8 +70,8 @@ def test_human_mode_prints_run_lines_outcome_and_log_pointer_on_stdout_only() ->
     _print_receipt(receipt, out, as_json=C.FALSE, outcome=outcome, summary=err)
     assert err.getvalue() == S.EMPTY
     assert out.getvalue().splitlines() == [
-        *run_lines(receipt, issue_limit=C.FIVE),
-        S.EMPTY,
         *outcome.lines,
+        S.EMPTY,
+        *run_lines(receipt, issue_limit=C.FIVE),
         S.REPORT_RUN_LOG_LINE.format(path=S.LOG_FILE_NAME),
     ]

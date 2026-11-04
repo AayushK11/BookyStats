@@ -115,6 +115,7 @@ class ReportDocument(BaseDocTemplate):
     def paint_cover(self, canvas: Canvas, document: BaseDocTemplate) -> None:
         top = C.PDF_PAGE_HEIGHT
         canvas.saveState()
+        self._paper(canvas)
         canvas.setFillColor(paint(S.RPT_HEX_BAND))
         canvas.rect(C.ZERO, top - self.band, C.PDF_PAGE_WIDTH, self.band, stroke=C.ZERO, fill=C.ONE)
         canvas.setFillColor(paint(S.RPT_HEX_AMBER))
@@ -133,10 +134,33 @@ class ReportDocument(BaseDocTemplate):
             cursor -= height
             paragraph.drawOn(canvas, C.PDF_MARGIN, cursor)
             cursor -= paragraph.style.spaceAfter
+        self._bookmark(canvas)
         canvas.restoreState()
 
     def begin_page(self, canvas: Canvas, document: BaseDocTemplate) -> None:
         self.page_head = self.page_title
+        canvas.saveState()
+        self._paper(canvas)
+        self._bookmark(canvas)
+        canvas.restoreState()
+
+    def _paper(self, canvas: Canvas) -> None:
+        canvas.setFillColor(paint(S.RPT_HEX_PAPER))
+        canvas.rect(C.ZERO, C.ZERO, C.PDF_PAGE_WIDTH, C.PDF_PAGE_HEIGHT, stroke=C.ZERO, fill=C.ONE)
+
+    def _bookmark(self, canvas: Canvas) -> None:
+        left = C.PDF_PAGE_WIDTH - C.PDF_MARGIN - C.RPT_BOOKMARK_WIDTH
+        right = left + C.RPT_BOOKMARK_WIDTH
+        bottom = C.PDF_PAGE_HEIGHT - C.RPT_BOOKMARK_LENGTH
+        path = canvas.beginPath()
+        path.moveTo(left, C.PDF_PAGE_HEIGHT)
+        path.lineTo(right, C.PDF_PAGE_HEIGHT)
+        path.lineTo(right, bottom)
+        path.lineTo((left + right) / C.TWO, bottom + C.RPT_BOOKMARK_NOTCH)
+        path.lineTo(left, bottom)
+        path.close()
+        canvas.setFillColor(paint(S.RPT_HEX_AMBER))
+        canvas.drawPath(path, stroke=C.ZERO, fill=C.ONE)
 
     def finish_page(self, canvas: Canvas, document: BaseDocTemplate) -> None:
         left = float(C.PDF_MARGIN)

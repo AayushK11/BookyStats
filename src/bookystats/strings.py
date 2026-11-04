@@ -4,6 +4,271 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
+EM3_MODEL: Final = "BAAI/bge-small-en-v1.5"
+EM3_REPOSITORY: Final = "Qdrant/bge-small-en-v1.5-onnx-Q"
+EM3_REVISION: Final = "aa8f8b060edb00e03bfdd08813a2949946c8ba55"
+EM3_FASTEMBED_VERSION: Final = "0.9.1"
+EM3_FASTEMBED_PACKAGE: Final = "fastembed"
+EM3_FASTEMBED_GPU_PACKAGE: Final = "fastembed-gpu"
+EM3_ONNX_GPU_PACKAGE: Final = "onnxruntime-gpu"
+EM3_ONNX_DIRECTML_PACKAGE: Final = "onnxruntime-directml"
+EM3_AUTO: Final = "auto"
+EM3_CPU: Final = "cpu"
+EM3_CUDA: Final = "cuda"
+type EmbeddingAcceleration = Literal["auto", "cpu", "cuda"]
+EM3_CPU_PROVIDER: Final = "CPUExecutionProvider"
+EM3_CUDA_PROVIDER: Final = "CUDAExecutionProvider"
+EM3_ADAPTIVE_POLICY: Final = "exclusive-runtime/cuda-if-usable/explicit-cpu-fallback/v1"
+EM3_ADAPTIVE_FINGERPRINT: Final = "bookystats-local-description-v2:{digest}"
+EM3_CUDA_GPU_MEM_LIMIT: Final = "gpu_mem_limit"
+EM3_CUDA_ARENA_EXTEND_STRATEGY: Final = "arena_extend_strategy"
+EM3_CUDA_ARENA_SAME_AS_REQUESTED: Final = "kSameAsRequested"
+EM3_POLICY: Final = "exact-utf8/no-prefix/bert-512-truncate/cls/l2-f64/v1"
+EM3_FINGERPRINT: Final = "bookystats-local-cpu-description-v1:{digest}"
+EM3_PUBLIC_ASSET_URL: Final = "https://huggingface.co/{repo}/resolve/{revision}/{name}"
+EM3_MODELS_FOLDER: Final = "models"
+EM3_VECTORS_FOLDER: Final = "vectors"
+EM3_FASTEMBED_FOLDER: Final = "fastembed"
+EM3_CACHE_SUFFIX: Final = ".json"
+EM3_PART_SUFFIX: Final = ".part"
+EM3_WRITE_BINARY: Final = "xb"
+EM3_READ_BINARY: Final = "rb"
+EM3_GET: Final = "GET"
+EM3_HASH_PATTERN: Final = r"[0-9a-f]{64}"
+EM3_CONFIG_FILE: Final = "config.json"
+EM3_MODEL_FILE: Final = "model_optimized.onnx"
+EM3_ORT_FILE: Final = "ort_config.json"
+EM3_SPECIAL_TOKENS_FILE: Final = "special_tokens_map.json"
+EM3_TOKENIZER_FILE: Final = "tokenizer.json"
+EM3_TOKENIZER_CONFIG_FILE: Final = "tokenizer_config.json"
+EM3_VOCAB_FILE: Final = "vocab.txt"
+EM3_NOTICE_FILE: Final = "README.md"
+EM3_CONFIG_HASH: Final = "13582bcf2effc85b7bf3d3f5532e686bc1c9ce86bb009d10f0ec33cbe92299dd"
+EM3_MODEL_HASH: Final = "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431"
+EM3_ORT_HASH: Final = "99881c45e073696289224931dd48694398bc6bcd1fe7cb7018bca1e0cc00e1fc"
+EM3_SPECIAL_TOKENS_HASH: Final = "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a"
+EM3_TOKENIZER_HASH: Final = "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+EM3_TOKENIZER_CONFIG_HASH: Final = (
+    "0b29c7bfc889e53b36d9dd3e686dd4300f6525110eaa98c76a5dafceb2029f53"
+)
+EM3_VOCAB_HASH: Final = "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3"
+EM3_NOTICE_HASH: Final = "01e220eed6921254f7e086bb3506d1c03f019f5f747bb9ac2f6ec5ce541edc12"
+EM3_CACHE_ERROR: Final = (
+    "Local embedding vector cache is unreadable, corrupt or incompatible; "
+    "preserve it for inspection and restore a verified cache or use a new managed directory."
+)
+EM3_ASSET_ERROR: Final = (
+    "Local embedding model asset integrity failed; no replacement was attempted. "
+    "Restore verified pinned assets or use a new managed directory."
+)
+EM3_DOWNLOAD_ERROR: Final = (
+    "Pinned public embedding model download failed; no inference request or source fallback "
+    "was made. Check connectivity and retry, or provision the verified assets offline."
+)
+EM3_OFFLINE_ERROR: Final = (
+    "Pinned local embedding model assets are missing and downloads are disabled. "
+    "Provision the verified model assets or explicitly allow their public download."
+)
+EM3_RUNTIME_ERROR: Final = (
+    "Local embedding runtime could not load or encode. Check the supported FastEmbed "
+    "installation and verified model assets; no remote inference or model replacement "
+    "was attempted."
+)
+EM3_VERSION_ERROR: Final = (
+    "Local embeddings require exactly one FastEmbed distribution at version 0.9.1."
+)
+EM3_PROFILE_CONFLICT: Final = (
+    "Conflicting local embedding distributions are installed. Use a clean environment with "
+    "either fastembed plus onnxruntime, or fastembed-gpu plus onnxruntime-gpu; never both variants "
+    "or an additional DirectML runtime."
+)
+EM3_PROFILE_MISSING: Final = (
+    "A matched local embedding runtime is missing. Install the CPU profile "
+    "(fastembed==0.9.1 plus onnxruntime), or explicitly provision the optional CUDA profile "
+    "(fastembed-gpu==0.9.1 plus onnxruntime-gpu) in a clean environment."
+)
+EM3_PROFILE_MISMATCH: Final = (
+    "Local embedding distributions do not match. Pair fastembed with onnxruntime, "
+    "or fastembed-gpu with onnxruntime-gpu in a clean environment."
+)
+EM3_CUDA_PROFILE_REQUIRED: Final = (
+    "CUDA encoding requires the exclusive fastembed-gpu==0.9.1 and onnxruntime-gpu profile; "
+    "the normal CPU profile cannot provide CUDA execution."
+)
+EM3_CUDA_REQUIRED: Final = (
+    "CUDA encoding was requested, but a usable CUDAExecutionProvider could not be established. "
+    "No CPU fallback or remote inference was used for this request."
+)
+EM3_VECTOR_ERROR: Final = "Local embedding output has invalid count, dimension or numeric values."
+EM3_OPTIONS_ERROR: Final = (
+    "Local embedding acceleration, thread, batch or input limits are invalid."
+)
+EM3_TEST_TEXT: Final = "A navigator explores a distant ocean and discovers an abandoned city."
+EM3_TEST_OTHER_TEXT: Final = "A family builds a small garden and learns to grow vegetables."
+EM3_TEST_CHANGED_TEXT: Final = "A navigator explores a distant ocean and finds a hidden city."
+EM3_TEST_DIRECTORY: Final = "local model assets with spaces"
+EM3_TEST_FINGERPRINT: Final = "synthetic-runtime-fingerprint"
+EM3_TEST_MODEL_ENV: Final = "BOOKYSTATS_TEST_MODEL"
+EM3_TEST_MODEL_ENABLED: Final = "1"
+EM3_TEST_LIVE_SKIP: Final = "Set BOOKYSTATS_TEST_MODEL=1 to download and test the public CPU model."
+EM3_TEST_CACHE_FOLDER_ENV: Final = "BOOKYSTATS_TEST_MODEL_DIRECTORY"
+EM3_TEST_FIXTURE_BYTES: Final = b"synthetic pinned asset"
+EM3_TEST_CORRUPT_BYTES: Final = b"corrupt"
+EM3_TEST_LOAD_MODEL: Final = "_load_model"
+EM3_TEST_ENSURE_ASSETS: Final = "_ensure_assets"
+EM3_TEST_DOWNLOAD: Final = "_download_asset"
+EM3_TEST_ASSETS: Final = "EM3_ASSETS"
+EM3_TEST_DIMENSION: Final = "dimension"
+EM3_TEST_HASH: Final = "sha256"
+EM3_TEST_VECTOR: Final = "vector"
+EM3_TEST_RECORD: Final = "record"
+EM3_TEST_RUNTIME_FAILURE: Final = "private text must never appear in diagnostics"
+EM3_NAN: Final = "nan"
+EM3_INF: Final = "inf"
+EM3_TEST_CLIENT: Final = "Client"
+EM3_TEST_VERSION: Final = "version"
+EM3_TEST_FACTORY: Final = "TextEmbedding"
+EM3_TEST_MODULE_FINGERPRINT: Final = "_fingerprint"
+EM3_TEST_BAD_CASES: Final = "case"
+EM3_TEST_SHORT_VECTOR: Final = "short_vector"
+EM3_TEST_ZERO_VECTOR: Final = "zero_vector"
+EM3_TEST_NAN_VECTOR: Final = "nan_vector"
+EM3_TEST_INF_VECTOR: Final = "inf_vector"
+EM3_TEST_EXTRA_VECTOR: Final = "extra_vector"
+EM3_TEST_MISSING_VECTOR: Final = "missing_vector"
+EM3_TEST_TEXT_VECTOR: Final = "text_vector"
+EM3_TEST_BOOLEAN_VECTOR: Final = "boolean_vector"
+EM3_TEST_MODEL_NAME_KEY: Final = "model_name"
+EM3_TEST_PROVIDERS_KEY: Final = "providers"
+EM3_TEST_LOCAL_KEY: Final = "local_files_only"
+EM3_TEST_PATH_KEY: Final = "specific_model_path"
+EM3_TEST_THREADS_KEY: Final = "threads"
+EM3_TEST_ARENA_KEY: Final = "enable_cpu_mem_arena"
+EM3_TEST_CUDA_KEY: Final = "cuda"
+EM3_TEST_AUTHORIZATION: Final = "authorization"
+EM3_JSON_PATTERN: Final = "*.json"
+EM3_PART_PATTERN: Final = "*.part"
+EM3_TEST_TRUST_ENV: Final = "trust_env"
+EM3_ONNX_PACKAGE: Final = "onnxruntime"
+EM3_NUMPY_PACKAGE: Final = "numpy"
+EM3_TOKENIZERS_PACKAGE: Final = "tokenizers"
+EM3_PACKAGE_MISSING: Final = "not-installed"
+EM3_TEST_EXTRA_NONE_VECTOR: Final = "extra_none_vector"
+EM3_TEST_LIVE_TEXT: Final = "{text} Synthetic test case {nonce}."
+EM3_TEST_LIMIT_FIELDS: Final = "threads,batch_size"
+EM3_TEST_UNICODE_HASH: Final = "é"
+EM3_TEST_DIGEST_FIELDS: Final = "digest"
+EM3_TEST_MODEL_ATTRIBUTE: Final = "model"
+EM3_TEST_SOCKET_CONNECT: Final = "connect"
+EM3_PROGRESS_CACHE: Final = (
+    "Local embeddings: {cached}/{total} unique descriptions reused from verified cache; "
+    "{pending} require local encoding."
+)
+EM3_PROGRESS_ASSETS: Final = "Checking pinned public embedding model assets."
+EM3_PROGRESS_INITIALIZING: Final = "Initializing the verified local embedding runtime."
+EM3_PROGRESS_BATCH: Final = (
+    "Local embeddings: {encoded}/{pending} new descriptions encoded; "
+    "{cached}/{total} unique descriptions reused from cache."
+)
+EM3_PROGRESS_CACHE_ONLY: Final = (
+    "Local embeddings: {cached}/{total} unique descriptions reused from verified cache; "
+    "no current inference device was used for this request."
+)
+EM3_PROGRESS_CPU: Final = "Local embedding execution: CPUExecutionProvider (local CPU)."
+EM3_PROGRESS_CUDA: Final = (
+    "Local embedding execution: CUDAExecutionProvider is active; CPU fallback operators may "
+    "also execute. GPU speedup has not been measured."
+)
+EM3_PROGRESS_CUDA_UNAVAILABLE: Final = (
+    "The optional CUDA profile has no available CUDAExecutionProvider; falling back to local CPU."
+)
+EM3_PROGRESS_CUDA_INCOMPATIBLE: Final = (
+    "CUDA hardware/runtime initialization is incompatible or the session fell back implicitly; "
+    "using the local CPU explicitly."
+)
+EM3_CUDA_FAILED_LOAD: Final = "failed to load library"
+EM3_CUDA_LOAD_LIBRARY_FAILED: Final = "loadlibrary failed"
+EM3_CUDA_PROVIDER_LIBRARY: Final = "onnxruntime_providers_cuda"
+EM3_CUDA_INSUFFICIENT_DRIVER: Final = "cuda failure 35:"
+EM3_CUDA_NO_DEVICE: Final = "cuda failure 100:"
+EM3_CUDA_DRIVER_MISMATCH: Final = "cuda failure 803:"
+EM3_CUDA_FORWARD_COMPATIBILITY: Final = "cuda failure 804:"
+EM3_TEST_ONNX_VERSION: Final = "1.31.1"
+EM3_TEST_GPU_ONNX_VERSION: Final = "1.26.0"
+EM3_TEST_NUMPY_VERSION: Final = "2.5.4"
+EM3_TEST_TOKENIZERS_VERSION: Final = "0.23.3"
+EM3_TEST_PROVIDER_PROBE: Final = "_available_providers"
+EM3_TEST_SESSION_PROVIDERS: Final = "_session_providers"
+EM3_TEST_CPU_FINGERPRINT: Final = (
+    "bookystats-local-cpu-description-v1:"
+    "daa7a2bd83259a2f80d4c6033c9b8d3debc169d0ba9c25791446f7aa96897548"
+)
+EM3_TEST_CUDA_LOAD_FAILURE: Final = (
+    "Failed to load library onnxruntime_providers_cuda.dll with error: unavailable runtime."
+)
+EM3_TEST_AZURE_PROVIDER: Final = "AzureExecutionProvider"
+EM3_TEST_COREML_PROVIDER: Final = "CoreMLExecutionProvider"
+EM3_TEST_CUDA_FIELDS: Final = "acceleration"
+EM3_TEST_PACKAGE_FIELDS: Final = "extra"
+EM3_TEST_CPU_FALLBACK_FIELDS: Final = "implicit"
+EM3_TEST_CUDA_FAILURE_FIELDS: Final = "failure"
+EM3_TEST_CUDA_MISSING: Final = "missing"
+EM3_TEST_CUDA_IMPLICIT: Final = "implicit"
+EM3_TEST_CUDA_DRIVER: Final = "driver"
+EM3_TEST_EMBED: Final = "embed"
+EM3_TEST_IMPORT_MODULE: Final = "import_module"
+EM3_TEST_CUDA_FALLBACK_ENV: Final = "BOOKYSTATS_TEST_CUDA_FALLBACK"
+EM3_TEST_CUDA_FALLBACK_SKIP: Final = (
+    "Set BOOKYSTATS_TEST_CUDA_FALLBACK=1 in an exclusive CUDA profile on a CPU-only host."
+)
+EM3_TEST_PYTHON_COMMAND: Final = "-c"
+EM3_TEST_OFFLINE_CACHE_PROCESS: Final = """
+import builtins
+import json
+import socket
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+original_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name in ("fastembed", "onnxruntime") or name.startswith(("fastembed.", "onnxruntime.")):
+        raise AssertionError("Runtime import attempted during verified vector-cache reuse")
+    return original_import(name, *args, **kwargs)
+
+with patch.object(builtins, "__import__", side_effect=guarded_import), patch.object(
+    socket.socket, "connect", side_effect=AssertionError("Network attempted during offline reuse")
+):
+    from bookystats.adapters.embeddings import LocalDescriptionEncoder
+    vectors = LocalDescriptionEncoder(Path(sys.argv[1]), allow_download=False).encode(
+        tuple(json.loads(sys.argv[2]))
+    )
+    print(json.dumps(vectors))
+"""
+
+WIKIDATA: Final = "wikidata"
+WIKIDATA_HOST: Final = "www.wikidata.org"
+WIKIDATA_NAME: Final = "Wikidata"
+WIKIDATA_WORK_URL: Final = "https://www.wikidata.org/wiki/{v0}"
+WIKIDATA_ID_PATTERN: Final = r"Q[1-9]\d*"
+WIKIDATA_QUERY_ACTION: Final = "action"
+WIKIDATA_QUERY_SEARCH: Final = "search"
+WIKIDATA_QUERY_IDS: Final = "ids"
+WIKIDATA_QUERY_PROPS: Final = "props"
+WIKIDATA_QUERY_FORMAT: Final = "format"
+WIKIDATA_QUERY_MAXLAG: Final = "maxlag"
+WIKIDATA_QUERY_CONTINUE: Final = "continue"
+WIKIDATA_QUERY_SEARCH_CONTINUE: Final = "search-continue"
+WIKIDATA_QUERY_SRSEARCH: Final = "srsearch"
+WIKIDATA_QUERY_SRLIMIT: Final = "srlimit"
+WIKIDATA_QUERY_SRNAMESPACE: Final = "srnamespace"
+WIKIDATA_QUERY_LIST: Final = "list"
+WIKIDATA_SCOPE: Final = "supplementary_work_metadata"
+WIKIDATA_MATCH_REASON: Final = "Exact title/author identity agrees for a public Wikidata work."
+WIKIDATA_TEST_ID: Final = "Q123456"
+WIKIDATA_TEST_YEAR: Final = "1844"
+WIKIDATA_TEST_RETRY_FIELDS: Final = "retry_header,expected_delay"
+
 # Live metadata run policy and regression cases.
 META_RUN_LANGUAGE_PATTERN: Final = "[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*"
 META_RUN_HALTED_MESSAGE: Final = (
@@ -2055,7 +2320,7 @@ ObservationScope = Literal["reader", "work", "edition"]
 DatePrecision = Literal["year", "month", "day"]
 
 IMPORT_TITLE: Final = "Title"
-IMPORT_PROCESSING_VERSION: Final = "csv-v7-storygraph-dates-raw-only"
+IMPORT_PROCESSING_VERSION: Final = "csv-v9-labeled-catalog-publications"
 IMPORT_AUTHOR: Final = "Author"
 IMPORT_AUTHORS: Final = "Authors"
 IMPORT_BOOK_ID: Final = "Book Id"
@@ -2482,11 +2747,12 @@ REPORT_ISSUE_LINE: Final = "    {code}: {message}"
 REPORT_REPEATED_ISSUE_LINE: Final = "    {code}: {message} ({count} occurrences)"
 REPORT_MORE_ISSUES_LINE: Final = "    {count} additional issues (grouped in the run log)."
 REPORT_METADATA_LINE: Final = (
-    "  {provider}: {state}; {processed} lookups completed, {deferred} deferred"
+    "  {provider}: {state}; {processed} complete lookup outcomes, {deferred} books waiting"
 )
 REPORT_METADATA_CORE_SCOPE: Final = (
-    "    Core-gap fallback: {skipped} source records skipped by strategy; "
-    "{unresolved} still lack core coverage. This is not full provider coverage."
+    "    Fill-in lookup: {skipped} source records did not need this pass; "
+    "{unresolved} still lack usable descriptions or recognized genres. "
+    "This pass is not a full provider search for every book."
 )
 REPORT_CHECKS_HEADING: Final = "Checks"
 REPORT_CHECK_LINE: Final = "  {marker:<9} {source} {name}: {detail}"
@@ -2643,7 +2909,10 @@ STORYGRAPH_READ_SCOPE_VERIFY_DIFFER: Final = (
 STORYGRAPH_READ_SCOPE_TEST_MISSING_CSV: Final = "Title,Authors\nA Synthetic Book,Ada Example\n"
 IMPORT_BROWSER_ISBN_PATTERN: Final = r" isbn (?P<value>\S+) isbn13 "
 IMPORT_BROWSER_ISBN13_PATTERN: Final = r" isbn13 (?P<value>\S+) asin "
-IMPORT_BROWSER_PAGES_PATTERN: Final = r" num pages (?P<value>[0-9]+) pp avg rating "
+IMPORT_BROWSER_PAGE_NUMBER_PATTERN: Final = r"(?:[1-9][0-9]{0,2}(?:,[0-9]{3})+|[0-9]+)"
+IMPORT_BROWSER_PAGES_PATTERN: Final = (
+    r" num pages (?P<value>" + IMPORT_BROWSER_PAGE_NUMBER_PATTERN + r") pp avg rating "
+)
 IMPORT_BROWSER_RATING_PATTERN: Final = r" avg rating (?P<value>[0-5](?:\.[0-9]+)?) num ratings "
 IMPORT_BROWSER_RATINGS_PATTERN: Final = r" num ratings (?P<value>[0-9]+(?:,[0-9]{3})*) date pub "
 IMPORT_BROWSER_ADDED_PATTERN: Final = (
@@ -2655,7 +2924,9 @@ IMPORT_BROWSER_FIRST_PUBLISHED_PATTERN: Final = (
     r"First published (?P<value>[A-Za-z]+ [0-9]{1,2}, [0-9]{4}|[A-Za-z]+ [0-9]{4}|[0-9]{4})"
     r"(?: Book details|$)"
 )
-IMPORT_BROWSER_PAGE_DETAILS_PATTERN: Final = r"^(?P<value>[0-9]+) pages,"
+IMPORT_BROWSER_PAGE_DETAILS_PATTERN: Final = (
+    r"^(?P<value>" + IMPORT_BROWSER_PAGE_NUMBER_PATTERN + r") pages,"
+)
 IMPORT_BROWSER_GENRE_SEPARATOR: Final = "|"
 IMPORT_BROWSER_FIRST_PUBLICATION: Final = "first_publication_date"
 RAW_MIGRATE_COLLECTION: Final = (
@@ -3057,7 +3328,7 @@ AN_INPUT_METADATA: Final = (
 AN_UNKNOWN_DIMENSION: Final = "Unknown reading-appetite dimension."
 AN_INVALID_PREFERENCES: Final = "Declared preferences need known dimensions and values from 0 to 1."
 AN_WORK_ID: Final = "work:{work_id}"
-AN_CALCULATION_VERSION: Final = "analytics-v8-goodreads-dates-rating-tiers"
+AN_CALCULATION_VERSION: Final = "analytics-v11-wikidata-work-evidence"
 AN_SUPPORTED: Final = "supported"
 AN_SUBSET: Final = "subset"
 AN_NEEDS_ENRICHMENT: Final = "needs_enrichment"
@@ -3141,6 +3412,7 @@ PROD_STAGE_FINISHED: Final = "Run {run_id} finished: {state}."
 PROD_ANALYTICS_STAGE: Final = "analytics"
 PROD_REPORTS_FOLDER: Final = "reports"
 PROD_BUNDLE_NAME: Final = "report-{report_id}"
+PROD_BUNDLE_REVISION_NAME: Final = "report-{report_id}-revision-{revision}"
 PROD_PENDING_PREFIX: Final = ".pending-report-"
 PROD_LATEST_FILE: Final = "latest.json"
 PROD_MANIFEST_FILE: Final = "manifest.json"
@@ -4131,6 +4403,62 @@ META_COVERAGE_WORK_FIXTURE: Final = "open_library_work.json"
 META_COVERAGE_TEST_FIRST_DATE: Final = "1988-10"
 META_COVERAGE_TEST_FIRST_YEAR: Final = "1988"
 META_COVERAGE_TEST_DETAILS_TEXT: Final = "A synthetic public catalog description, not a review."
+METADATA_PREVIEW_ELLIPSIS: Final = "…"
+METADATA_PREVIEW_DOTS: Final = "..."
+METADATA_TEST_PREVIEW: Final = "A mysterious prisoner escapes and seeks revenge against…"
+METADATA_TEST_RICH_DESCRIPTION: Final = (
+    "A mysterious prisoner escapes and seeks revenge against those who betrayed him. "
+    "His journey explores justice, friendship, and the cost of vengeance."
+)
+METADATA_TEST_GROUPED_PAGES: Final = "1,276"
+METADATA_TEST_PLAIN_PAGES: Final = "1276"
+METADATA_TEST_PAGE_DETAILS: Final = "1,276 pages, Paperback"
+METADATA_TEST_BAD_PAGE_GROUPS: Final = "1,27"
+METADATA_TEST_BAD_PAGE_DECIMAL: Final = "1.276"
+METADATA_TEST_BAD_PAGE_GROUPING: Final = "12,76"
+METADATA_TEST_PAGE_FIELD_PARAMETERS: Final = "details_pages,direct_pages,expected"
+METADATA_TEST_PAGE_LABEL: Final = "num pages 240 pp"
+METADATA_TEST_PAGE_LABEL_TEMPLATE: Final = "num pages {pages} pp"
+METADATA_ROW_PUBLICATIONS_PATTERN: Final = (
+    r" date pub (?P<work>.*?) date pub edition (?P<edition>.*?)"
+    r" (?=[^ ]+'s rating |my rating )"
+)
+METADATA_ROW_PUBLICATION_LABEL: Final = " date pub "
+METADATA_NOT_SET: Final = "not set"
+METADATA_DIRECT_WORK_PUBLICATION: Final = "goodreads_direct_first_publication_date"
+METADATA_DIRECT_EDITION_PUBLICATION: Final = "goodreads_direct_edition_publication_date"
+METADATA_ROW_WORK_PUBLICATION: Final = "goodreads_row_first_publication_date"
+METADATA_ROW_EDITION_PUBLICATION: Final = "goodreads_row_edition_publication_date"
+METADATA_PUBLICATION_CONFLICT: Final = "goodreads_publication_conflict"
+METADATA_PUBLICATION_CONFLICT_MESSAGE: Final = (
+    "Export record {row}: conflicting direct and labeled catalog dates for {field}; "
+    "both observations are retained and the selected date is unknown."
+)
+METADATA_PUBLICATION_CONFLICT_DIAGNOSTIC: Final = (
+    "Direct and labeled Goodreads catalog dates disagree; the selected date is unknown. "
+    "Original observations and CSV lineage are retained."
+)
+METADATA_GENRE_HISTORICAL: Final = "fiction / historical"
+METADATA_GENRE_TRADITIONAL_MYSTERY: Final = "fiction / mystery & detective / traditional"
+METADATA_GENRE_WOMEN_SLEUTHS: Final = "fiction / mystery & detective / women sleuths"
+METADATA_GENRE_ROMANTIC_COMEDY: Final = "fiction / romance / romantic comedy"
+METADATA_GENRE_JUVENILE_FANTASY: Final = "juvenile fiction / fantasy & magic"
+METADATA_GENRE_HORROR_STORIES: Final = "horror stories"
+METADATA_GENRE_TEST_PARAMETERS: Final = "label,family"
+METADATA_TEST_DATE_PARAMETERS: Final = "direct,work,edition,expected_work,expected_edition,conflict"
+METADATA_TEST_DATE_LABELS: Final = "date pub April 6, 2025 date pub edition April 6, 2025"
+METADATA_TEST_DATE_LABELS_TEMPLATE: Final = "date pub {work} date pub edition {edition}"
+METADATA_TEST_DIRECT_YEAR: Final = "First published 2025"
+METADATA_TEST_DIRECT_DAY: Final = "First published April 7, 2025 Book details"
+METADATA_TEST_DIRECT_EDITION: Final = "Published April 7, 2025 Book details"
+METADATA_TEST_DIRECT_INVALID: Final = "First published February 30, 2025 Book details"
+METADATA_TEST_WORK_YEAR: Final = "1999"
+METADATA_TEST_EDITION_DAY: Final = "2003-03-27"
+METADATA_TEST_DATE_DAY: Final = "2025-04-06"
+METADATA_TEST_DATE_YEAR: Final = "2025"
+METADATA_TEST_DATE_MONTH: Final = "2025-04"
+METADATA_TEST_AMBIGUOUS_DATE: Final = "03/04/2025"
+METADATA_TEST_BAD_ROW_LABELS: Final = "date pub April 6, 2025 edition April 6, 2025"
 META_COVERAGE_TEST_UNKNOWN_KEY: Final = "future_catalog_field"
 META_COVERAGE_TEST_UNKNOWN_VALUE: Final = "Preserved verbatim."
 META_COVERAGE_TEST_BAD_DATE: Final = "circa an unknown century"
@@ -4149,7 +4477,7 @@ META_COVERAGE_TEST_SERIES_ID: Final = "OL123L"
 META_COVERAGE_TEST_BAD_SERIES_REFERENCE: Final = "/series/OL123W"
 
 # CONTENT_ANALYSIS: internal catalog-text rules, not an assessment or preference model.
-CONTENT_ANALYSIS_VERSION: Final = "catalog-mentions-v2"
+CONTENT_ANALYSIS_VERSION: Final = "catalog-mentions-v3-public-descriptors"
 CONTENT_ANALYSIS_THEMES: Final = "content.themes.{collection}"
 CONTENT_ANALYSIS_HUNGERS: Final = "content.hunger_mentions.{collection}"
 CONTENT_ANALYSIS_UNIT: Final = "distinct_work_catalog_mentions"
@@ -4413,7 +4741,7 @@ DR_TEST_TAMPER_RETRY: Final = (
 MQ_IDENTITY_PARAMETERS: Final = "field,original_value,changed_value"
 
 # Exact analytical genre-family vocabulary; provider observations remain unchanged.
-ANALYTIC_CATEGORY_VERSION: Final = "genre-families-v3-evidence-aliases"
+ANALYTIC_CATEGORY_VERSION: Final = "genre-families-v4-exact-catalog-aliases"
 ENR_CATALOG_KEYS: Final = (
     "SELECT cache_key FROM metadata_cache WHERE provider = ? ORDER BY cache_key"
 )
@@ -5425,7 +5753,111 @@ MQ_REPORT_TEST_OTHER_DESCRIPTION: Final = "An alternative public catalog synopsi
 MQ_REPORT_TEST_LANGUAGE_URL: Final = "https://www.goodreads.com/book/show/123?token=redacted"
 MQ_REPORT_KEY_SETTINGS_HASH: Final = "settings_hash"
 
-REC_POLICY_VERSION: Final = "watchlist-baseline-v1"
+REC_POLICY_VERSION: Final = "watchlist-hybrid-v3"
+REC3_PREVIOUS_POLICY: Final = "watchlist-evidence-v2"
+REC3_MODEL: Final = "encoder_fingerprint"
+REC3_DOCUMENTS: Final = "description_fingerprint"
+REC3_LEARNING: Final = "learning"
+REC3_RANKING_EVALUATION: Final = "ranking_evaluation"
+REC3_NEIGHBORS: Final = "semantic_neighbors"
+REC3_EXCERPT: Final = "description_excerpt"
+REC3_PUBLIC_URL: Final = "description_url"
+REC3_METHOD: Final = "ranking_method"
+REC3_SHORTLIST_NOTE: Final = "shortlist_note"
+REC3_CURRENT: Final = "current-evidence"
+REC3_HYBRID: Final = "learned-hybrid"
+REC3_FEATURE: Final = "shared_features"
+REC3_SEMANTIC: Final = "description_similarity"
+REC3_LENGTH: Final = "length_similarity"
+REC3_ERA: Final = "publication_era_similarity"
+REC3_LEARNED_LABEL: Final = "Training-only learned blend"
+REC3_LEARNED_REASON: Final = (
+    "Uses weights learned from held-out predictions within your personally rated Read books. "
+    "This is an ordering signal, not a predicted star rating or enjoyment probability."
+)
+REC3_SIMILAR_REASON: Final = (
+    "Public-blurb resemblance to personally rated Read books is shown as context; "
+    "it does not establish shared themes or the contents of the whole book."
+)
+REC3_DIVERSITY_NOTE: Final = (
+    "Chosen for variety among comparably scored eligible books; "
+    "author caps and verified series order still apply."
+)
+REC3_SCOPE: Final = (
+    "English public-blurb embeddings are approximate, may truncate long descriptions, "
+    "and cannot recover missing blurbs. Missing channels are neutral, not dislikes. "
+    "Weights use training-only connected-coauthor cross-fitting. "
+    "Retrospective ranking evidence is not future recommendation accuracy."
+)
+REC3_DISABLED: Final = "not-configured"
+REC3_RECOMMENDATIONS: Final = "recommendations"
+REC3_RUNTIME_FOLDER: Final = "recommendations"
+REC3_PDF_SUMMARY: Final = (
+    "Ranking check: {status}. Learned scoring: {active}. "
+    "{descriptions} works have usable public blurbs; {encoded} were represented locally."
+)
+REC3_PDF_ACTIVE: Final = "active"
+REC3_PDF_INACTIVE: Final = "not activated"
+REC3_PDF_NEIGHBOR: Final = (
+    "Similar public blurb: {title} (your rating {rating}/5). "
+    "Blurb similarity is context, not proof of shared themes."
+)
+REC3_INVALID_VECTORS: Final = "Description encoder returned invalid or incompatible vectors."
+REC3_NO_LEARNED_SCORE: Final = (
+    "The learned scorer has no supported, nonzero-weight channel for this book; "
+    "the older heuristic was not silently substituted."
+)
+REC3_SHARED_LABEL: Final = "Shared authors and supported genres/appetites"
+REC3_SEMANTIC_LABEL: Final = "Similar public blurbs"
+REC3_LENGTH_LABEL: Final = "Comparable book lengths"
+REC3_ERA_LABEL: Final = "Original publication era"
+REC3_USABLE_DESCRIPTIONS: Final = "usable_description_works"
+REC3_ENCODED_DESCRIPTIONS: Final = "encoded_description_works"
+REC3_TEST_ENCODER: Final = "synthetic-encoder-v1"
+REC3_TEST_OTHER_ENCODER: Final = "synthetic-encoder-v2"
+REC3_TEST_ENCODER_FAILURE: Final = "Synthetic encoder failure"
+REC3_TEST_POSITIVE: Final = "synthetic-positive"
+REC3_TEST_NEGATIVE: Final = "synthetic-negative"
+REC3_LOG_REUSED: Final = "Recommendations: reusing verified saved results; no model work."
+REC3_LOG_ENCODING: Final = (
+    "Recommendations: representing {count} public blurbs locally on CPU. "
+    "First use may download verified model assets; book data stays on this machine."
+)
+REC3_LOG_EVALUATING: Final = (
+    "Recommendations: evaluating a learned blend on {count} personally rated Read works; "
+    "connected coauthors stay together."
+)
+REC3_LOG_FINISHED: Final = (
+    "Recommendations ready: {ranked} ranked, {abstained} abstained, {shortlist} shortlisted. "
+    "Learned scoring: {active}."
+)
+REC3_LEARNER_VERSION: Final = "cross-fitted-nonnegative-hybrid-v1"
+REC3_PDF_SIGNALS: Final = (
+    "Patterns used for ordering: {signals}. Zero-weight channels are not applied."
+)
+REC3_PDF_RANKING_DETAIL: Final = (
+    "In the same {count} held-out Read works, highly rated books occupied {candidate} of "
+    "test top-ten slots with the learned blend, versus {current} with current scoring "
+    "and {length} with the simple length baseline. "
+    "These are retrospective comparisons, not your future odds of liking a book."
+)
+REC3_KEY_CANDIDATE: Final = "candidate"
+REC3_KEY_CURRENT: Final = "current"
+REC3_KEY_LENGTH: Final = "length"
+REC3_KEY_METRICS: Final = "metrics"
+REC3_KEY_PRECISION: Final = "precision_at_10"
+REC3_KEY_COHORT: Final = "cohort_size"
+REC3_KEY_WEIGHTS: Final = "weights"
+REC3_KEY_CHANNEL: Final = "channel"
+REC3_KEY_WEIGHT: Final = "weight"
+REC3_KEY_LEARNER_VERSION: Final = "learning_version"
+REC3_NOT_CONVERGED: Final = (
+    "Recommendation weight fitting did not converge within its bounded iteration limit; "
+    "last-good reports are retained."
+)
+REC3_PREVIOUS_RANKING_VERSION: Final = "grouped-ranking-v1"
+REC3_KEY_VS_LENGTH: Final = "candidate_vs_length"
+REC3_KEY_FOLDS: Final = "folds"
 REC_RANKED: Final = "ranked"
 REC_UNRANKABLE: Final = "unrankable"
 REC_EXCLUDED: Final = "excluded"
@@ -5605,6 +6037,105 @@ REC_TEST_FUTURE_MONTH: Final = "2026-12"
 REC_TEST_CURRENT_YEAR: Final = "2026"
 REC_TEST_SERIES: Final = "Verified recommendation series"
 REC_TEST_PUBLICATION: Final = "date,scope,field,reason"
+REC2_EVALUATION: Final = "evaluation"
+REC2_EVALUATION_VERSION: Final = "coauthor-blocked-shadow-v1"
+REC2_LEGACY_POLICY: Final = "watchlist-baseline-v1"
+REC2_ALL_ITEMS: Final = "__all__"
+REC2_TEST_LEGACY_KEY: Final = "historical-recommendation-v1-key"
+REC2_TEST_UNSUPPORTED_POLICY: Final = "watchlist-unsupported-policy"
+REC2_TEST_MUTATION: Final = "mutation,report_row"
+REC2_TEST_BAD_CHECKSUM: Final = "bad_checksum"
+REC2_TEST_NONCANONICAL: Final = "noncanonical"
+REC2_TEST_UNKNOWN_POLICY: Final = "unknown_policy"
+REC2_TEST_EXTRA_EVALUATION: Final = "extra_evaluation"
+REC2_TEST_EXTRA_CONTEXT: Final = "extra_context"
+REC2_TEST_UPDATE_CACHE: Final = (
+    "UPDATE recommendation_cache SET payload = ?, payload_hash = ? WHERE cache_key = ?"
+)
+REC2_TEST_UPDATE_REPORT: Final = (
+    "UPDATE recommendation_reports SET payload = ?, payload_hash = ? WHERE cache_key = ?"
+)
+REC2_SERIES_CONTEXT: Final = "series_context"
+REC2_SERIES_ID: Final = "series_id"
+REC2_POSITION: Final = "position"
+REC2_MEMBERSHIPS: Final = "verified_memberships"
+REC2_EVIDENCE: Final = "recommendation_evidence"
+REC2_SCOPE: Final = "scope"
+REC2_SOURCE_URL: Final = "source_url"
+REC2_PUBLIC_URL: Final = "public_url"
+REC2_EXPLANATION: Final = "explanation"
+REC2_MEAN_MAE: Final = "mean_mae"
+REC2_SIMPLE_MAE: Final = "simple_length_mae"
+REC2_CURRENT_MAE: Final = "current_heuristic_mae"
+REC2_SHADOW_MAE: Final = "shadow_candidate_mae"
+REC2_COHORT: Final = "cohort_size"
+REC2_CURRENT_FALLBACKS: Final = "current_mean_fallbacks"
+REC2_SHADOW_FALLBACKS: Final = "shadow_mean_fallbacks"
+REC2_REASON: Final = "reason"
+REC2_LENGTH: Final = "known_length_cohort"
+REC2_YEAR: Final = "known_original_year_cohort"
+REC2_LOWER: Final = "at_or_below_training_median"
+REC2_UPPER: Final = "above_training_median"
+REC2_QID_PATTERN: Final = r"Q[1-9][0-9]*"
+REC2_URL_PATTERN: Final = r"https://www\.wikidata\.org/wiki/Q[1-9][0-9]*"
+REC2_OL_URL_PATTERN: Final = r"https://openlibrary\.org/works/OL[1-9][0-9]*W"
+REC2_OL_SERIES_PATTERN: Final = r"OL[1-9][0-9]*L"
+REC2_INTEGER_PATTERN: Final = r"[1-9][0-9]*"
+REC2_SERIES_KEY: Final = "{source}:{identifier}"
+REC2_LABEL_KEY: Final = "unambiguous-label:{label}"
+REC2_SERIES_NOTE: Final = (
+    "{name}, catalog position {position}. Earlier eligible watchlist works: {earlier}; "
+    "known completed positions: {completed}. Catalog order is not proof of a strict prerequisite; "
+    "missing records do not prove an installment was never read."
+)
+REC2_NO_KNOWN: Final = "none established"
+REC2_EVALUATION_SCOPE: Final = (
+    "Retrospective held-out personal-rating evaluation, not watchlist recommendation accuracy. "
+    "Connected coauthors stay together; all means, numeric cutoffs and feature vocabularies "
+    "are fitted on training works only. Missing features are not negative outcomes."
+)
+REC2_SHADOW_POLICY: Final = (
+    "Shadow only: length/original-publication-year signals do not affect ranking. "
+    "No automatic activation or held-out tuning. Content-theme candidate unavailable: "
+    "this evaluator does not infer themes or appetites from genres."
+)
+REC2_INSUFFICIENT: Final = (
+    "Unavailable: insufficient rated works with known authors, independent coauthor groups "
+    "or training support. Missing evaluation is not zero error."
+)
+REC2_AVAILABLE: Final = "available"
+REC2_UNAVAILABLE: Final = "unavailable"
+REC2_PDF_SUMMARY: Final = (
+    "Retrospective rating check: {count} same-cohort held-out Read works; mean absolute "
+    "error (stars): training mean {mean}, length-only {simple}, existing heuristic {current}, "
+    "shadow length/year candidate {shadow}. "
+    "Existing/shadow mean fallbacks: {fallback}/{shadow_fallback}."
+)
+REC2_PDF_POLICY: Final = (
+    "Stronger evidence means repeated shared personally rated books, not verified prediction. "
+    "Sparse signals remain limited. Diversity breaks equal-score ties only; verified catalog "
+    "order can move an earlier eligible installment ahead of a later one without changing "
+    "the global ranking. New rating signals remain inactive."
+)
+REC2_TEST_QID: Final = "Q123"
+REC2_TEST_OTHER_QID: Final = "Q789"
+REC2_TEST_OBSERVED_AT: Final = "2001-01-01T00:00:00+00:00"
+REC2_TEST_OBSERVED_KEY: Final = "observed_at"
+REC2_TEST_OBSERVATION_KEY: Final = "observation"
+REC2_TEST_VERSION_KEY: Final = "REC2_EVALUATION_VERSION"
+REC2_NEXT_NOTE: Final = (
+    "This is the next numbered catalog position after a known completed installment, "
+    "not proof that the series requires this reading order."
+)
+REC2_EARLIER_TITLE: Final = "{title} (position {position})"
+REC2_TEST_PUBLIC_URL: Final = "https://www.wikidata.org/wiki/Q457"
+REC2_TEST_URL: Final = "https://www.wikidata.org/wiki/Q456"
+REC2_TEST_OL_URL: Final = "https://openlibrary.org/works/OL123W"
+REC2_TEST_BAD_POSITION: Final = "1.5"
+REC2_TEST_POSITION_ONE: Final = "1"
+REC2_TEST_POSITION_TWO: Final = "2"
+REC2_TEST_POSITION_THREE: Final = "3"
+REC2_TEST_AUTHOR: Final = "Evaluation author {index}"
 
 LOG_FILE_NAME: Final = "bookystats.log"
 LOG_APPEND_MODE: Final = "a"
@@ -5647,7 +6178,7 @@ LOG_TEST_DICT: Final = "private-dict"
 LOG_ANALYTICS_SCOPE: Final = "analytics"
 LOG_DELIVERY_SCOPE: Final = "delivery"
 
-LOG2_SOURCE: Final = "Source {source}/{collection}: {state}; {records:,} active records."
+LOG2_SOURCE: Final = "Imported {source} / {collection}: {records:,} active records ({state})."
 LOG2_PRODUCTS: Final = (
     "Reports: {state}; PDF and JSON bundle published for analytics report {report_id}."
 )
@@ -5687,19 +6218,21 @@ OUTCOME_BOOKS: Final = "{count:,} books"
 OUTCOME_NEEDS_ATTENTION: Final = "needs_attention"
 OUTCOME_HEADLINE: Final = "Outcome: {state} (exit code {exit_code}) after {duration}"
 OUTCOME_COMPLETE: Final = (
-    "Result: {finished} of {total} source imports completed; nothing needs attention."
+    "Result: {finished} of {total} source imports completed. Saved data is ready to use; "
+    "field availability is shown separately."
 )
 OUTCOME_CAUSE_LINE: Final = "Why: {text}"
 OUTCOME_MORE: Final = "Why: {count} further causes are not listed here."
 OUTCOME_NEXT_LINE: Final = "Next: {action}"
 OUTCOME_LOOKUPS: Final = (
-    "Lookups: {provider} {state}; {processed:,} of {requested:,} books processed, "
-    "{deferred:,} deferred, {hits:,} from cache, {network}."
+    "Book details: {provider} {state}; {processed:,} complete lookup outcomes "
+    "from {requested:,} queued books, {deferred:,} still waiting, "
+    "{hits:,} cached responses, {network}."
 )
 OUTCOME_NETWORK: Final = "{count:,} network requests"
 OUTCOME_NETWORK_ONE: Final = "1 network request"
 OUTCOME_NETWORK_UNKNOWN: Final = "network requests not measured"
-OUTCOME_PAUSED: Final = "{provider} is paused until {until}{reason}{waiting}."
+OUTCOME_PAUSED: Final = "{provider} is paused until at least {until}{reason}{waiting}."
 OUTCOME_AFTER_HTTP: Final = " after HTTP {status}"
 OUTCOME_AFTER_PENDING: Final = " after a request that did not finish"
 OUTCOME_WAITING: Final = "; {waiting} waiting"
@@ -5735,7 +6268,8 @@ OUTCOME_UNSPECIFIED: Final = (
     "The run did not finish cleanly and no more specific cause was recorded."
 )
 OUTCOME_ACTION_PAUSED: Final = (
-    "Run booky sync again after {until}; the provider may still ask for more waiting."
+    "Earliest retry: {until}. Run booky sync then or later; "
+    "this is a minimum waiting time, not a promise that provider access will return."
 )
 OUTCOME_ACTION_BUDGET: Final = "Run booky sync again to continue the remaining lookups."
 OUTCOME_ACTION_SIGN_IN: Final = (
@@ -5786,12 +6320,14 @@ OPLOG_SOURCE_UNPUBLISHED: Final = (
     "{source}/{collection}: {state}; no new snapshot published; any last-good snapshot is kept."
 )
 OPLOG_CORE: Final = (
-    "{provider} core-gap fallback: {unresolved:,} records still missing description/genre "
-    "evidence; {skipped:,} strategy skips (not provider matches)."
+    "Book-detail gaps after {provider}: {unresolved:,} records still lack usable descriptions "
+    "or recognized genres; {skipped:,} records did not need this fill-in pass "
+    "(not provider matches)."
 )
 OPLOG_ANALYTICS: Final = (
-    "Analytics: {state}; report {report_id}, {read:,} Read works, {rated:,} rating-linked; "
-    "calculations reused: taste {taste}, watchlist {watchlist}."
+    "Reading portrait: {state}; report {report_id}, {read:,} Read works, "
+    "{rated:,} with linked personal ratings; "
+    "saved calculations reused: reading profile {taste}, watchlist {watchlist}."
 )
 OPLOG_YES: Final = "yes"
 OPLOG_NO: Final = "no"
@@ -5800,7 +6336,8 @@ OPLOG_VERIFICATION_NONE: Final = "Verification: not run."
 OPLOG_CHECK_LINE: Final = "{name} {result}: {detail}"
 OPLOG_CHECKS_MORE: Final = "{count} further checks did not pass and are not listed here."
 OPLOG_ISSUES_HEADING: Final = (
-    "Issues (every occurrence is counted; at most {limit} examples per kind):"
+    "Troubleshooting details (not all notices are errors; every occurrence is counted; "
+    "at most {limit} examples per kind):"
 )
 OPLOG_ISSUES_NONE: Final = "Issues: none."
 OPLOG_ISSUE_COUNT: Final = "{scope} | {code}: {count:,} occurrences"
@@ -5870,12 +6407,127 @@ RUNSUM_TIME_FORMAT: Final = "%Y-%m-%dT%H:%M:%SZ"
 RUNSUM_ATTEMPT_LINE: Final = "Last sync attempt, finished {finished}:"
 RUNSUM_TEXT_LINE: Final = "  {text}"
 RUNSUM_GATE_ACTIVE: Final = (
-    "Retry gate after that attempt: {provider} until {until}, in {remaining}; "
-    "the provider may still refuse."
+    "Earliest saved retry: {provider} at {until}, in {remaining}; the provider may still refuse."
 )
 RUNSUM_GATE_PASSED: Final = (
-    "Retry gate after that attempt: {provider} until {until}; "
+    "Earliest saved retry: {provider} at {until}; "
     "that time has passed, and the provider may still refuse."
+)
+
+# Human-readable logging, preserving diagnostic identifiers and machine receipts.
+LOG3_ATTEMPTED: Final = (
+    "{provider}: {attempted:,} queued books reviewed; "
+    "{incomplete:,} reviewed without a complete lookup outcome. "
+    "Incomplete or unavailable details are not automatically errors."
+)
+LOG3_ATTEMPTED_UNKNOWN: Final = (
+    "{provider}: the number reviewed was not saved by this older receipt."
+)
+LOG3_PROGRESS: Final = (
+    "Look up book details — {provider}: reviewed {completed:,}/{total:,} queued books "
+    "({percent}%); {elapsed} elapsed. {note}"
+)
+LOG3_PROGRESS_WAIT: Final = (
+    "Public catalog requests can be slow; progress counts reviewed books, not filled fields."
+)
+LOG3_PROGRESS_DONE: Final = (
+    "Queue review finished; missing details and provider limits are summarised below."
+)
+LOG3_STAGE_SOURCES: Final = "Stage: import your shelves from the configured CSV files."
+LOG3_STAGE_METADATA: Final = "Stage: look up book details with {provider}."
+LOG3_STAGE_RECONCILE: Final = "Stage: connect confirmed matches between your books and catalogs."
+LOG3_STAGE_ANALYTICS: Final = "Stage: build your reading portrait from the available evidence."
+LOG3_STAGE_PRODUCTS: Final = "Stage: write your report, recommendations and data-quality summary."
+LOG3_STAGE_ANALYTICS_RESULT: Final = "Reading portrait: {state}."
+LOG3_STAGE_PRODUCTS_RESULT: Final = "Report writing: {state}."
+LOG3_SOURCE_GOODREADS: Final = "Goodreads"
+LOG3_SOURCE_STORYGRAPH: Final = "StoryGraph"
+LOG3_SOURCE_NAME: Final = "{source} / {collection}"
+LOG3_COLLECTION_READ: Final = "Read shelf"
+LOG3_COLLECTION_WATCHLIST: Final = "watchlist"
+LOG3_COLLECTION_LIBRARY: Final = "library"
+LOG3_DIAGNOSTIC_LABEL: Final = "{label} [{code}]"
+LOG3_NOTICE_ARCHIVED: Final = "Extra source fields kept in the raw archive"
+LOG3_NOTICE_SYNTHETIC: Final = "Source-local identity used; not a catalog identifier"
+LOG3_NOTICE_CAPTURE: Final = "Browser observations are not verified catalog facts"
+LOG3_NOTICE_SCOPE: Final = "Imported file does not prove account completeness"
+LOG3_NOTICE_EXCLUDED: Final = "Non-Read StoryGraph row archived, not used for ratings"
+LOG3_NOTICE_RATINGS: Final = "StoryGraph contributes personal ratings, not Goodreads history"
+LOG3_NOTICE_UNKNOWN: Final = "Unavailable numeric fields left unknown"
+LOG3_NOTICE_UNMAPPED: Final = "Source field could not be safely interpreted"
+LOG3_NOTICE_INVALID_ISBN: Final = "Invalid ISBN ignored; original value retained"
+LOG3_NOTICE_INVALID_FIELD: Final = "Invalid provider field ignored"
+LOG3_NOTICE_INVALID_WORK: Final = "Malformed Open Library work ignored"
+LOG3_NOTICE_INVALID_VOLUME: Final = "Malformed Google Books volume ignored"
+LOG3_NOTICE_DETAIL_DEFERRED: Final = "Additional catalog details postponed by the request allowance"
+LOG3_NOTICE_CONFLICT: Final = "Provider observations disagree; no value silently overwritten"
+LOG3_NOTICE_TRUNCATED: Final = "Provider returned a limited candidate list"
+LOG3_NOTICE_UNVERIFIED: Final = "Possible catalog matches not confirmed"
+LOG3_NOTICE_DEFERRED: Final = "Books still waiting for a lookup"
+LOG3_NOTICE_COOLDOWN: Final = "Provider requests paused; saved retry time is respected"
+LOG3_NOTICE_LIMITED: Final = "Provider refused requests; saved diagnostics explain the limit"
+LOG3_NOTICE_BUDGET: Final = "This run reached its local lookup allowance"
+LOG3_NOTICE_PARKED: Final = "No changed or retry-eligible records; incomplete results retained"
+LOG3_NOTICE_GAPS: Final = "Description or recognized-genre evidence still missing"
+LOG3_REPORT_READY: Final = "Report ready: {filename} (report {report_id}). {scope}"
+LOG3_REPORT_CURRENT: Final = "The PDF and JSON bundle were saved successfully."
+LOG3_REPORT_PARTIAL: Final = (
+    "The PDF and JSON bundle were saved, but some book details remain incomplete; "
+    "report readiness does not mean every lookup succeeded."
+)
+LOG3_REPORT_RETAINED: Final = (
+    "No new report was published. Any earlier successful report is retained, "
+    "not refreshed by this attempt."
+)
+LOG3_DAILY_LIMIT: Final = (
+    "Google Books reported its project's daily request limit. The saved cooldown is "
+    "a minimum wait, not a guaranteed quota reset; increasing the local book allowance "
+    "cannot override it."
+)
+LOG3_DAILY_KEY: Final = "daily_limit"
+LOG3_TIMER_ATTRIBUTE: Final = "monotonic"
+LOG3_PROCESSED_KEY: Final = "processed"
+LOG3_METADATA_RESULT: Final = (
+    "{provider} book details: reviewed {attempted:,} queued books; "
+    "{complete:,} complete lookup outcomes, {waiting:,} still waiting ({state}). "
+    "Reviewed does not mean every field was found."
+)
+LOG3_LEGACY_LOOKUPS: Final = "Lookups: "
+LOG3_LEGACY_PROCESSED: Final = "books processed"
+LOG3_LEGACY_COMPLETE: Final = "complete lookup outcomes (not all books reviewed)"
+LOG3_OFFLINE_EVENT: Final = "[{stamp}] Offline report refresh (not a source sync): {message}"
+LOG3_OFFLINE_BEGIN: Final = (
+    "Rebuild the reading portrait and report from saved shelves and cached book details. "
+    "No source collection or provider requests; saved retry gates are unchanged."
+)
+LOG3_OFFLINE_READY: Final = "Report ready: {filename}. The last source-sync outcome is unchanged."
+LOG3_TEST_LEGACY_LOOKUPS: Final = (
+    "Lookups: Open Library partial; 1 of 3 books processed, 0 deferred."
+)
+LOG3_CURRENT_GATES: Final = "provider_retry_gates"
+LOG3_CURRENT_GATES_HEADING: Final = (
+    "Provider waiting times saved in the local cache (checked offline; not a new sync):"
+)
+LOG3_TEST_CORRUPT_GATES: Final = "UPDATE metadata_retry_state SET checksum = 'invalid'"
+LOG3_LOOKUPS_OFF: Final = (
+    "Online lookups are off; using saved details, which may be incomplete. "
+    "This run does not establish full metadata coverage or provider recovery."
+)
+LOG3_PROVIDER_DETAILS_DEFERRED: Final = (
+    "{provider} reviewed the queued books, but its bounded allowance postponed some "
+    "additional catalog details. Validated details already saved are kept."
+)
+LOG3_ACTION_DETAILS_DEFERRED: Final = (
+    "No manual correction is required. Saved incomplete results remain visible; "
+    "another sync does not force unchanged parked records to be looked up again."
+)
+LOG3_PROVIDER_INCOMPLETE: Final = (
+    "{provider} reviewed books without completing every lookup. Some fields are unavailable "
+    "or possible matches could not be safely confirmed; these are not all request failures."
+)
+LOG3_ACTION_INCOMPLETE: Final = (
+    "Unchanged ambiguous or unavailable matches stay parked. Retryable failures wait "
+    "at least six hours and any longer provider cooldown; do not reset saved retry gates."
 )
 
 # Logging, outcome and last-run summary tests.
@@ -6644,7 +7296,8 @@ RPT_SALT_FAVORITES: Final = "favorites"
 RPT_COVER_EYEBROW: Final = "BookyStats \u00b7 Reader report"
 RPT_COVER_TITLE: Final = "Your reading life"
 RPT_COVER_SUBTITLE: Final = (
-    "What you read, what you loved and what is waiting \u2014 and how sure each page is of itself."
+    "A little shelf exploration. The books you read, the stars you gave, "
+    "and the stories still waiting for their turn."
 )
 RPT_COVER_EMPTY: Final = "A report is ready, but this snapshot has no books in it yet."
 RPT_COVER_AS_OF: Final = "Library snapshot of {date}"
@@ -6717,13 +7370,13 @@ RPT_TILE_DATED: Final = "Finish dates known"
 RPT_TILE_DATED_DETAIL: Final = "of {read} read books"
 
 RPT_FACTS_TITLE: Final = "Your reading, in superlatives"
-RPT_FACTS_KICKER: Final = "A few fun facts"
+RPT_FACTS_KICKER: Final = "The shelf awards"
 RPT_FACTS_INTRO: Final = (
     "The extremes and the favourites on your shelves. Ties are named, "
     "and anything unknown stays unknown."
 )
-RPT_FACT_LONGEST: Final = "Longest read"
-RPT_FACT_SHORTEST: Final = "Shortest read"
+RPT_FACT_LONGEST: Final = "Longest known read"
+RPT_FACT_SHORTEST: Final = "Shortest known read"
 RPT_FACT_PAGES: Final = "{title} by {byline} \u2014 {pages}{tie}."
 RPT_TIED: Final = ", tied with {others}"
 RPT_OTHER_BOOK: Final = "other book"
@@ -6757,7 +7410,7 @@ RPT_FACT_WATCH_BODY: Final = (
 RPT_FACT_WATCH_UNKNOWN: Final = "Not counted: {unknown} with no known author."
 
 RPT_SHAPE_TITLE: Final = "The shape of your shelf"
-RPT_SHAPE_KICKER: Final = "Length and era"
+RPT_SHAPE_KICKER: Final = "Doorstoppers, quick reads and time travel"
 RPT_SHAPE_INTRO: Final = (
     "How long your books run and when they were first published. Edition years and "
     "first-publication years are kept apart, and unknown values stay unknown."
@@ -6778,7 +7431,7 @@ RPT_TILE_MEDIAN: Final = "Median length"
 RPT_TILE_Q3: Final = "Longest quarter starts at"
 RPT_QUARTILE_NOTE: Final = "Quartiles of the selected editions' page counts."
 RPT_IMPLAUSIBLE_PAGES: Final = "Left out for page counts outside {low}\u2013{high} pages: {books}."
-RPT_LONGEST_HEADING: Final = "Your longest reads"
+RPT_LONGEST_HEADING: Final = "Your longest reads with known lengths"
 RPT_DECADE_HEADING: Final = "Decades of first publication"
 RPT_DECADE_NOTE: Final = "{known} of {read} read books have a plausible first-publication year."
 RPT_DECADE_EXCLUDED: Final = (
@@ -6845,7 +7498,7 @@ RPT_SINGLES_HEADING: Final = "Single books"
 RPT_UNKNOWN_AUTHOR_GROUP: Final = "Author unknown"
 
 RPT_AUTHORS_TITLE: Final = "Authors and series"
-RPT_AUTHORS_KICKER: Final = "Who you keep coming back to"
+RPT_AUTHORS_KICKER: Final = "Familiar names, familiar worlds"
 RPT_AUTHORS_INTRO: Final = (
     "Authors you have read more than once, and series where a public catalog backs the label."
 )
@@ -6986,7 +7639,7 @@ RPT_COMMUNITY_CALLOUT: Final = (
     "preference pages or the shortlist, and a gap here says nothing about who is right."
 )
 
-RPT_WATCHLIST_TITLE: Final = "The waiting list"
+RPT_WATCHLIST_TITLE: Final = "Still on the nightstand"
 RPT_WATCHLIST_KICKER: Final = "What is on your to-read shelf"
 RPT_WATCHLIST_INTRO: Final = (
     "A descriptive look at the books waiting for you. Nothing on this page ranks them or "
@@ -7025,7 +7678,7 @@ RPT_WAIT_NOTE: Final = (
 RPT_WATCH_ADDED_HEADING: Final = "When books joined your list"
 RPT_WATCH_ADDED_NOTE: Final = "{books} to-read books by the year they were added; not read yet."
 
-RPT_SHORTLIST_TITLE: Final = "A shortlist to start from"
+RPT_SHORTLIST_TITLE: Final = "What might be next?"
 RPT_SHORTLIST_KICKER: Final = "From your waiting list"
 RPT_SHORTLIST_INTRO: Final = (
     "These are the waiting books whose features line up best with books you have rated. "
@@ -7145,7 +7798,8 @@ RPT_FINE_SHAPE: Final = (
     "as unknown. Edition years and first-publication years are different facts."
 )
 RPT_FINE_LABELS: Final = (
-    "Genre and series labels are catalog or browser observations, not verified classifications."
+    "Genre and series features use trusted catalog evidence, not unverified browser labels. "
+    "Catalog classifications are not independently verified."
 )
 RPT_FINE_APPETITES: Final = (
     "Appetite and theme mentions are rule-based matches in public descriptions. They describe "
@@ -7186,7 +7840,7 @@ RPT_HEX_WHITE: Final = "#FFFFFF"
 RPT_HEX_BAND: Final = "#0A5F5F"
 RPT_HEX_TRACK: Final = "#E3E6EA"
 RPT_HEX_RULE: Final = "#D5D9DE"
-RPT_HEX_TINT_INK: Final = "#F4F5F6"
+RPT_HEX_TINT_INK: Final = "#F5F1E8"
 RPT_HEX_TINT_TEAL: Final = "#E6F2F2"
 RPT_HEX_TINT_AMBER: Final = "#FFF4DC"
 RPT_HEX_TINT_SLATE: Final = "#E9EEF5"
@@ -7225,8 +7879,8 @@ RPT_COMPARE_VALUES: Final = "You <b>{personal}</b>{dot}Goodreads <b>{community}<
 RPT_COMPARE_GAP: Final = "{delta}{dot}{sample}"
 RPT_LEGEND_YOU: Final = "Your rating"
 RPT_LEGEND_CROWD: Final = "Goodreads average"
-RPT_TOC_TITLE: Final = "In this report"
-RPT_TOC_KICKER: Final = "Contents"
+RPT_TOC_TITLE: Final = "Find your next chapter"
+RPT_TOC_KICKER: Final = "A map of your shelves"
 RPT_KEY_HEADING: Final = "How to read the charts"
 RPT_KEY_INTRO: Final = (
     "The same few marks appear throughout, so you can tell how much weight a chart can carry."
@@ -7265,6 +7919,35 @@ RPT_PDF_KEYWORDS: Final = "reading, library, ratings"
 RPT_PDF_LANGUAGE: Final = "en-GB"
 RPT_COLUMN_SPARSE_NOTE: Final = "Dashed columns rest on a small sample."
 RPT_COLUMN_UNKNOWN_NOTE: Final = "An empty dashed box is unknown, not zero."
+RPT_CHAPTER_LABEL: Final = "{number:02d} \u00b7 {kicker}"
+RPT_ROWS_FIELD: Final = "rows"
+RPT_TILES_FIELD: Final = "tiles"
+RPT_BLOCKS_FIELD: Final = "blocks"
+RPT_INTRO_FIELD: Final = "intro"
+RPT_COMPANION_NOTE: Final = (
+    "Want to look behind the shelves? The companion JSON keeps the full evidence, "
+    "source references and detailed analysis notes."
+)
+RPT_READING_NOTES_HEAD: Final = "A note before you close the book"
+RPT_HEX_PAPER: Final = "#FFFCF5"
+RPT_COVER_INVITATION: Final = (
+    "Make yourself comfortable. Start anywhere; this is your shelf, not a scorecard."
+)
+RPT_READER_MODEL_TERM: Final = "Report model"
+RPT_READER_LAYOUT_TERM: Final = "layout"
+RPT_READER_MANIFEST_TERM: Final = "manifest"
+RPT_READER_SCHEMA_TERM: Final = "schema"
+RPT_TOC_INTRO: Final = (
+    "Browse the patterns, revisit your favourites, or skip straight to what is waiting. "
+    "There is no required reading order."
+)
+RPT_FACTS_LENGTH_NOTE: Final = (
+    "Length awards use known selected editions only. An uncounted book can still be a doorstopper."
+)
+RPT_LONGEST_NOTE: Final = (
+    "Ranked among {known} of {read} read books with a usable selected-edition page count. "
+    "Missing lengths are not short books; another edition can also run longer or shorter."
+)
 RPT_BUNDLE_LAYOUT_NAME: Final = "report-{report_id}-layout-{layout}"
 RPT_TEST_SEPARATOR: Final = "|"
 RPT_TEST_AS_OF: Final = "2025-06-14T09:30:00+00:00"
@@ -7352,3 +8035,222 @@ RPT_TEST_TIED_FIELD: Final = "tied_usual_ratings"
 RPT_TEST_DATE_TERMS_LIST: Final = "supplemental|storygraph dates|date_origin"
 RPT_TEST_POINTER_HASH_FIELD: Final = "manifest_sha256"
 RPT_TEST_MISUSE_ARGS: Final = "layout,included"
+WD_ENDPOINT: Final = "https://www.wikidata.org/w/api.php"
+WD_ENTITY_URL: Final = "https://www.wikidata.org/wiki/{qid}"
+WD_ACTION: Final = "action"
+WD_SEARCH_ACTION: Final = "wbsearchentities"
+WD_ENTITIES_ACTION: Final = "wbgetentities"
+WD_SEARCH: Final = "search"
+WD_SEARCH_CONTINUE: Final = "search-continue"
+WD_LANGUAGE: Final = "language"
+WD_LANGUAGES: Final = "languages"
+WD_EN: Final = "en"
+WD_LIMIT: Final = "limit"
+WD_IDS: Final = "ids"
+WD_PROPS: Final = "props"
+WD_ENTITY_PROPS: Final = "labels|aliases|claims"
+WD_LABEL_PROPS: Final = "labels|aliases"
+WD_MAXLAG: Final = "maxlag"
+WD_PIPE: Final = "|"
+WD_ENTITIES: Final = "entities"
+WD_LABELS: Final = "labels"
+WD_ALIASES: Final = "aliases"
+WD_CLAIMS: Final = "claims"
+WD_RANK: Final = "rank"
+WD_DEPRECATED: Final = "deprecated"
+WD_PREFERRED: Final = "preferred"
+WD_NORMAL: Final = "normal"
+WD_MAIN_SNAK: Final = "mainsnak"
+WD_SNAK_TYPE: Final = "snaktype"
+WD_VALUE: Final = "value"
+WD_NO_VALUE: Final = "novalue"
+WD_SOME_VALUE: Final = "somevalue"
+WD_DATAVALUE: Final = "datavalue"
+WD_QUALIFIERS: Final = "qualifiers"
+WD_INSTANCE: Final = "P31"
+WD_EDITION_OF: Final = "P629"
+WD_AUTHOR: Final = "P50"
+WD_TITLE: Final = "P1476"
+WD_OL_ID: Final = "P648"
+WD_GOODREADS_WORK: Final = "P8383"
+WD_GENRE: Final = "P136"
+WD_SERIES: Final = "P179"
+WD_ORDINAL: Final = "P1545"
+WD_PUBLICATION: Final = "P577"
+WD_LANGUAGE_PROPERTY: Final = "P407"
+WD_LITERARY_WORK: Final = "Q7725634"
+WD_NOVEL: Final = "Q8261"
+WD_BOOK: Final = "Q571"
+WD_NOVEL_SERIES: Final = "Q1667921"
+WD_BOOK_SERIES: Final = "Q277759"
+WD_EDITION: Final = "Q3331189"
+WD_GREGORIAN: Final = "http://www.wikidata.org/entity/Q1985727"
+WD_TIME: Final = "time"
+WD_PRECISION: Final = "precision"
+WD_CALENDAR: Final = "calendarmodel"
+WD_BEFORE: Final = "before"
+WD_AFTER: Final = "after"
+WD_TIMEZONE: Final = "timezone"
+WD_TEXT: Final = "text"
+WD_SERIES_MEMBERSHIPS: Final = "wikidata_series_memberships"
+WD_SERIES_ID: Final = "series_id"
+WD_POSITION: Final = "position"
+WD_ORIGINAL_LANGUAGE: Final = "wikidata_original_language"
+WD_QID_PATTERN: Final = r"Q[1-9][0-9]*"
+WD_OL_PATTERN: Final = r"(?:/works/)?(OL[1-9][0-9]*W)"
+WD_TIME_PATTERN: Final = r"\+([0-9]{4})-([0-9]{2})-([0-9]{2})T00:00:00Z"
+WD_POSITION_PATTERN: Final = r"[1-9][0-9]*(?:\.[0-9]+)?"
+WD_ERROR_MESSAGE: Final = "Wikidata returned an invalid or unsuccessful public API response."
+WD_FIELD_MESSAGE: Final = "Wikidata work fact is malformed or conflicting: {field}."
+WD_INCOMPLETE: Final = "wikidata_incomplete_search"
+WD_INCOMPLETE_MESSAGE: Final = "Wikidata retrieval was truncated; identity selection abstained."
+WD_NO_MATCH: Final = "wikidata_no_confirmed_work"
+WD_NO_MATCH_MESSAGE: Final = "No unique title/full-author validated literary work was found."
+WD_AMBIGUOUS: Final = "wikidata_ambiguous_work"
+WD_AMBIGUOUS_MESSAGE: Final = "Multiple title/full-author validated literary works remain."
+WD_BUDGET_MESSAGE: Final = "Wikidata request budget exhausted; remaining lookups are deferred."
+WD_CACHE_TAG: Final = "wikidata-public-work"
+WD_API_MAXLAG: Final = "maxlag"
+WD_API_READONLY: Final = "readonly"
+WD_API_RATE_LIMIT: Final = "ratelimited"
+WD_API_INTERNAL: Final = "internal_api_error"
+WD_NAME: Final = "name"
+WD_FORMAT: Final = "format"
+WD_ITEM: Final = "item"
+WD_ACCESS_DENIED: Final = "wikidata_access_denied"
+WD_TEST_FIXTURE: Final = "wikidata"
+WD_TEST_WORK_FILE: Final = "work.json"
+WD_TEST_WORK_ID: Final = "Q191838"
+WD_TEST_OTHER_ID: Final = "Q56491386"
+WD_TEST_AUTHOR_ID: Final = "Q25167"
+WD_TEST_COAUTHOR_ID: Final = "Q85774723"
+WD_TEST_RELATED: Final = "related"
+WD_TEST_FIRST_SERIES: Final = "First series"
+WD_TEST_SECOND_SERIES: Final = "Second series"
+WD_TEST_OL_ID: Final = "OL123W"
+WD_TEST_OTHER_OL: Final = "OL456W"
+WD_TEST_DATE: Final = "1988-10-01"
+WD_TEST_YEAR: Final = "1988"
+WD_TEST_MONTH: Final = "1988-10"
+WD_TEST_OTHER_TIME: Final = "+1989-01-01T00:00:00Z"
+WD_TEST_INVALID_TIME: Final = "+1988-02-31T00:00:00Z"
+WD_TEST_JULIAN: Final = "http://www.wikidata.org/entity/Q1985786"
+WD_TEST_INITIALS: Final = "R.F. Kuang"
+WD_TEST_SPACED_INITIALS: Final = "R. F. Kuang"
+WD_TEST_POSITION: Final = "2"
+WD_TEST_OTHER_POSITION: Final = "5"
+WD_TEST_BAD_POSITION: Final = "second"
+WD_TEST_CACHE_FILE: Final = "wikidata.sqlite3"
+WD_TEST_PRIVATE_MARKER: Final = "private-reader-identifier"
+WD_TEST_HTTP_BODY: Final = b"not-json"
+WD_TEST_PARAMETER_PRECISION: Final = "precision,expected"
+WD_TEST_PARAMETER_ERROR: Final = "code,retryable"
+WD_TEST_PARAMETER_OPTIONAL: Final = "prop,field"
+WD_MAXLAG_MESSAGE: Final = (
+    "Wikidata temporarily paused public lookups (maxlag) because its replicas are lagging; "
+    "remaining lookups are deferred."
+)
+WD_READONLY_MESSAGE: Final = (
+    "Wikidata is temporarily read-only (readonly); remaining public lookups are deferred."
+)
+WD_RATELIMIT_MESSAGE: Final = (
+    "Wikidata rate-limited public lookups (ratelimited); remaining lookups are deferred."
+)
+WD_INTERNAL_MESSAGE: Final = (
+    "Wikidata reported a temporary internal API error; remaining public lookups are deferred."
+)
+WD_ERROR_INFO: Final = "info"
+WD_TEST_PARAMETER_QUERY: Final = "title,expected"
+WD_TEST_CLOCKWORK_DISPLAY: Final = "Clockwork Prince (The Infernal Devices, #2)"
+WD_TEST_CLOCKWORK_QUERY: Final = "clockwork prince"
+WD_TEST_NARNIA_DISPLAY: Final = "The Lion, the Witch and the Wardrobe (Chronicles of Narnia, #1)"
+WD_TEST_NARNIA_QUERY: Final = "the lion the witch and the wardrobe"
+WD_TEST_SHADOW_DISPLAY: Final = "Shadow and Bone (Shadow and Bone, #1)"
+WD_TEST_SHADOW_QUERY: Final = "shadow and bone"
+WD_TEST_KINGS_DISPLAY: Final = "A Clash of Kings (A Song of Ice and Fire, #2)"
+WD_TEST_KINGS_QUERY: Final = "a clash of kings"
+WD_TEST_MATILDA_DISPLAY: Final = "Matilda (First series, #2)"
+WD_TEST_MATILDA_QUERY: Final = "matilda"
+WD_TEST_MATILDA_CONFLICT: Final = "Matilda (First series, #5)"
+WD_TEST_MATILDA_VOLUME: Final = "Matilda: Volume 2 (First series, #2)"
+WD_TEST_MATILDA_VOLUME_QUERY: Final = "matilda volume 2"
+WD_TEST_MATILDA_OMNIBUS: Final = "Matilda (First series, #1-2)"
+WD_TEST_MATILDA_OMNIBUS_QUERY: Final = "matilda first series 1 2"
+WD_TEST_MATILDA_SUBTITLE: Final = "Matilda: The Sequel"
+WD_TEST_MATILDA_SUBTITLE_QUERY: Final = "matilda the sequel"
+WD_TEST_MATILDA_PARENTHESES: Final = "Matilda (an illustrated edition)"
+WD_TEST_MATILDA_PARENTHESES_QUERY: Final = "matilda an illustrated edition"
+RE3_EVALUATION_VERSION: Final = "grouped-ranking-v2"
+RE3_EVALUATION_SCOPE: Final = (
+    "Retrospective author-grouped ranking evidence, not future recommendation accuracy "
+    "or calibrated enjoyment probabilities. No candidate is enabled by this evaluation."
+)
+RE3_METRIC_POLICY: Final = (
+    "Expected tied-block NDCG@10 uses gain 2**rating-1; precision@10 uses rating >=4.5. "
+    "K is clamped per fold. NDCG and precision are fold averages weighted by compared works "
+    "where that metric is available; concordance is weighted by unequal-rated pairs, "
+    "with score ties worth 0.5. Unavailable metrics are None. Every model uses identical targets "
+    "and missing scores fall back to the training mean, including the optional supplied "
+    "training-median length comparator. Deltas are candidate minus comparator."
+)
+RE3_ACTIVATION_POLICY: Final = (
+    "Predefined evidence gate only: >=50 valid authored rated works, >=10 connected author "
+    "components, >=3 nonflat usable folds, >=20 description-covered training works in every fold, "
+    "weighted NDCG@10 gain >=0.01 over mean/current/genre and the length comparator when supplied, "
+    "wins against each in >=80% of folds, and no aggregate precision regression against "
+    "the strongest comparator."
+)
+RE3_INSUFFICIENT: Final = "insufficient"
+RE3_EVALUATED: Final = "evaluated"
+RE3_REASON_WORKS: Final = "At least 50 valid rated works with known authors are required."
+RE3_REASON_COMPONENTS: Final = "At least 10 independent connected author components are required."
+RE3_REASON_FOLDS: Final = "At least three usable grouped ranking folds are required."
+RE3_REASON_DESCRIPTIONS: Final = (
+    "Each fold requires at least 20 description-covered training examples."
+)
+RE3_REASON_IMPROVEMENT: Final = (
+    "Candidate weighted NDCG@10 must improve by at least 0.01 against mean, current, genre "
+    "and the length comparator when supplied."
+)
+RE3_REASON_WINS: Final = (
+    "Candidate NDCG@10 must beat every comparator in at least 80% of usable folds."
+)
+RE3_REASON_PRECISION: Final = (
+    "Candidate precision@10 must be available and not regress against the strongest comparator."
+)
+RE3_DUPLICATE_ID: Final = "Ranking evaluation requires unique confirmed positive integer work IDs."
+RE3_INVALID_RATING: Final = (
+    "Ranking evaluation ratings must be finite values between zero and five."
+)
+RE3_INVALID_OUTPUT: Final = "Ranking predictors must return a mapping of target work IDs to scores."
+RE3_INVALID_SCORE: Final = "Ranking scores must be finite numbers or None."
+RE3_FOREIGN_ID: Final = "Ranking predictor returned a foreign, duplicate or invalid work ID."
+RE3_MEAN: Final = "mean"
+RE3_CURRENT: Final = "current"
+RE3_GENRE: Final = "genre"
+RE3_LENGTH: Final = "length"
+RE3_CANDIDATE: Final = "candidate"
+RE3_NDCG: Final = "ndcg_at_10"
+RE3_PRECISION: Final = "precision_at_10"
+RE3_CONCORDANCE: Final = "concordance"
+RE3_DESCRIPTION_PROVENANCE: Final = "description_provenance"
+RE3_FIELD_EVIDENCE: Final = "field_evidence"
+RE3_FIELD_SOURCES: Final = "field_sources"
+RE3_TEST_AUTHOR: Final = "Ranking author {index}"
+RE3_TEST_TITLE: Final = "Ranking book {index}"
+RE3_TEST_DESCRIPTION: Final = "A public catalog description of a synthetic book."
+RE3_TEST_REVIEW: Final = "Private reader opinion must never reach held-out callbacks."
+RE3_TEST_PUBLIC_URL: Final = "https://example.org/books/synthetic"
+RE3_TEST_DATE: Final = "2026-01-01T00:00:00+00:00"
+RE3_TEST_BAD_CASE: Final = "kind"
+RE3_TEST_BAD_FOLDS: Final = "bad_folds"
+RE3_TEST_INCLUDE_LENGTH: Final = "include_length"
+RE3_TEST_BAD_FOREIGN: Final = "foreign"
+RE3_TEST_BAD_NAN: Final = "nan"
+RE3_TEST_BAD_INFINITY: Final = "infinity"
+RE3_TEST_BAD_TEXT: Final = "text"
+RE3_TEST_BAD_BOOLEAN: Final = "boolean"
+RE3_TEST_BAD_MAPPING: Final = "mapping"
+RE3_TEST_BAD_KEY: Final = "key"
+RE3_TEST_COMMUNITY_RATINGS: Final = "community_ratings"
+RE3_TEST_RATING_CONFLICT: Final = "rating_conflict"

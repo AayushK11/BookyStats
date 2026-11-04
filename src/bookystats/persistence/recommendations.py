@@ -54,6 +54,41 @@ def _unbound(report: RecommendationReport) -> RecommendationReport:
 
 
 def _payload(report: RecommendationReport) -> str:
+    if report.policy_version not in C.REC2_SUPPORTED_POLICIES:
+        raise RecommendationStoreError(S.REC_STORE_ERROR)
+    if report.policy_version != S.REC_POLICY_VERSION and (
+        report.learning is not C.NONE
+        or report.ranking_evaluation is not C.NONE
+        or any(
+            item.semantic_neighbors
+            or item.description_excerpt is not C.NONE
+            or item.description_url is not C.NONE
+            or item.shortlist_note is not C.NONE
+            or item.ranking_method != S.REC3_CURRENT
+            for field in C.REC_ITEM_FIELDS
+            for item in getattr(report, field)
+        )
+    ):
+        raise RecommendationStoreError(S.REC_STORE_ERROR)
+    if report.policy_version == S.REC2_LEGACY_POLICY:
+        if report.evaluation is not C.NONE or any(
+            item.series_context for field in C.REC_ITEM_FIELDS for item in getattr(report, field)
+        ):
+            raise RecommendationStoreError(S.REC_STORE_ERROR)
+        return report.model_dump_json(exclude=C.REC3_V1_REPORT_EXCLUDES, warnings=S.ERROR)
+    if report.policy_version == S.REC3_PREVIOUS_POLICY:
+        return report.model_dump_json(exclude=C.REC3_OLD_REPORT_EXCLUDES, warnings=S.ERROR)
+    if (
+        report.ranking_evaluation is not C.NONE
+        and report.ranking_evaluation.version == S.REC3_PREVIOUS_RANKING_VERSION
+    ):
+        if (
+            report.ranking_evaluation.length is not C.NONE
+            or report.ranking_evaluation.candidate_vs_length is not C.NONE
+            or any(fold.length is not C.NONE for fold in report.ranking_evaluation.folds)
+        ):
+            raise RecommendationStoreError(S.REC_STORE_ERROR)
+        return report.model_dump_json(exclude=C.REC3_RANKING_V1_REPORT_EXCLUDES, warnings=S.ERROR)
     return report.model_dump_json(exclude=C.REC_REPORT_EXCLUDES, warnings=S.ERROR)
 
 
@@ -62,7 +97,7 @@ def _decode(key: object, payload: object, digest: object) -> RecommendationRepor
         if not isinstance(payload, str) or not hmac.compare_digest(_hash(payload), _key(digest)):
             raise RecommendationStoreError(S.REC_STORE_ERROR)
         report = RecommendationReport.model_validate_json(payload)
-        if report.key != _key(key) or report.policy_version != S.REC_POLICY_VERSION:
+        if report.key != _key(key) or report.policy_version not in C.REC2_SUPPORTED_POLICIES:
             raise RecommendationStoreError(S.REC_STORE_ERROR)
         if _payload(report) != payload:
             raise RecommendationStoreError(S.REC_STORE_ERROR)

@@ -31,6 +31,15 @@ from bookystats.domain.products import ProductReceipt
 ProgressCallback = Callable[[CollectionProgress], None]
 
 
+class DescriptionEncoder(Protocol):
+    @property
+    def fingerprint(self) -> str:
+        pass
+
+    def encode(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+        pass
+
+
 class AnalyticsInputReader(Protocol):
     def analytics_input(
         self, accounts: tuple[Account, ...], settings: AnalyticsSettings

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import JsonValue
 
 from bookystats import constants as C
 from bookystats import strings as S
@@ -13,7 +14,19 @@ from bookystats.domain.analytics import (
     PossibleReadMatch,
 )
 from bookystats.domain.models import FieldState, Observation, ReadingStatus, Source
-from bookystats.domain.recommendations import build_recommendations, recommendation_key
+from bookystats.domain.recommendation_evaluation import (
+    author_components,
+    evaluate_recommendations,
+    fit_profile,
+)
+from bookystats.domain.recommendations import (
+    RecommendationItem,
+    RecommendationReport,
+    _features,
+    _shortlist,
+    build_recommendations,
+    recommendation_key,
+)
 from tests.application.test_statistics import _book, _data
 
 
@@ -45,6 +58,32 @@ def candidate(work_id: int = C.THREE) -> AnalysisBook:
         genre=S.REC_TEST_GENRE,
         status=ReadingStatus.TO_READ,
     )
+
+
+def test_shortlist_can_trade_small_score_differences_for_variety_without_mutating_ranking() -> None:
+    books = {
+        work_id: _book(
+            work_id,
+            genre=S.REC_TEST_GENRE if work_id <= C.TWO else S.REC_TEST_OTHER_GENRE,
+            status=ReadingStatus.TO_READ,
+        )
+        for work_id in range(C.ONE, C.FIVE)
+    }
+    ranked = tuple(
+        RecommendationItem(
+            work_id=book.work_id,
+            title=book.title,
+            authors=book.authors,
+            source_ids=book.source_ids,
+            status=S.REC_RANKED,
+            ranking_score=score,
+        )
+        for book, score in zip(books.values(), C.REC3_TEST_SHORTLIST_SCORES, strict=C.TRUE)
+    )
+    shortlist = _shortlist(ranked, books)
+    assert tuple(item.work_id for item in shortlist[: C.THREE]) == (C.ONE, C.THREE, C.TWO)
+    assert shortlist[-C.ONE].work_id == C.FOUR
+    assert tuple(item.work_id for item in ranked) == (C.ONE, C.TWO, C.THREE, C.FOUR)
 
 
 def history() -> tuple[AnalysisBook, ...]:
@@ -275,3 +314,307 @@ def test_cache_key_changes_for_day_ratings_and_possible_read_state_not_recapture
     assert recommendation_key(pinned, analysis(pinned)) != recommendation_key(
         changed_rating, analysis(changed_rating)
     )
+
+
+def series_book(
+    book: AnalysisBook, position: str | None, *, multiple: bool = C.FALSE
+) -> AnalysisBook:
+    memberships: list[JsonValue] = [
+        {
+            S.WD_SERIES_ID: S.REC2_TEST_QID,
+            S.WD_NAME: S.REC_TEST_SERIES,
+            S.WD_POSITION: position,
+        }
+    ]
+    if multiple:
+        memberships.append(
+            {
+                S.WD_SERIES_ID: S.REC2_TEST_OTHER_QID,
+                S.WD_NAME: S.REC_TEST_SERIES,
+                S.WD_POSITION: S.REC2_TEST_POSITION_ONE,
+            }
+        )
+    return book.model_copy(
+        update={
+            S.AN_EVIDENCE: (
+                AnalysisEvidence(
+                    source=Source.WIKIDATA.value,
+                    source_id=S.REC2_TEST_QID,
+                    observation=Observation(
+                        field=S.WD_SERIES_MEMBERSHIPS,
+                        value=memberships,
+                        state=FieldState.PRESENT,
+                        scope=S.WORK,
+                        source_url=S.REC2_TEST_URL,
+                    ),
+                ),
+            )
+        }
+    )
+
+
+def test_verified_order_changes_shortlist_not_global_scores_or_completed_eligibility() -> None:
+    first, other = history()
+    pinned = data(
+        series_book(first, S.REC2_TEST_POSITION_ONE),
+        other,
+        series_book(candidate(C.THREE), S.REC2_TEST_POSITION_THREE),
+        series_book(candidate(C.FOUR), S.REC2_TEST_POSITION_TWO),
+        series_book(candidate(C.ONE), S.REC2_TEST_POSITION_ONE),
+    )
+    report = build_recommendations(pinned, analysis(pinned))
+    assert tuple(item.work_id for item in report.ranked) == (C.THREE, C.FOUR)
+    assert tuple(item.work_id for item in report.shortlist) == (C.FOUR, C.THREE)
+    context = report.ranked[C.ZERO].series_context[C.ZERO]
+    assert context.earlier_eligible_work_ids == (C.FOUR,)
+    assert context.known_completed_positions == (C.ONE,)
+    assert context.explanation
+    assert report.shortlist[C.ZERO].series_context[C.ZERO].next_after_known_completed
+    assert report.excluded[C.ZERO].work_id == C.ONE
+
+
+@pytest.mark.parametrize(
+    S.REC2_POSITION,
+    C.REC2_TEST_UNKNOWN_POSITIONS,
+)
+def test_unknown_or_fractional_series_positions_do_not_force_order(position: str | None) -> None:
+    pinned = data(
+        *history(),
+        series_book(candidate(C.THREE), S.REC2_TEST_POSITION_THREE),
+        series_book(candidate(C.FOUR), position),
+    )
+    report = build_recommendations(pinned, analysis(pinned))
+    assert tuple(item.work_id for item in report.shortlist) == (C.THREE, C.FOUR)
+    assert not report.ranked[C.ZERO].series_context[C.ZERO].earlier_eligible_work_ids
+
+
+def test_multiple_memberships_and_conflicting_ordinals_abstain_from_order() -> None:
+    later = series_book(candidate(C.THREE), S.REC2_TEST_POSITION_THREE)
+    earlier = series_book(candidate(C.FOUR), S.REC2_TEST_POSITION_ONE, multiple=C.TRUE)
+    pinned = data(*history(), later, earlier)
+    report = build_recommendations(pinned, analysis(pinned))
+    assert report.shortlist[C.ZERO].work_id == C.THREE
+    contradictory = series_book(candidate(C.FOUR), S.REC2_TEST_POSITION_TWO)
+    conflict = earlier.model_copy(
+        update={
+            S.AN_EVIDENCE: (
+                *series_book(candidate(C.FOUR), S.REC2_TEST_POSITION_ONE).evidence,
+                *contradictory.evidence,
+            )
+        }
+    )
+    pinned = data(*history(), later, conflict)
+    report = build_recommendations(pinned, analysis(pinned))
+    assert report.shortlist[C.ZERO].work_id == C.THREE
+    assert report.ranked[C.ONE].series_context[C.ZERO].position is C.NONE
+
+
+def test_legacy_open_library_series_pairing_requires_single_name_and_position() -> None:
+    def legacy(book: AnalysisBook, positions: list[JsonValue]) -> AnalysisBook:
+        return book.model_copy(
+            update={
+                S.AN_EVIDENCE: tuple(
+                    AnalysisEvidence(
+                        source=Source.OPEN_LIBRARY.value,
+                        source_id=str(book.work_id),
+                        observation=Observation(
+                            field=field,
+                            value=value,
+                            scope=S.WORK,
+                            state=FieldState.PRESENT,
+                            source_url=S.REC2_TEST_OL_URL,
+                        ),
+                    )
+                    for field, value in (
+                        (S.SERIES, [S.REC_TEST_SERIES]),
+                        (S.META_COVERAGE_SERIES_POSITIONS, positions),
+                    )
+                )
+            }
+        )
+
+    later = legacy(candidate(C.THREE), [S.REC2_TEST_POSITION_THREE])
+    earlier = legacy(candidate(C.FOUR), [S.REC2_TEST_POSITION_ONE])
+    pinned = data(*history(), later, earlier)
+    report = build_recommendations(pinned, analysis(pinned))
+    assert tuple(item.work_id for item in report.shortlist) == (C.FOUR, C.THREE)
+    ambiguous = legacy(candidate(C.FOUR), [S.REC2_TEST_POSITION_ONE, S.REC2_TEST_POSITION_TWO])
+    pinned = data(*history(), later, ambiguous)
+    assert build_recommendations(pinned, analysis(pinned)).shortlist[C.ZERO].work_id == C.THREE
+    cross_provider = data(
+        *history(), series_book(candidate(C.THREE), S.REC2_TEST_POSITION_THREE), earlier
+    )
+    report = build_recommendations(cross_provider, analysis(cross_provider))
+    assert report.shortlist[C.ZERO].work_id == C.THREE
+
+
+def test_unsupported_counterevidence_vetoes_order_without_dropping_candidate() -> None:
+    earlier = series_book(candidate(C.FOUR), S.REC2_TEST_POSITION_ONE)
+    evidence = earlier.evidence[C.ZERO]
+    unsupported = evidence.model_copy(
+        update={
+            S.REC2_TEST_OBSERVATION_KEY: evidence.observation.model_copy(
+                update={S.STATE: FieldState.UNAVAILABLE, S.VALUE: C.NONE}
+            )
+        }
+    )
+    earlier = earlier.model_copy(update={S.AN_EVIDENCE: (*earlier.evidence, unsupported)})
+    pinned = data(*history(), series_book(candidate(C.THREE), S.REC2_TEST_POSITION_THREE), earlier)
+    report = build_recommendations(pinned, analysis(pinned))
+    assert report.shortlist[C.ZERO].work_id == C.THREE
+    assert report.ranked[C.ONE].series_context[C.ZERO].position is C.NONE
+
+
+def test_diversity_breaks_equal_scores_without_overriding_clear_quality() -> None:
+    books = {
+        C.THREE: candidate(C.THREE),
+        C.FOUR: candidate(C.FOUR),
+        C.FIVE: candidate(C.FIVE).model_copy(update={S.AUTHORS: (S.REC_TEST_OTHER_AUTHOR,)}),
+    }
+
+    def item(work_id: int, score: float) -> RecommendationItem:
+        book = books[work_id]
+        return RecommendationItem(
+            work_id=work_id,
+            title=book.title,
+            authors=book.authors,
+            source_ids=book.source_ids,
+            status=S.REC_RANKED,
+            ranking_score=score,
+        )
+
+    tied = _shortlist((item(C.THREE, C.ONE), item(C.FOUR, C.ONE), item(C.FIVE, C.ONE)), books)
+    assert tuple(book.work_id for book in tied) == (C.THREE, C.FIVE, C.FOUR)
+    quality = _shortlist((item(C.THREE, C.TWO), item(C.FOUR, C.TWO), item(C.FIVE, C.ONE)), books)
+    assert tuple(book.work_id for book in quality) == (C.THREE, C.FOUR, C.FIVE)
+
+
+def evaluation_history() -> tuple[AnalysisBook, ...]:
+    return tuple(
+        _book(
+            index + C.ONE,
+            C.ONE if index % C.TWO else C.FIVE,
+            author=S.REC2_TEST_AUTHOR.format(index=index),
+            genre=S.REC_TEST_GENRE if index % C.TWO else S.REC_TEST_OTHER_GENRE,
+        ).model_copy(
+            update={
+                S.PAGE_COUNT: C.INTEGRATION_PAGE_COUNT + index,
+                S.REC_ORIGINAL_YEAR: C.REC_FUTURE_YEAR - index,
+            }
+        )
+        for index in range(C.REC2_MIN_RATED)
+    )
+
+
+def test_evaluation_uses_same_cohort_training_only_means_and_keeps_shadow_inactive() -> None:
+    books = evaluation_history()
+    result = evaluate_recommendations(books, _features)
+    assert result.status == S.REC2_AVAILABLE
+    assert result.cohort_size == len(books)
+    assert not result.new_scoring_active
+    by_id = {book.work_id: book for book in books}
+    expected_errors = []
+    seen: list[int] = []
+    for fold in result.folds:
+        assert not set(fold.training_work_ids).intersection(fold.heldout_work_ids)
+        training = tuple(by_id[work_id] for work_id in fold.training_work_ids)
+        baseline = sum(book.rating for book in training if book.rating is not C.NONE) / len(
+            training
+        )
+        for work_id in fold.heldout_work_ids:
+            rating = by_id[work_id].rating
+            assert rating is not C.NONE
+            expected_errors.append(abs(baseline - rating))
+        seen.extend(fold.heldout_work_ids)
+    assert sorted(seen) == sorted(by_id)
+    assert result.mean_mae == pytest.approx(sum(expected_errors) / len(expected_errors))
+    assert result.current_heuristic_mae is not C.NONE
+    assert result.simple_length_mae is not C.NONE
+    assert result.shadow_candidate_mae is not C.NONE
+    assert result == evaluate_recommendations(tuple(reversed(books)), _features)
+
+
+def test_connected_coauthors_stay_together_and_training_vocabulary_has_no_heldout_tokens() -> None:
+    first = _book(C.ONE, C.FIVE, author=S.REC_TEST_AUTHOR, genre=S.REC_TEST_GENRE)
+    bridge = _book(C.TWO, C.FOUR).model_copy(
+        update={S.AUTHORS: (S.REC_TEST_AUTHOR, S.REC_TEST_OTHER_AUTHOR)}
+    )
+    last = _book(C.THREE, C.THREE, author=S.REC_TEST_OTHER_AUTHOR)
+    assert len(author_components((first, bridge, last))) == C.ONE
+    training = (first.model_copy(update={S.PAGE_COUNT: C.INTEGRATION_PAGE_COUNT}),)
+    profile = fit_profile(training, _features, richer=C.TRUE)
+    assert (S.REC_AUTHOR, S.REC_TEST_OTHER_AUTHOR.casefold()) not in profile.signals
+    assert (S.GENRES, S.REC_TEST_OTHER_GENRE) not in profile.signals
+    assert profile.cutoffs[S.REC2_LENGTH] == C.INTEGRATION_PAGE_COUNT
+
+
+def test_insufficient_evaluation_is_unavailable_not_zero_and_old_reports_parse() -> None:
+    pinned = data(*history(), candidate())
+    report = build_recommendations(pinned, analysis(pinned))
+    assert report.evaluation is not C.NONE
+    assert report.evaluation.status == S.REC2_UNAVAILABLE
+    assert report.evaluation.mean_mae is C.NONE
+    assert report.evaluation.reason
+    legacy = report.model_dump(mode=S.JSON)
+    legacy.pop(S.REC2_EVALUATION)
+    assert RecommendationReport.model_validate(legacy).evaluation is C.NONE
+
+
+def test_evaluation_cache_tracks_numeric_inputs_and_provenance_but_not_capture_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    book = series_book(candidate(), S.REC2_TEST_POSITION_ONE)
+    pinned = data(*history(), book)
+    original = recommendation_key(pinned, analysis(pinned))
+    evidence = book.evidence[C.ZERO]
+    observed = evidence.model_copy(
+        update={
+            S.REC2_TEST_OBSERVATION_KEY: evidence.observation.model_copy(
+                update={S.REC2_TEST_OBSERVED_KEY: S.REC2_TEST_OBSERVED_AT}
+            )
+        }
+    )
+    recaptured = data(*history(), book.model_copy(update={S.AN_EVIDENCE: (observed,)}))
+    assert recommendation_key(recaptured, analysis(recaptured)) == original
+    provenance = evidence.model_copy(update={S.REC2_PUBLIC_URL: S.REC2_TEST_PUBLIC_URL})
+    rebound = data(*history(), book.model_copy(update={S.AN_EVIDENCE: (provenance,)}))
+    assert recommendation_key(rebound, analysis(rebound)) != original
+    pages = data(
+        history()[C.ZERO].model_copy(update={S.PAGE_COUNT: C.INTEGRATION_PAGE_COUNT}),
+        history()[C.ONE],
+        book,
+    )
+    assert recommendation_key(pages, analysis(pages)) != original
+    monkeypatch.setattr(S, S.REC2_TEST_VERSION_KEY, S.REC_TEST_PREVIOUS_ANALYSIS_VERSION)
+    assert recommendation_key(pinned, analysis(pinned)) != original
+
+
+def test_evaluation_missing_features_use_same_cohort_mean_fallback_not_negative_evidence() -> None:
+    books = tuple(
+        book.model_copy(
+            update={S.PAGE_COUNT: C.NONE, S.REC_ORIGINAL_YEAR: C.NONE, S.REC_FEATURES: {}}
+        )
+        for book in evaluation_history()
+    )
+    result = evaluate_recommendations(books, _features)
+    assert result.status == S.REC2_AVAILABLE
+    assert result.cohort_size == len(books)
+    assert result.current_mean_fallbacks == len(books)
+    assert result.shadow_mean_fallbacks == len(books)
+    assert result.simple_mean_fallbacks == len(books)
+    assert result.current_fallback_rate == C.ONE
+    assert result.mean_mae == result.current_heuristic_mae
+    assert result.mean_mae == result.shadow_candidate_mae
+    assert result.mean_mae == result.simple_length_mae
+    assert not result.shadow_beats_comparators
+
+
+def test_large_single_coauthor_component_still_has_no_heldout_evaluation() -> None:
+    books = tuple(
+        book.model_copy(update={S.AUTHORS: (S.REC_TEST_AUTHOR,)}) for book in evaluation_history()
+    )
+    result = evaluate_recommendations(books, _features)
+    assert result.status == S.REC2_UNAVAILABLE
+    assert result.independent_components == C.ONE
+    assert not result.folds
+    assert result.mean_mae is C.NONE

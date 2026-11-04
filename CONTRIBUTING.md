@@ -224,8 +224,15 @@ when editing the build manifest.
 Install development dependencies:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,cpu]"
 ```
+
+The `cpu` and `cuda` extras are mutually exclusive runtime installations; do not
+install both. Use a separate environment with `.[dev,cuda]` for NVIDIA work.
+The CUDA profile pins ONNX Runtime 1.26.0 (CUDA 12/cuDNN 9); compatible local
+drivers and libraries remain prerequisites, not dependencies Booky installs.
+Unit tests inject provider availability and fallback; only a real CUDA model
+smoke test establishes hardware execution. See README for installation choices.
 
 Start with tests for the changed module. After Python changes include:
 

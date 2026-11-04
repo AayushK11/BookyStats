@@ -272,7 +272,7 @@ class CollectionSnapshot(Model):
 
 
 class MetadataCandidate(Model):
-    provider: Literal[Source.GOOGLE_BOOKS, Source.OPEN_LIBRARY]
+    provider: Literal[Source.GOOGLE_BOOKS, Source.OPEN_LIBRARY, Source.WIKIDATA]
     provider_id: str
     title: str
     authors: tuple[str, ...] = ()

@@ -34,14 +34,19 @@ from bookystats.runtime.layout import database_path
 from tests.persistence.test_library import _restore_legacy_layout, book, publish, snapshot
 from tests.persistence.test_storage_safety import fingerprint
 from tests.support.exports import csv_body
+from tests.support.outcomes import StepTimer
 from tests.support.scheduling import activation
 from tests.support.sources import accounts
 
 
 @pytest.mark.parametrize(S.LOG2_TEST_LARGE_TOTAL, (C.ZERO, C.ONE, C.LOG2_TEST_LARGE_TOTAL))
 def test_metadata_progress_is_percentage_bounded_without_timeout_boilerplate(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], total: int
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    total: int,
 ) -> None:
+    monkeypatch.setattr(cli, S.LOG3_TIMER_ATTRIBUTE, StepTimer())
     events: list[str] = []
     with ExitStack() as stack:
         service = cli._build_service(
@@ -61,16 +66,62 @@ def test_metadata_progress_is_percentage_bounded_without_timeout_boilerplate(
         service.on_metadata_progress(Source.OPEN_LIBRARY, total, total)
     lines = capsys.readouterr().err.splitlines()
     assert len(lines) == len(events) <= C.LOG2_PROGRESS_BUCKETS + C.ONE
-    assert lines[C.ZERO] == S.LOG2_METADATA_PROGRESS.format(
-        source=S.OPEN_LIBRARY, completed=C.ZERO, total=total, percent=C.ZERO
+    assert lines[C.ZERO] == S.LOG3_PROGRESS.format(
+        provider=S.OUTCOME_OPEN_LIBRARY,
+        completed=C.ZERO,
+        total=total,
+        percent=C.ZERO,
+        elapsed=S.TEST_OPLOG_ZERO_TEXT,
+        note=S.LOG3_PROGRESS_DONE if total == C.ZERO else S.LOG3_PROGRESS_WAIT,
     )
-    assert lines[-C.ONE] == S.LOG2_METADATA_PROGRESS.format(
-        source=S.OPEN_LIBRARY,
+    assert lines[-C.ONE] == S.LOG3_PROGRESS.format(
+        provider=S.OUTCOME_OPEN_LIBRARY,
         completed=total,
         total=total,
         percent=C.LOG2_PROGRESS_PERCENT if total else C.ZERO,
+        elapsed=S.TEST_OPLOG_ZERO_TEXT,
+        note=S.LOG3_PROGRESS_DONE,
     )
     assert all(S.LOG2_TEST_ZERO_TIMEOUT not in line for line in lines)
+
+
+def test_slow_progress_uses_callback_heartbeat_and_human_stage_names(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timer = StepTimer()
+    monkeypatch.setattr(cli, S.LOG3_TIMER_ATTRIBUTE, timer)
+    events: list[str] = []
+    with ExitStack() as stack:
+        service = cli._build_service(
+            tmp_path,
+            Settings(metadata=MetadataSettings(google_books=C.FALSE, open_library=C.FALSE)),
+            stack,
+            interactive=C.FALSE,
+            inputs={},
+            on_event=events.append,
+        )
+        assert service.on_metadata_progress is not C.NONE
+        service.on_metadata_progress(Source.OPEN_LIBRARY, C.ZERO, C.LOG2_TEST_LARGE_TOTAL)
+        timer.value = C.LOG3_PROGRESS_HEARTBEAT_SECONDS - C.ONE
+        service.on_metadata_progress(Source.OPEN_LIBRARY, C.ONE, C.LOG2_TEST_LARGE_TOTAL)
+        assert len(events) == C.ONE
+        timer.value = C.LOG3_PROGRESS_HEARTBEAT_SECONDS
+        service.on_metadata_progress(Source.OPEN_LIBRARY, C.TWO, C.LOG2_TEST_LARGE_TOTAL)
+        assert len(events) == C.TWO
+        assert service.on_event is not C.NONE
+        service.on_event(S.PROD_STAGE_ANALYTICS)
+    assert events[C.ONE] == S.LOG3_PROGRESS.format(
+        provider=S.OUTCOME_OPEN_LIBRARY,
+        completed=C.TWO,
+        total=C.LOG2_TEST_LARGE_TOTAL,
+        percent=C.ZERO,
+        elapsed=cli.format_duration(C.LOG3_PROGRESS_HEARTBEAT_SECONDS),
+        note=S.LOG3_PROGRESS_WAIT,
+    )
+    assert events[-C.ONE] == S.LOG3_STAGE_ANALYTICS
+    assert capsys.readouterr().err.splitlines() == events
 
 
 def test_source_completion_events_have_no_row_examples(
@@ -116,13 +167,13 @@ def test_source_completion_events_have_no_row_examples(
     assert len(lines) == len(events) == C.TWO
     assert S.TEST_REPORTING_MESSAGE_ONE not in S.NEWLINE.join(lines)
     assert lines[C.ZERO] == S.LOG2_SOURCE.format(
-        source=S.GOODREADS,
-        collection=S.READ,
+        source=S.LOG3_SOURCE_GOODREADS,
+        collection=S.LOG3_COLLECTION_READ,
         state=S.COMPLETE,
         records=C.LOG2_TEST_LARGE_TOTAL,
     )
     assert lines[C.ONE] == S.LOG2_SOURCE_RETAINED.format(
-        source=S.GOODREADS, collection=S.READ, state=S.FAILED
+        source=S.LOG3_SOURCE_GOODREADS, collection=S.LOG3_COLLECTION_READ, state=S.FAILED
     )
 
 

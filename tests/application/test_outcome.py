@@ -26,6 +26,7 @@ from bookystats.domain.models import (
     Verification,
     VerificationResult,
 )
+from bookystats.domain.products import ProductReceipt
 from tests.support.outcomes import (
     RetryStore,
     complete_sources,
@@ -77,6 +78,12 @@ def test_complete_run_reports_counts_and_has_no_cause_lines() -> None:
         )
         in outcome.lines
     )
+
+
+def test_source_only_success_does_not_claim_metadata_or_provider_recovery() -> None:
+    outcome = explain_outcome(sync_receipt(), exit_code=C.ZERO, now=local_clock())
+    assert outcome.state == S.COMPLETE
+    assert S.LOG3_LOOKUPS_OFF in outcome.lines
 
 
 def test_paused_provider_is_explained_with_local_and_utc_time_without_quota_claims() -> None:
@@ -183,7 +190,9 @@ def test_causes_are_bounded_and_the_remainder_is_counted() -> None:
             count=C.ONE,
             total=C.FOUR,
             names=S.OUTCOME_SOURCE_NAME.format(
-                source=S.GOODREADS, collection=S.READ, state=S.FAILED
+                source=S.LOG3_SOURCE_GOODREADS,
+                collection=S.LOG3_COLLECTION_READ,
+                state=S.FAILED,
             ),
         )
     )
@@ -274,11 +283,94 @@ def test_probe_counts_this_run_only_and_keeps_unreadable_state_unknown() -> None
     )
     assert probe.network_requests() == (
         (S.GOOGLE_BOOKS, C.TEST_OPLOG_WIRE_AFTER - C.TEST_OPLOG_WIRE_BEFORE),
+        (S.WIKIDATA, C.ZERO),
     )
     assert probe.gates() == (google_gate(),)
     store.states.clear()
     fresh = RunProbe()
     fresh.attach(store)
     fresh.begin()
-    assert fresh.network_requests() == ((S.GOOGLE_BOOKS, C.ZERO), (S.OPEN_LIBRARY, C.ZERO))
+    assert fresh.network_requests() == (
+        (S.GOOGLE_BOOKS, C.ZERO),
+        (S.OPEN_LIBRARY, C.ZERO),
+        (S.WIKIDATA, C.ZERO),
+    )
     assert fresh.gates() == ()
+
+
+def test_daily_limit_explanation_requires_saved_structured_google_evidence() -> None:
+    store = RetryStore()
+    google = (Source.GOOGLE_BOOKS, C.OUTCOME_PROVIDER_HOSTS[Source.GOOGLE_BOOKS])
+    probe = RunProbe()
+    probe.attach(store)
+    store.states[google] = HttpRetryState(
+        retry_at=C.TEST_OPLOG_GATE_EPOCH,
+        status_code=C.TEST_OPLOG_HTTP_STATUS,
+        quota=C.L1_DAILY_FIXTURE_EVIDENCE,
+    )
+    gates = probe.gates()
+    assert gates[C.ZERO].daily_limit is C.TRUE
+    outcome = explain_outcome(
+        sync_receipt(metadata=paused_metadata()),
+        exit_code=C.THREE,
+        now=local_clock(),
+        gates=gates,
+    )
+    assert S.LOG3_DAILY_LIMIT in S.NEWLINE.join(outcome.lines)
+    store.states[google] = HttpRetryState(
+        retry_at=C.TEST_OPLOG_GATE_EPOCH,
+        status_code=C.TEST_OPLOG_HTTP_STATUS,
+    )
+    assert probe.gates()[C.ZERO].daily_limit is C.FALSE
+    generic = explain_outcome(
+        sync_receipt(metadata=paused_metadata()),
+        exit_code=C.THREE,
+        now=local_clock(),
+        gates=probe.gates(),
+    )
+    assert S.LOG3_DAILY_LIMIT not in S.NEWLINE.join(generic.lines)
+
+
+def test_report_ready_is_distinct_from_partial_book_details_and_reviewed_count() -> None:
+    metadata = MetadataReceipt(
+        provider=Source.OPEN_LIBRARY,
+        state=SyncState.PARTIAL,
+        requested=C.THREE,
+        attempted=C.THREE,
+        processed=C.ONE,
+        deferred=C.ZERO,
+    )
+    products = ProductReceipt(
+        state=SyncState.COMPLETE,
+        analytics_report_id=C.ONE,
+        pdf_file=S.PROD_PDF_FILE,
+    )
+    receipt = sync_receipt(state=SyncState.PARTIAL, metadata=(metadata,)).model_copy(
+        update={S.PROD_PRODUCTS: products}
+    )
+    outcome = explain_outcome(receipt, exit_code=C.THREE, now=local_clock())
+    assert outcome.state == S.PARTIAL
+    assert outcome.lines[C.ONE] == S.LOG3_REPORT_READY.format(
+        filename=S.PROD_PDF_FILE, report_id=C.ONE, scope=S.LOG3_REPORT_PARTIAL
+    )
+    assert (
+        S.LOG3_ATTEMPTED.format(
+            provider=S.OUTCOME_OPEN_LIBRARY, attempted=C.THREE, incomplete=C.TWO
+        )
+        in outcome.lines
+    )
+    assert (
+        S.OUTCOME_CAUSE_LINE.format(
+            text=S.LOG3_PROVIDER_INCOMPLETE.format(provider=S.OUTCOME_OPEN_LIBRARY)
+        )
+        in outcome.lines
+    )
+    assert S.OUTCOME_COMPLETE.format(finished=C.THREE, total=C.THREE) not in outcome.lines
+    legacy = MetadataReceipt.model_validate(
+        {
+            S.PROVIDER: Source.OPEN_LIBRARY,
+            S.STATE: SyncState.PARTIAL,
+            S.LOG3_PROCESSED_KEY: C.ONE,
+        }
+    )
+    assert legacy.attempted is C.NONE

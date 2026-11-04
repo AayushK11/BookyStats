@@ -1,6 +1,6 @@
 name: Checks
 
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 
 permissions:
   contents: read
@@ -16,10 +16,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12", "3.13", "3.14"]
         include:
-          - os: ubuntu-latest
+          - os: macos-15-intel
             python: "3.12"
-          - os: windows-latest
+          - os: macos-15-intel
             python: "3.13"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,7 +33,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install dependencies
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,cpu]"
       - name: Check formatting
         run: python -m ruff format --check src tests
       - name: Lint
@@ -44,3 +46,47 @@ jobs:
         run: node --test tests/adapters/exports/test_goodreads_console.cjs
       - name: Build distribution
         run: python -m build
+  model-bootstrap:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+    env:
+      BOOKYSTATS_TEST_MODEL: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package and tests
+        run: python -m pip install -e ".[dev,cpu]"
+      - name: Verify real CPU model bootstrap and offline reuse
+        run: python -m pytest -q -m live --pyargs tests.adapters.test_embeddings
+  cuda-profile-fallback:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      BOOKYSTATS_TEST_CUDA_FALLBACK: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install exclusive CUDA runtime and tests
+        run: python -m pip install -e ".[dev,cuda]"
+      - name: Verify visible CPU fallback and offline reuse on a CPU-only runner
+        run: python -m pytest -q -m live --pyargs tests.adapters.test_embeddings

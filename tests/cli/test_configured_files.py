@@ -486,7 +486,9 @@ def test_partial_sync_names_the_failed_source_and_next_action_in_log_and_summary
     captured = capsys.readouterr()
     SyncReceipt.model_validate_json(captured.out)
     names = S.OUTCOME_SOURCE_NAME.format(
-        source=Source.GOODREADS.value, collection=S.READ, state=SyncState.FAILED.value
+        source=S.LOG3_SOURCE_GOODREADS,
+        collection=S.LOG3_COLLECTION_READ,
+        state=SyncState.FAILED.value,
     )
     why = S.OUTCOME_CAUSE_LINE.format(
         text=S.OUTCOME_SOURCES.format(count=C.ONE, total=C.THREE, names=names)

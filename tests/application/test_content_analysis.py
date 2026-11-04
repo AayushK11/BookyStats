@@ -7,7 +7,8 @@ import pytest
 
 from bookystats import constants as C
 from bookystats import strings as S
-from bookystats.application.content_analysis import build_content_analysis
+from bookystats.application.analytics import _component_key
+from bookystats.application.content_analysis import build_content_analysis, description_provenance
 from bookystats.domain.analytics import (
     AnalysisBook,
     AnalysisEvidence,
@@ -189,12 +190,91 @@ def test_file_lineage_and_public_book_reference_remain_separate() -> None:
     ),
 )
 def test_selected_provider_description_evidence_is_usable(source: Source, url: str) -> None:
-    data = _data(*(_book(work_id, source=source, url=url) for work_id in range(C.ONE, C.FOUR)))
+    provider_id = S.OL45883W if source == Source.OPEN_LIBRARY else S.TESTVOLUME_1
+    url = (
+        S.OPEN_LIBRARY_WORK_URL_TEMPLATE
+        if source == Source.OPEN_LIBRARY
+        else S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE
+    ).format(v0=provider_id)
+    books = []
+    for work_id in range(C.ONE, C.FOUR):
+        book = _book(work_id, source=source, url=url)
+        item = book.evidence[C.ZERO]
+        observation = item.observation.model_copy(
+            update={S.ENR_OBSERVATION_SCOPE: S.EDITION if source == Source.GOOGLE_BOOKS else S.WORK}
+        )
+        books.append(
+            book.model_copy(
+                update={
+                    S.AN_EVIDENCE: (
+                        item.model_copy(
+                            update={S.SOURCE_ID: provider_id, S.DTX_OBSERVATION: observation}
+                        ),
+                    )
+                }
+            )
+        )
+    data = _data(*books)
     wonder = _groups(_hunger(_analyze(data)))[S.AN_WONDER]
     assert isinstance(wonder, dict)
     assert wonder[S.CONTENT_ANALYSIS_COUNT] == C.THREE
     assert wonder[S.CONTENT_ANALYSIS_PROOF][C.ZERO][S.CONTENT_ANALYSIS_SOURCE] == source.value
     assert wonder[S.CONTENT_ANALYSIS_PROOF][C.ZERO][S.CONTENT_ANALYSIS_URL] == url
+    assert wonder[S.CONTENT_ANALYSIS_PROOF][C.ZERO][S.CONTENT_ANALYSIS_SCOPE] == (
+        S.EDITION if source == Source.GOOGLE_BOOKS else S.WORK
+    )
+    assert description_provenance(data.books[C.ZERO]) is not C.NONE
+
+
+def test_google_descriptor_semantics_keep_volume_identity_but_ignore_capture_time() -> None:
+    url = S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE.format(v0=S.TESTVOLUME_1)
+    book = _book(C.ONE, source=Source.GOOGLE_BOOKS, url=url)
+    item = book.evidence[C.ZERO].model_copy(
+        update={
+            S.SOURCE_ID: S.TESTVOLUME_1,
+            S.DTX_OBSERVATION: book.evidence[C.ZERO].observation.model_copy(
+                update={S.ENR_OBSERVATION_SCOPE: S.EDITION}
+            ),
+        }
+    )
+    book = book.model_copy(update={S.AN_EVIDENCE: (item,)})
+    data = _data(book)
+    original = _component_key(data, AnalyticsSettings())
+    recaptured = item.model_copy(
+        update={
+            S.DTX_OBSERVATION: item.observation.model_copy(
+                update={S.OBSERVED_AT: S.TEST_STORAGE_START_T10}
+            )
+        }
+    )
+    repeated = _component_key(
+        _data(book.model_copy(update={S.AN_EVIDENCE: (recaptured,)})), AnalyticsSettings()
+    )
+    assert repeated == original
+    replacement = item.model_copy(
+        update={
+            S.SOURCE_ID: S.VOLUME,
+            S.DTX_OBSERVATION: item.observation.model_copy(
+                update={
+                    S.META_COVERAGE_SOURCE_URL: S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE.format(
+                        v0=S.VOLUME
+                    )
+                }
+            ),
+        }
+    )
+    changed = _component_key(
+        _data(book.model_copy(update={S.AN_EVIDENCE: (replacement,)})), AnalyticsSettings()
+    )
+    assert changed != original
+    reader = item.model_copy(
+        update={
+            S.DTX_OBSERVATION: item.observation.model_copy(
+                update={S.ENR_OBSERVATION_SCOPE: S.READER}
+            )
+        }
+    )
+    assert description_provenance(book.model_copy(update={S.AN_EVIDENCE: (reader,)})) is C.NONE
 
 
 @pytest.mark.parametrize(

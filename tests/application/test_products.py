@@ -149,7 +149,8 @@ def test_layout_bundle_is_published_beside_legacy_bundle_and_reused(tmp_path: Pa
         printed = S.EMPTY.join(
             S.EMPTY.join(page.extract_text().split()) for page in PdfReader(result.pdf_file).pages
         )
-        assert S.EMPTY.join(details.split()) in printed
+        assert S.EMPTY.join(typed.cover.title.split()) in printed
+        assert S.EMPTY.join(details.split()) not in printed
         assert products.run((), AnalyticsSettings(), analytics) == result
         assert len(renders) == C.ONE
         assert store.for_report(saved) == legacy

@@ -7,6 +7,7 @@ import pytest
 
 from bookystats import constants as C
 from bookystats import strings as S
+from bookystats.application.content_analysis import description_provenance
 from bookystats.domain.analytics import (
     AnalysisBook,
     AnalysisInput,
@@ -17,6 +18,7 @@ from bookystats.domain.models import (
     BookRecord,
     EnrichmentResult,
     FieldState,
+    Issue,
     Observation,
     PartialDate,
     ReadingEvent,
@@ -308,7 +310,7 @@ def test_provider_genre_families_retain_raw_subjects_and_mapping_provenance(
     observation = Observation(
         field=S.GENRES,
         value=list(labels),
-        scope=S.WORK,
+        scope=S.EDITION,
         state=FieldState.PRESENT,
         source_url=candidate.url,
     )
@@ -450,6 +452,65 @@ def test_selected_metadata_is_pinned_and_invalidated_by_identity_changes(library
     updated = library.analytics_input(accounts(), AnalyticsSettings())
     assert not updated.manifest.metadata
     assert updated.books[C.ZERO].page_count is C.NONE
+
+
+def test_wikidata_work_facts_are_pinned_without_borrowing_edition_values(
+    library: Database,
+) -> None:
+    catalog = seed(library)
+    reference = S.WIKIDATA_WORK_URL.format(v0=S.WIKIDATA_TEST_ID)
+    candidate = metadata_candidate(
+        provider=Source.WIKIDATA,
+        provider_id=S.WIKIDATA_TEST_ID,
+        work_id=S.WIKIDATA_TEST_ID,
+        edition_id=C.NONE,
+        isbns=(),
+        url=reference,
+        observations=tuple(
+            Observation(
+                field=field,
+                value=value,
+                state=FieldState.FAILED if value is C.NONE else FieldState.PRESENT,
+                scope=S.WORK,
+                source_url=reference,
+            )
+            for field, value in (
+                (S.GENRES, [S.ANALYTIC_CATEGORY_FANTASY]),
+                (S.FIRST_PUBLICATION_YEAR, S.WIKIDATA_TEST_YEAR),
+                (S.LANGUAGE, S.FR),
+                (S.PAGE_COUNT, C.TEST_STORAGE_METADATA_CANDIDATE),
+                (S.WD_ORIGINAL_LANGUAGE, C.NONE),
+            )
+        ),
+    )
+    library.save_enrichment(
+        Source.GOODREADS,
+        Source.WIKIDATA,
+        EnrichmentResult(
+            source_id=catalog.source_id,
+            state=SyncState.PARTIAL,
+            candidates=(candidate,),
+            issues=(
+                Issue(
+                    code=S.INVALID_METADATA_FIELD,
+                    message=S.TEST,
+                ),
+            ),
+        ),
+    )
+    data = library.analytics_input(accounts(), AnalyticsSettings())
+    result = data.books[C.ZERO]
+    assert result.features[S.GENRES] == (S.ANALYTIC_CATEGORY_FANTASY,)
+    assert result.first_publication_year == C.WIKIDATA_TEST_YEAR_NUMBER
+    assert result.page_count is C.NONE
+    assert S.LANGUAGE not in result.features
+    assert data.manifest.metadata[C.ZERO].provider == Source.WIKIDATA
+    assert all(
+        book.source != Source.GOODREADS for book in library.enrichment_targets(Source.WIKIDATA)
+    )
+    assert any(
+        book.source == Source.GOODREADS for book in library.enrichment_targets(Source.OPEN_LIBRARY)
+    )
 
 
 def test_only_explicit_appetite_labels_are_used(library: Database) -> None:
@@ -615,24 +676,26 @@ def test_linked_provider_work_fields_are_shared_but_personal_source_editions_are
 ) -> None:
     seed(library)
     personal = book()
+    url = S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE.format(v0=S.VOLUME)
     candidate = metadata_candidate().model_copy(
         update={
+            S.URL: url,
             S.OBSERVATIONS: (
                 Observation(
                     field=S.DESCRIPTION,
                     value=S.TEST_BROWSER_EXPORT_DESCRIPTION,
                     state=FieldState.PRESENT,
-                    source_url=S.TEST_BROWSER_EXPORT_URL,
-                    scope=S.WORK,
+                    source_url=url,
+                    scope=S.EDITION,
                 ),
                 Observation(
                     field=S.PAGE_COUNT,
                     value=C.INTEGRATION_PAGE_COUNT,
                     state=FieldState.PRESENT,
-                    source_url=S.TEST_BROWSER_EXPORT_URL,
+                    source_url=url,
                     scope=S.EDITION,
                 ),
-            )
+            ),
         }
     )
     library.save_enrichment(
@@ -722,16 +785,24 @@ def test_alternative_provider_descriptions_are_not_scalar_fact_conflicts(
         (Source.GOOGLE_BOOKS, description),
         (Source.OPEN_LIBRARY, longer),
     ):
+        provider_id = S.OL45883W if provider == Source.OPEN_LIBRARY else S.VOLUME
+        url = (
+            S.OPEN_LIBRARY_WORK_URL_TEMPLATE
+            if provider == Source.OPEN_LIBRARY
+            else S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE
+        ).format(v0=provider_id)
         candidate = metadata_candidate(
             **{
                 S.PROVIDER: provider,
+                S.PROVIDER_ID: provider_id,
+                S.URL: url,
                 S.OBSERVATIONS: (
                     Observation(
                         field=S.DESCRIPTION,
                         value=text,
                         state=FieldState.PRESENT,
-                        source_url=S.TEST_BROWSER_EXPORT_URL,
-                        scope=S.WORK,
+                        source_url=url,
+                        scope=S.WORK if provider == Source.OPEN_LIBRARY else S.EDITION,
                     ),
                 ),
             }
@@ -753,6 +824,171 @@ def test_alternative_provider_descriptions_are_not_scalar_fact_conflicts(
         for item in result.evidence
         if item.observation.field == S.DESCRIPTION
     } == {description, longer}
+
+
+@pytest.mark.parametrize(S.PROVIDER, (Source.GOOGLE_BOOKS, Source.OPEN_LIBRARY))
+def test_substantive_public_description_beats_clipped_primary_without_relabeling_scope(
+    library: Database, provider: Source
+) -> None:
+    catalog = seed(library)
+    preview = Observation(
+        field=S.DESCRIPTION,
+        value=S.METADATA_TEST_PREVIEW,
+        state=FieldState.PRESENT,
+        scope=S.WORK,
+        source_url=S.TEST_BROWSER_EXPORT_URL,
+    )
+    publish_scope(
+        library,
+        Source.GOODREADS,
+        catalog.model_copy(update={S.OBSERVATIONS: (preview,)}),
+        collection=S.READ,
+    )
+    provider_id = S.OL45883W if provider == Source.OPEN_LIBRARY else S.VOLUME
+    url = (
+        S.OPEN_LIBRARY_WORK_URL_TEMPLATE
+        if provider == Source.OPEN_LIBRARY
+        else S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE
+    ).format(v0=provider_id)
+    observation = Observation(
+        field=S.DESCRIPTION,
+        value=S.METADATA_TEST_RICH_DESCRIPTION,
+        state=FieldState.PRESENT,
+        scope=S.WORK if provider == Source.OPEN_LIBRARY else S.EDITION,
+        source_url=url,
+    )
+    candidate = metadata_candidate(
+        **{
+            S.PROVIDER: provider,
+            S.PROVIDER_ID: provider_id,
+            S.URL: url,
+            S.OBSERVATIONS: (observation,),
+        }
+    )
+    library.save_enrichment(
+        Source.GOODREADS,
+        provider,
+        EnrichmentResult(
+            source_id=catalog.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(candidate,),
+        ),
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    assert result.description == S.METADATA_TEST_RICH_DESCRIPTION
+    assert result.field_states[S.DESCRIPTION] == FieldState.PRESENT
+    assert any(item.observation == preview for item in result.evidence)
+    assert any(item.observation == observation for item in result.evidence)
+    provenance = description_provenance(result)
+    assert provenance is not C.NONE
+    assert provenance[S.CONTENT_ANALYSIS_SOURCE] == provider.value
+    assert provenance[S.CONTENT_ANALYSIS_URL] == url
+
+
+def test_clipped_only_description_remains_raw_evidence_not_complete_content(
+    library: Database,
+) -> None:
+    catalog = seed(library)
+    preview = Observation(
+        field=S.DESCRIPTION,
+        value=S.METADATA_TEST_PREVIEW,
+        state=FieldState.PRESENT,
+        scope=S.WORK,
+        source_url=S.TEST_BROWSER_EXPORT_URL,
+    )
+    publish_scope(
+        library,
+        Source.GOODREADS,
+        catalog.model_copy(update={S.OBSERVATIONS: (preview,)}),
+        collection=S.READ,
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    assert result.description is C.NONE
+    assert result.field_states[S.DESCRIPTION] == FieldState.UNAVAILABLE
+    assert any(item.observation == preview for item in result.evidence)
+    assert description_provenance(result) is C.NONE
+
+
+def test_validated_edition_retains_legitimate_thousand_page_length(library: Database) -> None:
+    catalog = seed(library)
+    candidate = metadata_candidate()
+    pages = candidate.observations[C.ZERO].model_copy(update={S.VALUE: C.METADATA_TEST_LONG_PAGES})
+    library.save_enrichment(
+        Source.GOODREADS,
+        candidate.provider,
+        EnrichmentResult(
+            source_id=catalog.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(candidate.model_copy(update={S.OBSERVATIONS: (pages,)}),),
+        ),
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    assert result.page_count == C.METADATA_TEST_LONG_PAGES
+    assert result.field_states[S.PAGE_COUNT] == FieldState.PRESENT
+    assert any(item.observation == pages for item in result.evidence)
+
+
+@pytest.mark.parametrize(S.FIELD, (S.IMPORT_BROWSER_FIRST_PUBLICATION, S.PUBLICATION_DATE))
+def test_optional_goodreads_publication_conflict_cannot_be_hidden_by_provider_fallback(
+    library: Database, field: str
+) -> None:
+    catalog = seed(library)
+    scope = S.WORK if field == S.IMPORT_BROWSER_FIRST_PUBLICATION else S.EDITION
+    flags = (
+        Observation(
+            field=field,
+            scope=scope,
+            state=FieldState.UNAVAILABLE,
+            source_url=S.TEST_BROWSER_EXPORT_URL,
+        ),
+        Observation(
+            field=S.METADATA_PUBLICATION_CONFLICT,
+            value=field,
+            scope=scope,
+            state=FieldState.PRESENT,
+            source_url=S.TEST_BROWSER_EXPORT_URL,
+        ),
+    )
+    publish_scope(
+        library,
+        Source.GOODREADS,
+        catalog.model_copy(update={S.OBSERVATIONS: flags}),
+        collection=S.READ,
+    )
+    candidate = metadata_candidate(
+        **{
+            S.OBSERVATIONS: (
+                Observation(
+                    field=S.FIRST_PUBLICATION_YEAR
+                    if field == S.IMPORT_BROWSER_FIRST_PUBLICATION
+                    else S.PUBLICATION_DATE,
+                    value=S.METADATA_TEST_DATE_YEAR,
+                    scope=scope,
+                    state=FieldState.PRESENT,
+                    source_url=S.TEST_BROWSER_EXPORT_URL,
+                ),
+            )
+        }
+    )
+    library.save_enrichment(
+        Source.GOODREADS,
+        candidate.provider,
+        EnrichmentResult(
+            source_id=catalog.source_id,
+            state=SyncState.COMPLETE,
+            candidates=(candidate,),
+        ),
+    )
+    result = library.analytics_input(accounts(), AnalyticsSettings()).books[C.ZERO]
+    target = (
+        S.FIRST_PUBLICATION_YEAR
+        if field == S.IMPORT_BROWSER_FIRST_PUBLICATION
+        else S.PUBLICATION_DATE
+    )
+    assert result.first_publication_year is C.NONE
+    assert result.publication_year is C.NONE
+    assert result.field_states[target] == FieldState.FAILED
+    assert any(item.observation == flags[C.ONE] for item in result.evidence)
 
 
 @pytest.mark.parametrize(S.AV_TEST_SCOPE_PARAMETERS, C.AV_TEST_LANGUAGE_SCOPE_CASES)

@@ -8,8 +8,9 @@ and a printable library report locally.
 **CSV import, backend analytics, automatic metadata-quality diagnostics,
 watchlist ranking and PDF reporting are implemented. A frontend, automatic
 source collection, scheduling and annual reviews are not.**
-Metadata coverage can remain partial; implemented prediction checks have not
-established an improvement over their baselines.
+Metadata coverage can remain partial. Learned ordering activates only after its
+retrospective ranking gates pass; otherwise baseline scoring remains active.
+Neither establishes future recommendation accuracy.
 
 ## Start here
 
@@ -37,6 +38,66 @@ Cloning restores the code, nonsecret root configuration and three fixed CSVs,
 A fresh provider-enabled rebuild depends on authorization, availability and
 quota; it need not reproduce an older provider snapshot exactly.
 
+## Local recommendation model
+
+Recommendations use a small local English public-description model, not a
+generative chatbot (`BAAI/bge-small-en-v1.5`, FP16 ONNX, MIT license). First relevant sync
+downloads roughly 67 MB of pinned, hash-verified model assets. No book descriptions,
+ratings or credentials are sent to a model service. No GPU or separate model-setup
+command is needed for the normal CPU installation. `status` and `fetch` never
+initialize/download the model.
+
+`requirements.txt` installs the CPU runtime. For a published wheel, use
+`python -m pip install "bookystats[cpu]"`. The base package deliberately excludes
+the mutually exclusive model runtimes; disabling semantic representation allows
+operation without either runtime.
+
+NVIDIA acceleration is optional. In a **separate clean virtual environment**, use
+`python -m pip install ".[cuda]"` from the checkout, or `"bookystats[cuda]"` for a
+published package. Do not combine CPU and CUDA extras or install the CUDA extra
+over an existing CPU environment: the distributions share Python modules.
+This profile uses ONNX Runtime 1.26.0 with compatible NVIDIA drivers, CUDA 12 and
+cuDNN 9 already installed. Booky does not install drivers or start a model daemon.
+`recommendations.acceleration` defaults to `"auto"`: compatible CUDA is preferred
+when the CUDA runtime is installed; an unavailable accelerator produces an explicit
+CPU-fallback message. `"cpu"` forces local CPU execution; `"cuda"` requires CUDA
+and fails rather than silently accepting CPU execution. Apple/AMD acceleration
+is not implemented; those machines use the CPU profile.
+ONNX Runtime may also print native DLL diagnostics when CUDA cannot load;
+Booky separately reports the effective provider and a concise fallback reason.
+
+Assets and immutable verified vectors live under the selected data directory's
+`runtime\recommendations`; install dependencies before moving to an offline
+machine and retain this directory to reuse the model. In the top-level
+`recommendations` configuration, `allow_model_download: false` forbids model
+downloads, `semantic_enabled: false` explicitly disables semantic representation,
+and `threads`/`batch_size` bound CPU/memory use (defaults 2/8). Missing offline
+assets, corrupt caches and inference failures are reported, not disguised as
+semantic success; the last-good delivered report remains available. Other
+metadata providers have their own network/authorization settings.
+
+The learned hybrid uses actual personal Read ratings, including lower ratings,
+with training-only cross-fitting. It activates only after same-cohort,
+connected-coauthor-held-out ranking checks beat the predefined comparators.
+Otherwise current evidence scoring remains active and similar public blurbs
+are descriptive context. Shortlist variety is limited to comparably scored
+eligible books; Read-overlap and verified series safeguards still apply.
+Missing descriptions cannot be invented, long blurbs may be truncated, and
+English-model resemblance is neither proof of shared themes nor an enjoyment
+probability. A learned channel can receive zero weight when personal history
+does not support it; description similarity is not automatically a scoring benefit.
+Full diagnostics and activation reasons are saved in recommendations JSON.
+
+Clean CPU-only Windows, macOS and Linux installs are the portability targets.
+CI covers Python 3.12–3.14 and real-model bootstrap/offline reuse on the three
+platforms; configuring that coverage is not evidence that pending jobs passed.
+Native runtime-wheel availability still limits older/unsupported architectures.
+Intel macOS currently requires Python 3.12/3.13 and ONNX Runtime 1.23.2;
+the platform-specific dependency pins preserve that compatible runtime.
+Windows CPU inference, exclusive CUDA-profile CPU fallback, strict CUDA rejection
+and fresh-process offline cache reuse have been exercised locally. Actual CUDA
+hardware acceleration and pending Linux/macOS CI are not yet verified.
+
 ## Inputs and configuration
 
 The editable checkout's default `data` directory uses root `config.json`.
@@ -47,7 +108,8 @@ Select a directory with `--data-dir PATH` or `BOOKYSTATS_DATA_DIR`; the flag win
 Non-editable installs otherwise use the platform's user-data directory.
 
 Configuration is flat JSON with top-level `schema_version`, `accounts`, `files`,
-`http_timeout_seconds`, `metadata` and `weekly`. Do not nest these under `settings`.
+`http_timeout_seconds`, `analytics`, `recommendations`, `metadata` and `weekly`.
+Do not nest these under `settings`.
 Root configuration versions the nonsecret ByteMe account identities; these are
 profile references, not credentials. Other readers should use separate data
 directories and their own accounts. Environment overrides are
@@ -174,6 +236,13 @@ aliases, retaining unmapped subjects as unknowns.
 | Work/edition publication dates | Available for subsets | Catalog chronology, never personal reading history |
 | Filename and observation timestamps | Capture provenance | When data was archived/observed, not when a book was read |
 
+Strictly labeled Goodreads publication metadata can also come from the saved
+row details when a dedicated CSV cell is empty. First-publication and edition
+dates retain separate scope and precision; direct-cell and row-label candidates
+retain distinct provenance. Incompatible candidates are reported and abstain,
+not silently overwritten. This does not authorize extracting personal reading
+dates from flattened text. Labeled page counts accept valid thousands grouping.
+
 Unknown dates remain unknown. Current ratings grouped by a completion-date
 cohort are **not historical ratings at that time**.
 
@@ -185,8 +254,11 @@ cohort. Historical evaluated predictors did not establish predictive gains.
 
 After sync, open the PDF path printed in the terminal. The complete generated set
 is under `data\reports\report-<id>\`: `library.pdf`, `analytics.json`,
-`recommendations.json`, `metadata-quality.json` and a hash manifest.
+`recommendations.json`, `metadata-quality.json`, `reader-report.json` and a hash manifest.
 `data\reports\latest.json` identifies the latest complete bundle.
+Older report directories keep their original names. Rendering versions belong
+in the machine-readable manifest, not in the reading experience; a revision of
+an existing report is saved separately rather than overwriting it.
 
 All files in a bundle use the same pinned source/metadata manifest and as-of
 timestamp. Files are staged together, verified and published before the latest
@@ -194,13 +266,14 @@ pointer changes. A failed stage retains the previous bundle; status explicitly
 identifies a retained bundle when newer analytics exist. No report history,
 input, database, credential or backup is automatically deleted.
 
-The PDF is a reader-first portrait rather than a technical findings dump, with
-a data-art cover, compact chapters, charts, rating tiers, Goodreads comparisons,
-description-backed content evidence and watchlist context. It closes with
+The PDF is a bookish reading portrait rather than a technical findings dump:
+a shelf-art cover, playful chapter openings, charts, rating tiers, Goodreads
+comparisons, description-backed content evidence and a shortlist to explore.
+Chapters and book cards stay together where possible, with deliberate section
+starts instead of headings stranded at the foot of a page. It closes with
 coverage and interpretation notes. Chapters are data-dependent; sparse evidence
-is omitted rather than invented. The complete technical evidence, diagnostics
-and full ranking remain in JSON. The layout targets 16–20 pages for a rich
-library, not an inventory of every book or finding.
+is omitted rather than invented. The complete technical evidence, diagnostics,
+versions and full ranking remain in JSON.
 
 Embedded fonts provide portable glyph coverage, not universal script layout:
 complex-script shaping and right-to-left layout are not enabled. The PDF
@@ -245,6 +318,18 @@ Scores are transparent ordering heuristics, **not enjoyment probabilities or
 proven recommendation accuracy**. Recommendation histories and immutable,
 hash-verified caches live in `analytics.sqlite3`.
 
+Verified series evidence adds installment context and prefers an earlier
+eligible watchlist installment before a later one in the same known series.
+Missing or conflicting positions remain unknown; a missing library record does
+not prove an installment was never read. Equal-score shortlist choices favor
+variety without pretending that diversity improves predicted enjoyment.
+
+Recommendation JSON includes a same-cohort, connected-coauthor-held-out
+evaluation of the mean baseline, existing scorer and a richer shadow scorer.
+Profiles, vocabulary and baselines use training data only. The richer scorer
+remains inactive; these rating-error checks do not establish recommendation
+accuracy. Sparse support and fallback states remain explicit.
+
 The quality report separates field coverage and unavailable states, selected
 identity anchors, public-source provenance, cross-provider disagreements and
 provider outcomes. It is an **automated consistency/coverage audit**, not a
@@ -258,12 +343,32 @@ Google Books and Open Library are optional and enabled by default. Configuration
 can disable either. Open Library needs no credentials. Google uses
 `GOOGLE_BOOKS_API_KEY` first, otherwise local OAuth.
 
+Optional `metadata.wikidata` adds complementary public **work-level** evidence
+after those providers: authors/identity, genres, publication dates, original-work
+languages and paired series membership/order. It needs no credentials. It does
+not supply book synopses, edition pages or the language actually read. Exact
+identity checks and selected catalog-ID conflict vetoes still apply. The
+`metadata.wikidata_max_requests_per_run` allowance defaults to 100 wire requests,
+separate from the existing book budget; completed prefixes are saved and
+unfinished targets remain visible. Settled compatible responses are cached
+without age-only refetching. Existing databases accept these provider-tagged
+facts without a schema migration.
+The versioned checkout configuration enables Wikidata; package defaults keep it
+off for existing installations. Disable all three provider flags for a genuinely
+source-only/offline acceptance run.
+
 The default `metadata.strategy` is `open_library_first`: process Open Library,
 then send Google only records still missing an identity-valid, nonempty public
-description or a recognized genre family. These are deliberately bounded core
+description or a recognized genre family. Clipped shelf previews do not fill
+the description gap. These are deliberately bounded core
 gaps; missing optional years, pages, series, languages or translations alone do
 not trigger Google. Selected work metadata can be reused across confirmed active
 work links, but not another record's edition facts.
+
+Selected identity-valid public descriptions and normalized genres can inform
+work analysis even when the catalog response describes an edition. Original
+observations retain their scope and provenance; this is not permission to
+transfer another edition's page count, publication date or language.
 
 Set `metadata.strategy` to `independent` to retain independent provider passes.
 Google consent/provider initialization is deferred until due fallback targets
@@ -320,13 +425,17 @@ coverage: parked partial outcomes stay visible.
 ### Would another catalog be better?
 
 There is no demonstrated drop-in replacement yet. [Hardcover's API](https://docs.hardcover.app/api/getting-started/)
-is the strongest future opt-in pilot: it supports GraphQL and currently documents
-free-tier limits of 5,000 quota-counted top-level operations/day and 60/minute,
-but requires a token and a representative identity/coverage benchmark. Aliases
-and batching do not exempt top-level operations from its quota.
-[Wikidata](https://www.wikidata.org/wiki/Wikidata:Data_access) can augment
-identifiers and dates but is not a demonstrated replacement for descriptions
-and genres. [Open Library dumps](https://openlibrary.org/developers/dumps) are a
+supports GraphQL but needs the reader's own token and a representative
+identity/coverage benchmark. Confirm access and quotas against its current
+documentation and account; batching is not permission to exceed provider limits.
+[Wikidata](https://www.wikidata.org/wiki/Wikidata:Data_access) is integrated as
+the optional complementary work provider described above. Live checks verified
+work retrieval and settled-response reuse, but bounded samples and incremental
+coverage do not establish matching accuracy or a replacement for the existing
+catalogs. Catalog-ID disagreements remain adoption vetoes. Its structured data
+is CC0; Wikipedia prose has separate reuse terms and can contain plot spoilers.
+Wikipedia prose is not queried by sync.
+[Open Library dumps](https://openlibrary.org/developers/dumps) are a
 legitimate bulk route; multi-GB indexing is disproportionate for this local
 library. No new provider, credentials or bulk download is silently introduced.
 Open Library's [API guidance](https://openlibrary.org/developers/api) favors
@@ -352,6 +461,13 @@ alternative is actually better.
 | `data\credentials\` | Private local Google authorization |
 | `data\runtime\` | Sync lock and explicitly generated capture helper |
 | `data\backups\` | Recovery copies; normal sync never deletes them |
+
+Logs show plain-English stages and elapsed progress, followed by report readiness
+and a run summary. Catalog books reviewed/attempted are not counts of fully
+enriched books. A partial lookup outcome can still produce a successful PDF.
+Troubleshooting details group every issue by kind with bounded examples; routine
+raw-field notices do not mean the import failed. An offline refresh explicitly
+says lookups are off and does not establish full metadata coverage or recovery.
 
 Existing flat databases and Google credentials are recognized by offline status
 without moving them. The next sync automatically organizes them under the sync

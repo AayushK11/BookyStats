@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 from datetime import UTC, datetime, tzinfo
+from pathlib import PureWindowsPath
 
 from bookystats import constants as C
 from bookystats import strings as S
@@ -18,6 +19,7 @@ class Gate:
     retry_at: float
     status_code: int | None = C.NONE
     error_code: str | None = C.NONE
+    daily_limit: bool = C.FALSE
 
 
 @C.frozen_dataclass
@@ -82,6 +84,33 @@ def _provider_name(provider: Source) -> str:
     return C.OUTCOME_PROVIDER_NAMES.get(provider, provider.value)
 
 
+def human_source(source: str) -> str:
+    return C.LOG3_SOURCE_NAMES.get(source, source)
+
+
+def human_collection(collection: str) -> str:
+    return C.LOG3_COLLECTION_NAMES.get(collection, collection)
+
+
+def human_event(message: str) -> str:
+    return C.LOG3_STAGE_NAMES.get(message, message)
+
+
+def human_issue(code: str) -> str:
+    label = C.LOG3_DIAGNOSTIC_LABELS.get(code)
+    return S.LOG3_DIAGNOSTIC_LABEL.format(label=label, code=code) if label else code
+
+
+def attempted_line(metadata: MetadataReceipt) -> str:
+    if metadata.attempted is C.NONE:
+        return S.LOG3_ATTEMPTED_UNKNOWN.format(provider=_provider_name(metadata.provider))
+    return S.LOG3_ATTEMPTED.format(
+        provider=_provider_name(metadata.provider),
+        attempted=metadata.attempted,
+        incomplete=max(C.ZERO, metadata.attempted - metadata.processed),
+    )
+
+
 def _books(count: int) -> str:
     return (S.OUTCOME_BOOK_ONE if count == C.ONE else S.OUTCOME_BOOKS).format(count=count)
 
@@ -100,12 +129,13 @@ def _paused(gate: Gate, waiting: int, zone: tzinfo) -> str:
         reason = S.OUTCOME_AFTER_PENDING
     else:
         reason = S.EMPTY
-    return S.OUTCOME_PAUSED.format(
+    text = S.OUTCOME_PAUSED.format(
         provider=_provider_name(gate.provider),
         until=format_instant(gate.retry_at, zone),
         reason=reason,
         waiting=S.OUTCOME_WAITING.format(waiting=_books(waiting)) if waiting else S.EMPTY,
     )
+    return S.SPACE.join((text, S.LOG3_DAILY_LIMIT)) if gate.daily_limit else text
 
 
 def _provider_cause(metadata: MetadataReceipt) -> _Cause | None:
@@ -138,6 +168,13 @@ def _provider_cause(metadata: MetadataReceipt) -> _Cause | None:
         )
     if S.QUEUE_NO_LOOKUPS_DUE_CODE in codes:
         return _Cause(S.OUTCOME_PARKED.format(provider=name))
+    if S.ENR_DETAIL_DEFERRED in codes:
+        return _Cause(
+            S.LOG3_PROVIDER_DETAILS_DEFERRED.format(provider=name),
+            S.LOG3_ACTION_DETAILS_DEFERRED,
+        )
+    if metadata.attempted is not C.NONE and metadata.attempted > metadata.processed:
+        return _Cause(S.LOG3_PROVIDER_INCOMPLETE.format(provider=name), S.LOG3_ACTION_INCOMPLETE)
     return _Cause(
         S.OUTCOME_PROVIDER_STATE.format(provider=name, state=metadata.state.value),
         S.OUTCOME_ACTION_GENERIC,
@@ -150,7 +187,9 @@ def _source_causes(receipt: SyncReceipt) -> list[_Cause]:
         return []
     names = S.COMMA_SPACE.join(
         S.OUTCOME_SOURCE_NAME.format(
-            source=source.source.value, collection=source.collection, state=source.state.value
+            source=human_source(source.source.value),
+            collection=human_collection(source.collection),
+            state=source.state.value,
         )
         for source in unfinished[: C.OUTCOME_MAX_NAMES]
     )
@@ -250,24 +289,46 @@ def explain_outcome(
     else:
         state = S.OUTCOME_NEEDS_ATTENTION
     header = S.OUTCOME_HEADLINE.format(
-        state=state.upper(), exit_code=exit_code, duration=format_duration(duration_seconds)
+        state=state.replace(S.UNDERSCORE, S.SPACE).upper(),
+        exit_code=exit_code,
+        duration=format_duration(duration_seconds),
     )
     lookups = tuple(
-        S.OUTCOME_LOOKUPS.format(
-            provider=_provider_name(item.provider),
-            state=item.state.value,
-            processed=item.processed,
-            requested=item.requested,
-            deferred=item.deferred,
-            hits=item.cache_hits,
-            network=_network_text(counts, item.provider),
-        )
+        line
         for item in receipt.metadata
+        for line in (
+            S.OUTCOME_LOOKUPS.format(
+                provider=_provider_name(item.provider),
+                state=item.state.value,
+                processed=item.processed,
+                requested=item.requested,
+                deferred=item.deferred,
+                hits=item.cache_hits,
+                network=_network_text(counts, item.provider),
+            ),
+            attempted_line(item),
+        )
     )
+    if not receipt.metadata:
+        lookups = (S.LOG3_LOOKUPS_OFF,)
+    reports: tuple[str, ...] = ()
+    products = receipt.products
+    if products is not C.NONE:
+        if products.state == SyncState.COMPLETE and products.pdf_file is not C.NONE:
+            reports = (
+                S.LOG3_REPORT_READY.format(
+                    filename=PureWindowsPath(products.pdf_file).name,
+                    report_id=products.analytics_report_id,
+                    scope=S.LOG3_REPORT_PARTIAL if unfinished_providers else S.LOG3_REPORT_CURRENT,
+                ),
+            )
+        elif products.state != SyncState.COMPLETE:
+            reports = (S.LOG3_REPORT_RETAINED,)
     if exit_code == C.ZERO and not causes:
         finished = sum(source.state == SyncState.COMPLETE for source in receipt.sources)
         lines = (
             header,
+            *reports,
             S.OUTCOME_COMPLETE.format(finished=finished, total=len(receipt.sources)),
             *lookups,
         )
@@ -282,6 +343,7 @@ def explain_outcome(
         )
         lines = (
             header,
+            *reports,
             *(S.OUTCOME_CAUSE_LINE.format(text=cause.text) for cause in shown),
             *((S.OUTCOME_MORE.format(count=hidden),) if hidden else ()),
             *lookups,
@@ -362,5 +424,14 @@ class RunProbe:
         for provider in C.OUTCOME_PROVIDER_HOSTS:
             _, state = self._read(provider)
             if state is not C.NONE and state.retry_at is not C.NONE:
-                found.append(Gate(provider, state.retry_at, state.status_code, state.error_code))
+                found.append(
+                    Gate(
+                        provider,
+                        state.retry_at,
+                        state.status_code,
+                        state.error_code,
+                        provider == Source.GOOGLE_BOOKS
+                        and state.quota.get(S.L1_QUOTA_SCOPE) == S.L1_QUOTA_DAILY,
+                    )
+                )
         return tuple(found)

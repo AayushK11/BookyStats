@@ -21,6 +21,8 @@
   "metadata": {
     "google_books": true,
     "open_library": true,
+    "wikidata": true,
+    "wikidata_max_requests_per_run": 100,
     "max_books_per_run": 10000,
     "contact": null
   },

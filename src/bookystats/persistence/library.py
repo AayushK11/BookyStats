@@ -1282,9 +1282,7 @@ class Database:
                         now,
                         record[S.IDENTITY_HASH],
                         self._payloads().save_json(result.model_dump_json()),
-                        C.META_COVERAGE_IMPLEMENTATION_VERSION
-                        if provider == Source.OPEN_LIBRARY
-                        else C.ONE,
+                        C.METADATA_IMPLEMENTATION_VERSIONS[provider],
                     ),
                 )
             )
@@ -1343,9 +1341,7 @@ class Database:
         if limit == C.ZERO:
             return ()
         cutoff = (_date(utc_now()) - timedelta(seconds=C.QUEUE_TRANSIENT_RETRY_SECONDS)).isoformat()
-        implementation = (
-            C.META_COVERAGE_IMPLEMENTATION_VERSION if provider == Source.OPEN_LIBRARY else C.ONE
-        )
+        implementation = C.METADATA_IMPLEMENTATION_VERSIONS[provider]
         rows = self._connection().execute(
             S.QUEUE_ELIGIBLE_ATTEMPTS_SQL,
             (

@@ -14,6 +14,7 @@ from bookystats.runtime import config
 from bookystats.runtime.config import (
     FileSettings,
     MetadataSettings,
+    RecommendationSettings,
     Settings,
     WeeklySettings,
     account_from_url,
@@ -111,6 +112,28 @@ def test_metadata_defaults_to_both_providers_and_preserves_explicit_provider_cho
     chosen = Settings(metadata=MetadataSettings(google_books=C.TRUE, open_library=C.FALSE))
     save_settings(tmp_path, chosen)
     assert load_settings(tmp_path).metadata == chosen.metadata
+
+
+def test_wikidata_is_explicit_and_has_a_separate_persisted_wire_budget(tmp_path: Path) -> None:
+    assert not MetadataSettings().wikidata
+    chosen = Settings(
+        metadata=MetadataSettings(
+            wikidata=C.TRUE,
+            wikidata_max_requests_per_run=C.TWO,
+        )
+    )
+    save_settings(tmp_path, chosen)
+    assert load_settings(tmp_path).metadata == chosen.metadata
+    with pytest.raises(ValidationError):
+        MetadataSettings(wikidata_max_requests_per_run=C.ZERO)
+
+
+def test_recommendation_acceleration_round_trips_and_rejects_unknown_policy(tmp_path: Path) -> None:
+    chosen = Settings(recommendations=RecommendationSettings(acceleration=S.EM3_CUDA))
+    save_settings(tmp_path, chosen)
+    assert load_settings(tmp_path).recommendations == chosen.recommendations
+    with pytest.raises(ValidationError):
+        RecommendationSettings.model_validate(dict(acceleration=S.PRIVATE))
 
 
 @pytest.mark.parametrize(

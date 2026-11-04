@@ -157,7 +157,7 @@ class MetadataCache:
 
     @staticmethod
     def _key(provider: Source, key: str) -> tuple[str, str]:
-        if provider not in (Source.GOOGLE_BOOKS, Source.OPEN_LIBRARY):
+        if provider not in C.STORAGE_METADATA_PROVIDERS:
             raise MetadataCacheError(
                 S.CACHE_METADATACACHE_KEY_ONLY_PUBLIC_METADATA_PROVIDERS_MAY_USE_THIS
             )

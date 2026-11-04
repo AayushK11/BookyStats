@@ -72,13 +72,17 @@ def test_terminal_limits_issues_per_source_and_provider_but_full_report_keeps_al
     )
     assert (
         S.REPORT_SOURCE_LINE.format(
-            source=S.GOODREADS, collection=S.READ, state=S.COMPLETE, records=C.ONE, pages=C.TWO
+            source=S.LOG3_SOURCE_GOODREADS,
+            collection=S.LOG3_COLLECTION_READ,
+            state=S.COMPLETE,
+            records=C.ONE,
+            pages=C.TWO,
         )
         in lines
     )
     assert (
         S.REPORT_METADATA_LINE.format(
-            provider=S.GOOGLE_BOOKS, state=S.PARTIAL, processed=C.ONE, deferred=C.TWO
+            provider=S.OUTCOME_GOOGLE_BOOKS, state=S.PARTIAL, processed=C.ONE, deferred=C.TWO
         )
         in lines
     )
@@ -215,6 +219,37 @@ def test_status_explains_the_last_attempt_and_retry_gates_without_promising_a_re
         line.startswith(S.TEST_OPLOG_ATTEMPT_PREFIX)
         for line in status_lines({}, now=datetime.fromisoformat(S.TEST_OPLOG_STATUS_NOW))
     )
+
+
+def test_offline_status_explains_saved_daily_limit_evidence() -> None:
+    report = {
+        S.RUNSUM_KEY: {
+            S.RUNSUM_FINISHED_KEY: S.TEST_OPLOG_FINISHED_UTC,
+            S.RUNSUM_LINES_KEY: [],
+            S.RUNSUM_GATES_KEY: [
+                {
+                    S.RUNSUM_PROVIDER_KEY: Source.GOOGLE_BOOKS.value,
+                    S.RUNSUM_RETRY_KEY: S.TEST_OPLOG_ACTIVE_RETRY,
+                    S.LOG3_DAILY_KEY: C.TRUE,
+                }
+            ],
+        }
+    }
+    lines = status_lines(report, now=datetime.fromisoformat(S.TEST_OPLOG_STATUS_NOW))
+    assert S.RUNSUM_TEXT_LINE.format(text=S.LOG3_DAILY_LIMIT) in lines
+
+
+def test_status_clarifies_old_processed_wording_without_rewriting_saved_summary() -> None:
+    report = {
+        S.RUNSUM_KEY: {
+            S.RUNSUM_FINISHED_KEY: S.TEST_OPLOG_FINISHED_UTC,
+            S.RUNSUM_LINES_KEY: [S.LOG3_TEST_LEGACY_LOOKUPS],
+        }
+    }
+    lines = status_lines(report, now=datetime.fromisoformat(S.TEST_OPLOG_STATUS_NOW))
+    expected = S.LOG3_TEST_LEGACY_LOOKUPS.replace(S.LOG3_LEGACY_PROCESSED, S.LOG3_LEGACY_COMPLETE)
+    assert S.RUNSUM_TEXT_LINE.format(text=expected) in lines
+    assert report[S.RUNSUM_KEY][S.RUNSUM_LINES_KEY] == [S.LOG3_TEST_LEGACY_LOOKUPS]
 
 
 def test_run_lines_show_a_provider_deferral_as_a_dated_instant_not_a_raw_epoch() -> None:
@@ -406,8 +441,8 @@ def test_status_renders_scoped_counts_and_local_file_sizes_without_boolean_count
     assert S.STATUS_LIBRARY_DATABASE_LINE.format(location=S.LIBRARY_SQLITE3) in lines
     assert (
         S.STATUS_SOURCE_LINE.format(
-            source=S.GOODREADS,
-            collection=S.READ,
+            source=S.LOG3_SOURCE_GOODREADS,
+            collection=S.LOG3_COLLECTION_READ,
             state=S.COMPLETE,
             count=C.ZERO,
             success=S.STATUS_NEVER,
@@ -416,7 +451,7 @@ def test_status_renders_scoped_counts_and_local_file_sizes_without_boolean_count
     )
     assert (
         S.STATUS_METADATA_LINE.format(
-            provider=S.GOOGLE_BOOKS, matched=C.ONE, unmatched=C.TWO, success=S.STATUS_NEVER
+            provider=S.OUTCOME_GOOGLE_BOOKS, matched=C.ONE, unmatched=C.TWO, success=S.STATUS_NEVER
         )
         in lines
     )

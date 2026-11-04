@@ -119,8 +119,17 @@ def test_successful_render_atomically_replaces_previous_pdf(tmp_path: Path) -> N
 
 def test_rendered_report_names_the_exact_saved_inputs_and_stays_within_bounds(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     lib = library(*C.RPT_TEST_SMALL)
+    captured: list[ReaderReport] = []
+    render_pdf = reporting.render_pdf
+
+    def capture(reader_report: ReaderReport, stream: BinaryIO) -> int:
+        captured.append(reader_report)
+        return render_pdf(reader_report, stream)
+
+    monkeypatch.setattr(reporting, S.PDF_TEST_RENDER_ATTRIBUTE, capture)
     artifact = reporting.render_library_report(
         lib.data, lib.analysis, lib.recommendations, lib.quality, tmp_path / S.PDF_TEST_FILENAME
     )
@@ -131,7 +140,19 @@ def test_rendered_report_names_the_exact_saved_inputs_and_stays_within_bounds(
         digest=manifest_digest(lib.analysis.manifest)[: C.RPT_DIGEST_SHOWN],
     )
     text = S.EMPTY.join(_flat(page.extract_text()) for page in PdfReader(artifact.path).pages)
-    assert _flat(details) in text
+    assert _flat(details) not in text
+    assert not [
+        term for term in C.RPT_READER_INTERNAL_TERMS if _flat(term).casefold() in text.casefold()
+    ]
+    report = ReaderReport.model_validate_json(captured[C.ZERO].model_dump_json())
+    assert report.analysis_report_id == lib.analysis.report_id
+    assert report.manifest_digest == manifest_digest(lib.analysis.manifest)
+    assert report.model_version == C.RPT_MODEL_VERSION
+    assert report.as_of == lib.data.as_of
+    assert report.technical_notes
+    assert report.technical_notes == captured[C.ZERO].technical_notes
+    assert _flat(report.cover.as_of) in text
+    assert _flat(S.RPT_COMPANION_NOTE) in text
     assert C.RPT_TEST_EMPTY_PAGES_MAX < artifact.page_count <= C.RPT_TEST_SMALL_PAGES_MAX
 
 

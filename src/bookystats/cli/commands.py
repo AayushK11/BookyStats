@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable, Mapping, MutableMapping
 from contextlib import ExitStack, suppress
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, TextIO
 
 from pydantic import JsonValue, ValidationError
@@ -15,7 +16,16 @@ from pydantic import JsonValue, ValidationError
 from bookystats import constants as C
 from bookystats import strings as S
 from bookystats.adapters.http import HttpClient, active_cooldown
-from bookystats.application.outcome import Outcome, RunProbe, explain_outcome, readable_deadlines
+from bookystats.application.outcome import (
+    Outcome,
+    RunProbe,
+    explain_outcome,
+    format_duration,
+    human_collection,
+    human_event,
+    human_source,
+    readable_deadlines,
+)
 from bookystats.application.sync import SourceReceipt, SyncReceipt, SyncService
 from bookystats.application.verification import verify_run
 from bookystats.cli.report import run_lines, status_lines
@@ -33,6 +43,7 @@ from bookystats.domain.interfaces import (
     SourceConnector,
 )
 from bookystats.domain.models import (
+    Account,
     Issue,
     Source,
     SyncState,
@@ -51,7 +62,7 @@ from bookystats.runtime.layout import database_path, google_credentials_path
 from bookystats.runtime.locking import SyncLock
 from bookystats.runtime.redaction import redact
 from bookystats.runtime.runlog import OperationalLog, RunLogError, latest_log, write_failure_log
-from bookystats.runtime.runsummary import read_summary
+from bookystats.runtime.runsummary import read_provider_gates, read_summary
 from bookystats.runtime.scheduling import require_activation, schedule_status
 
 if TYPE_CHECKING:
@@ -176,6 +187,9 @@ def _build_service(
     from bookystats.adapters.exports.csv_import import ExportConnector, FileExportConnector
     from bookystats.adapters.metadata.google_books import GoogleBooksProvider
     from bookystats.adapters.metadata.open_library import OpenLibraryProvider
+    from bookystats.adapters.metadata.wikidata import WikidataProvider
+    from bookystats.domain.matching import select_metadata_candidate
+    from bookystats.domain.models import BookRecord, MetadataCandidate
     from bookystats.persistence.cache import MetadataCache, MetadataCacheError
     from bookystats.persistence.library import Database
     from bookystats.persistence.raw import RecordingFetcher
@@ -251,6 +265,7 @@ def _build_service(
                 and (bool(key or token) or deferred_google or google_gate is not C.NONE),
             ),
             (Source.OPEN_LIBRARY, settings.metadata.open_library),
+            (Source.WIKIDATA, settings.metadata.wikidata),
         )
         if configured
     ]
@@ -335,21 +350,70 @@ def _build_service(
             cache=cache,
             work_details=C.TRUE,
         )
+    if settings.metadata.wikidata and cache is not C.NONE:
+        accounts: dict[Source, Account] = {account.source: account for account in settings.accounts}
+
+        def candidates_for_book(book: BookRecord) -> tuple[MetadataCandidate, ...]:
+            account = accounts.get(book.source)
+            if account is C.NONE:
+                return ()
+            current = []
+            for item in store.metadata_for(book.source, account.account_id, book.source_id):
+                if item.get(S.STALE_IDENTITY) is not C.FALSE:
+                    continue
+                candidate = MetadataCandidate.model_validate(item.get(S.CANDIDATE))
+                if (
+                    candidate.provider != Source.WIKIDATA
+                    and item.get(S.PROVIDER) == candidate.provider.value
+                    and select_metadata_candidate(book, (candidate,)) is not C.NONE
+                ):
+                    current.append(candidate)
+            current.extend(
+                candidate
+                for candidate in store.metadata_for_work(
+                    book.source, account.account_id, book.source_id
+                )
+                if candidate.provider == Source.OPEN_LIBRARY
+            )
+            return tuple(current)
+
+        wikidata_http = stack.enter_context(
+            HttpClient(
+                allowed_hosts=(S.WIKIDATA_HOST,),
+                timeout=settings.http_timeout_seconds,
+                min_interval=C.ONE,
+                max_requests=settings.metadata.wikidata_max_requests_per_run,
+                max_attempts=C.ONE,
+                user_agent=S.CLI_BUILD_SERVICE_USER_AGENT_BOOKYSTATS,
+                retry_store=cache,
+                provider=Source.WIKIDATA,
+            )
+        )
+        providers[Source.WIKIDATA] = WikidataProvider(
+            RecordingFetcher(wikidata_http, archive, source=Source.WIKIDATA)
+            if archive is not C.NONE
+            else wikidata_http,
+            cache=cache,
+            candidates_for_book=candidates_for_book,
+            max_requests=settings.metadata.wikidata_max_requests_per_run,
+        )
 
     def notify(message: str) -> None:
+        message = human_event(message)
         print(redact(message, _secrets()), file=sys.stderr, flush=C.TRUE)
         if on_event is not C.NONE:
             on_event(message)
 
     metadata_buckets: dict[tuple[Source, int], int] = {}
+    metadata_times: dict[tuple[Source, int], tuple[float, float]] = {}
 
     def source_complete(receipt: SourceReceipt) -> None:
         notify(
             (
                 S.LOG2_SOURCE if receipt.state == SyncState.COMPLETE else S.LOG2_SOURCE_RETAINED
             ).format(
-                source=receipt.source.value,
-                collection=receipt.collection,
+                source=human_source(receipt.source.value),
+                collection=human_collection(receipt.collection),
                 state=receipt.state.value,
                 records=receipt.records,
             )
@@ -362,18 +426,28 @@ def _build_service(
             else C.ZERO
         )
         key = (source, total)
+        now = monotonic()
+        began, last = metadata_times.get(key, (now, now))
         previous = metadata_buckets.get(key)
-        if previous is C.NONE or bucket > previous:
+        if (
+            previous is C.NONE
+            or bucket > previous
+            or (completed < total and now - last >= C.LOG3_PROGRESS_HEARTBEAT_SECONDS)
+        ):
             metadata_buckets[key] = bucket
+            metadata_times[key] = (began, now)
             notify(
-                S.LOG2_METADATA_PROGRESS.format(
-                    source=source.value,
+                S.LOG3_PROGRESS.format(
+                    provider=human_source(source.value),
                     completed=completed,
                     total=total,
                     percent=completed * C.LOG2_PROGRESS_PERCENT // total if total else C.ZERO,
+                    elapsed=format_duration(now - began),
+                    note=S.LOG3_PROGRESS_DONE if completed == total else S.LOG3_PROGRESS_WAIT,
                 )
             )
 
+    from bookystats.adapters.embeddings import LocalDescriptionEncoder
     from bookystats.application.analytics import AnalyticsService
     from bookystats.application.products import ProductsService
     from bookystats.application.recommendations import RecommendationService
@@ -401,7 +475,20 @@ def _build_service(
             store,
             analysis_store,
             ReportBundleStore(directory),
-            recommend=RecommendationService(recommendations).run,
+            recommend=RecommendationService(
+                recommendations,
+                LocalDescriptionEncoder(
+                    directory / S.LAYOUT_RUNTIME / S.REC3_RUNTIME_FOLDER,
+                    allow_download=settings.recommendations.allow_model_download,
+                    acceleration=settings.recommendations.acceleration,
+                    threads=settings.recommendations.threads,
+                    batch_size=settings.recommendations.batch_size,
+                    on_event=notify,
+                )
+                if settings.recommendations.semantic_enabled
+                else C.NONE,
+                on_event=notify,
+            ).run,
             provider_status=provider_status,
             render_pdf=render_library_report,
         )
@@ -418,7 +505,7 @@ def _build_service(
         on_metadata_progress=metadata_progress,
         analytics=analytics,
         products=products,
-        on_event=on_event,
+        on_event=notify,
     )
 
 
@@ -432,6 +519,11 @@ def _print_receipt(
 ) -> None:
     # With --json the receipt is the only thing on `output`; the human summary uses `summary`.
     human = output if not as_json else summary
+    if outcome is not C.NONE and human is not C.NONE:
+        for line in outcome.lines:
+            print(line, file=human)
+        if not as_json:
+            print(file=human)
     if as_json:
         print(
             json.dumps(receipt.model_dump(mode=S.JSON), indent=C.TWO, ensure_ascii=C.TRUE),
@@ -442,11 +534,6 @@ def _print_receipt(
             print(line, file=output)
     if human is C.NONE:
         return
-    if outcome is not C.NONE:
-        if not as_json:
-            print(file=human)
-        for line in outcome.lines:
-            print(line, file=human)
     if receipt.log_file is not C.NONE:
         print(S.REPORT_RUN_LOG_LINE.format(path=receipt.log_file), file=human)
 
@@ -498,6 +585,9 @@ def _status(directory: Path, settings: Settings) -> dict[str, JsonValue]:
     report[S.RUNSUM_KEY] = (
         run_summary.model_dump(mode=S.JSON) if run_summary is not C.NONE else C.NONE
     )
+    report[S.LOG3_CURRENT_GATES] = [
+        gate.model_dump(mode=S.JSON) for gate in read_provider_gates(directory)
+    ]
     report[S.CSV_CONFIGURATION_PATH] = str(configuration_path(directory))
     report[S.DBSAFE_STORAGE] = storage_report(directory)
     configured = {account.source for account in settings.accounts}

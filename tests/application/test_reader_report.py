@@ -33,6 +33,7 @@ from bookystats.domain.reader_report import (
     TilesBlock,
     manifest_digest,
 )
+from bookystats.domain.recommendation_evaluation import RecommendationEvaluation
 from tests.support.reader_library import library
 
 _REPORT_MODULES = (
@@ -352,6 +353,44 @@ def test_implausible_values_are_left_out_and_disclosed() -> None:
     assert S.RPT_TILE_ERAS_DETAIL.format(books=plausible) in texts
 
 
+def test_long_novels_remain_eligible_and_missing_lengths_do_not_claim_to_be_short() -> None:
+    lib = library(*C.RPT_TEST_RICH)
+    ctx = make_context(lib.data, lib.analysis, lib.recommendations, lib.quality)
+    original = ctx.read[C.ZERO]
+    book = original.model_copy(
+        update={
+            S.PAGE_COUNT: C.RPT_TEST_LONG_EDITION_PAGES,
+            S.AN_CALC_FIELD_STATES_FIELD: {
+                **original.field_states,
+                S.PAGE_COUNT: C.FieldState.PRESENT,
+            },
+        }
+    )
+    changed = ctx._replace(read=(book, *ctx.read[C.ONE :]))
+    assert changed.plausible_pages(book) == C.RPT_TEST_LONG_EDITION_PAGES
+    chapter = profile.shape(changed)
+    assert chapter is not C.NONE
+    longest = next(
+        block
+        for block in chapter.blocks
+        if isinstance(block, BooksBlock) and block.heading == S.RPT_LONGEST_HEADING
+    )
+    assert any(
+        item.title == F.display_title(book.title)
+        and item.detail == F.pages(C.RPT_TEST_LONG_EDITION_PAGES)
+        for group in longest.groups
+        for item in group.books
+    )
+    assert longest.note == S.RPT_LONGEST_NOTE.format(
+        known=F.count(profile.pages_known(changed)), read=F.count(changed.summary.read)
+    )
+    assert any(
+        block.note == S.RPT_FACTS_LENGTH_NOTE
+        for _, block in _blocks(_built(*C.RPT_TEST_RICH))
+        if isinstance(block, FactsBlock)
+    )
+
+
 def test_empty_library_gets_one_honest_page_of_content_not_padding() -> None:
     report = _built(*C.RPT_TEST_VOID)
     assert [chapter.key for chapter in report.chapters] == [S.RPT_CHAPTER_EMPTY]
@@ -366,3 +405,44 @@ def test_no_chapter_or_block_is_empty_padding(read: int, watch: int) -> None:
     for chapter in report.chapters:
         assert chapter.blocks
         assert all(_items(block) for block in chapter.blocks)
+
+
+def test_shortlist_explains_same_cohort_shadow_evaluation_without_claiming_activation() -> None:
+    lib = library(*C.RPT_TEST_RICH)
+    evaluation = RecommendationEvaluation(
+        status=S.REC2_AVAILABLE,
+        reason=C.NONE,
+        cohort_size=C.REC2_MIN_RATED,
+        mean_mae=C.ONE,
+        simple_length_mae=C.TWO,
+        current_heuristic_mae=C.THREE,
+        shadow_candidate_mae=C.FOUR,
+    )
+    recommendations = lib.recommendations.model_copy(update={S.REC2_EVALUATION: evaluation})
+    report = build_reader_report(lib.data, lib.analysis, recommendations, lib.quality)
+    texts = _all_texts(report)
+    assert S.REC3_DIVERSITY_NOTE in texts
+    assert S.REC2_EVALUATION_SCOPE in texts
+    assert S.REC2_SHADOW_POLICY in texts
+    assert (
+        S.REC2_PDF_SUMMARY.format(
+            count=C.REC2_MIN_RATED,
+            mean=F.trimmed(C.ONE),
+            simple=F.trimmed(C.TWO),
+            current=F.trimmed(C.THREE),
+            shadow=F.trimmed(C.FOUR),
+            fallback=C.ZERO,
+            shadow_fallback=C.ZERO,
+        )
+        in texts
+    )
+
+
+def test_shortlist_prints_verified_series_context_and_unknown_rating_error_is_not_zero() -> None:
+    lib = library(*C.RPT_TEST_RICH)
+    item = lib.recommendations.shortlist[C.ZERO].model_dump(mode=S.JSON)
+    item[S.REC2_SERIES_CONTEXT] = [{S.REC2_EXPLANATION: S.REC2_NEXT_NOTE}]
+    shown = reader_outlook.shortlist_item(C.ONE, item, {})
+    assert shown is not C.NONE
+    assert S.REC2_NEXT_NOTE in shown.lines
+    assert reader_outlook.rating_error({}, S.REC2_MEAN_MAE) == S.RPT_UNKNOWN

@@ -12,6 +12,9 @@ from bookystats import strings as S
 from bookystats.application.outcome import (
     format_duration,
     format_instant,
+    human_collection,
+    human_issue,
+    human_source,
     parse_utc,
     readable_deadlines,
 )
@@ -25,7 +28,7 @@ def _issue_lines(issues: Sequence[Issue], limit: int | None) -> list[str]:
     shown = groups if limit is C.NONE else groups[: max(C.ZERO, limit)]
     lines = [
         (S.REPORT_REPEATED_ISSUE_LINE if count > C.ONE else S.REPORT_ISSUE_LINE).format(
-            code=code, message=readable_deadlines(message), count=count
+            code=human_issue(code), message=readable_deadlines(message), count=count
         )
         for (code, message), count in shown
     ]
@@ -38,8 +41,8 @@ def _issue_lines(issues: Sequence[Issue], limit: int | None) -> list[str]:
 def source_lines(source: SourceReceipt, *, issue_limit: int | None) -> list[str]:
     lines = [
         S.REPORT_SOURCE_LINE.format(
-            source=source.source.value,
-            collection=source.collection,
+            source=human_source(source.source.value),
+            collection=human_collection(source.collection),
             state=source.state.value,
             records=source.records,
             pages=source.pages,
@@ -66,7 +69,7 @@ def receipt_lines(receipt: SyncReceipt, *, issue_limit: int | None) -> list[str]
     for metadata in receipt.metadata:
         lines.append(
             S.REPORT_METADATA_LINE.format(
-                provider=metadata.provider.value,
+                provider=human_source(metadata.provider.value),
                 state=metadata.state.value,
                 processed=metadata.processed,
                 deferred=metadata.deferred,
@@ -268,12 +271,20 @@ def _run_summary_lines(report: Mapping[str, JsonValue], now: datetime) -> list[s
             else S.OUTCOME_TIME_UNKNOWN
         )
     ]
-    lines.extend(
-        S.RUNSUM_TEXT_LINE.format(text=_text(line, S.EMPTY))
-        for line in _sequence(saved.get(S.RUNSUM_LINES_KEY))
-    )
+    for line in _sequence(saved.get(S.RUNSUM_LINES_KEY)):
+        text = _text(line, S.EMPTY)
+        if text.startswith(S.LOG3_LEGACY_LOOKUPS):
+            text = text.replace(S.LOG3_LEGACY_PROCESSED, S.LOG3_LEGACY_COMPLETE)
+        lines.append(S.RUNSUM_TEXT_LINE.format(text=text))
+    lines.extend(_gate_lines(_sequence(saved.get(S.RUNSUM_GATES_KEY)), now))
+    return lines
+
+
+def _gate_lines(gates: list[JsonValue], now: datetime) -> list[str]:
+    zone = now.tzinfo or UTC
     names = {source.value: name for source, name in C.OUTCOME_PROVIDER_NAMES.items()}
-    for item in _sequence(saved.get(S.RUNSUM_GATES_KEY)):
+    lines: list[str] = []
+    for item in gates:
         gate = _mapping(item)
         until = parse_utc(_text(gate.get(S.RUNSUM_RETRY_KEY), S.EMPTY))
         if until is C.NONE:
@@ -287,15 +298,21 @@ def _run_summary_lines(report: Mapping[str, JsonValue], now: datetime) -> list[s
                 remaining=format_duration(remaining),
             )
         )
+        if gate.get(S.LOG3_DAILY_KEY) is C.TRUE:
+            lines.append(S.RUNSUM_TEXT_LINE.format(text=S.LOG3_DAILY_LIMIT))
     return lines
 
 
 def status_lines(report: Mapping[str, JsonValue], *, now: datetime | None = C.NONE) -> list[str]:
+    now = now or datetime.now(UTC).astimezone()
     lines = [
         S.CLI_PRINT_STATUS_BOOKYSTATS_STATUS_LOCAL_DATA_NO_SOURCE_REQUESTS,
         S.STATUS_LAST_RUN_LINE.format(value=_last_run(report.get(S.LAST_RUN))),
     ]
-    lines.extend(_run_summary_lines(report, now or datetime.now(UTC).astimezone()))
+    lines.extend(_run_summary_lines(report, now))
+    gates = _gate_lines(_sequence(report.get(S.LOG3_CURRENT_GATES)), now)
+    if gates:
+        lines.extend([S.LOG3_CURRENT_GATES_HEADING, *gates])
     analysis = _mapping(report.get(S.AN_ANALYTICS))
     if analysis:
         lines.append(
@@ -327,8 +344,8 @@ def status_lines(report: Mapping[str, JsonValue], *, now: datetime | None = C.NO
             path = entry.get(S.CSV_INPUT_PATH)
             lines.append(
                 S.STATUS_CSV_LINE.format(
-                    source=_text(entry.get(S.SOURCE), S.STATUS_UNKNOWN),
-                    collection=_text(entry.get(S.COLLECTION), S.LIBRARY),
+                    source=human_source(_text(entry.get(S.SOURCE), S.STATUS_UNKNOWN)),
+                    collection=human_collection(_text(entry.get(S.COLLECTION), S.LIBRARY)),
                     filename=PureWindowsPath(path).name
                     if isinstance(path, str)
                     else S.STATUS_CSV_NOT_CONFIGURED,
@@ -354,8 +371,8 @@ def status_lines(report: Mapping[str, JsonValue], *, now: datetime | None = C.NO
         lines.append(S.STATUS_SOURCE_HEADER)
     lines.extend(
         S.STATUS_SOURCE_LINE.format(
-            source=_text(entry.get(S.SOURCE), S.STATUS_UNKNOWN),
-            collection=_text(entry.get(S.COLLECTION), S.STATUS_UNKNOWN),
+            source=human_source(_text(entry.get(S.SOURCE), S.STATUS_UNKNOWN)),
+            collection=human_collection(_text(entry.get(S.COLLECTION), S.STATUS_UNKNOWN)),
             state=_text(entry.get(S.STATE), S.STATUS_UNKNOWN),
             count=_number(entry.get(S.ACTIVE_COUNT)),
         )
@@ -370,7 +387,7 @@ def status_lines(report: Mapping[str, JsonValue], *, now: datetime | None = C.NO
             entry = _mapping(value)
             lines.append(
                 S.STATUS_METADATA_LINE.format(
-                    provider=provider,
+                    provider=human_source(provider),
                     matched=_number(entry.get(S.SELECTED)),
                     unmatched=_number(entry.get(S.UNRESOLVED)),
                     success=_text(entry.get(S.LAST_SUCCESS_AT), S.STATUS_NEVER),

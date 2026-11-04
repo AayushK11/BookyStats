@@ -16,6 +16,7 @@ from bookystats.domain.analytics import (
 )
 from bookystats.domain.categories import analytical_categories
 from bookystats.domain.identifiers import normalized_isbns, normalized_text
+from bookystats.domain.metadata import public_work_descriptor
 from bookystats.domain.metadata_quality import (
     MetadataFieldCoverage,
     MetadataIdentitySummary,
@@ -44,6 +45,12 @@ def _public_provider_origin(item: AnalysisEvidence) -> bool:
         )
     if item.source == Source.GOOGLE_BOOKS.value:
         return url == S.GOOGLE_BOOKS_VOLUME_URL_TEMPLATE.format(v0=item.source_id)
+    if item.source == Source.WIKIDATA.value:
+        return (
+            C.WIKIDATA_ENTITY_ID.fullmatch(item.source_id) is not C.NONE
+            and url == S.WIKIDATA_WORK_URL.format(v0=item.source_id)
+            and item.observation.scope == S.WORK
+        )
     return C.FALSE
 
 
@@ -59,7 +66,7 @@ def _provider_labels(book: AnalysisBook) -> bool:
     return any(
         item.source in C.ANALYTIC_CATEGORY_SOURCES
         and item.observation.field == S.GENRES
-        and item.observation.scope == S.WORK
+        and public_work_descriptor(item.source, item.source_id, item.observation)
         and item.observation.state == FieldState.PRESENT
         and _public_provider_origin(item)
         and any(
@@ -130,7 +137,14 @@ def _field_evidence(book: AnalysisBook, field: str, scope: str) -> tuple[Analysi
         item
         for item in book.evidence
         if item.observation.field in aliases
-        and item.observation.scope == scope
+        and (
+            item.observation.scope == scope
+            or (
+                scope == S.WORK
+                and field in C.ENR_FALLBACK_FIELDS
+                and public_work_descriptor(item.source, item.source_id, item.observation)
+            )
+        )
         and item.observation.state == FieldState.PRESENT
     )
 
@@ -337,6 +351,17 @@ def build_metadata_quality(
             observation = item.observation
             if observation.state != FieldState.PRESENT:
                 continue
+            if (
+                item.source == Source.GOODREADS.value
+                and observation.field == S.METADATA_PUBLICATION_CONFLICT
+                and observation.value in (S.IMPORT_BROWSER_FIRST_PUBLICATION, S.PUBLICATION_DATE)
+            ):
+                field = (
+                    S.FIRST_PUBLICATION_YEAR
+                    if observation.value == S.IMPORT_BROWSER_FIRST_PUBLICATION
+                    else S.PUBLICATION_DATE
+                )
+                groups[(S.METADATA_PUBLICATION_CONFLICT, field)].add(book.work_id)
             if item.source in C.ANALYTIC_CATEGORY_SOURCES:
                 if not _public_provider_origin(item):
                     groups[(S.MQ_REPORT_PROVIDER_ORIGIN, observation.field)].add(book.work_id)

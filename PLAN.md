@@ -25,6 +25,292 @@ Historical acceptance describes the environment and inputs at that time.
 Runtime databases are not versioned; use offline `booky status` to establish
 what actually exists in the current checkout.
 
+## Approved recommendation upgrade: design and portability
+
+The upgrade compares identity-valid public descriptions with a frozen
+local embedding model, learns rating-informed signal weights, diversifies
+comparable-quality shortlist choices, and evaluates retrospective ranking before
+activating a learned scorer. Model download is approved; remote inference is not.
+
+The dependency direction stays CLI -> application -> domain. Adapters implement
+the description-encoder protocol; persistence verifies immutable model/vector
+artifacts and recommendation history. Domain learning and evaluation operate on
+typed books and numeric vectors, never HTTP clients, files or model runtimes.
+Application services validate selected public-description provenance, check the
+report cache before inference, and orchestrate calculation/publication. Presentation
+only renders saved results. Existing source/identity/series safeguards remain
+authoritative; missing metadata and unavailable evidence are not dislikes.
+
+Learned weights use connected-coauthor-held-out predictions within training data.
+An independent outer evaluation compares the same works against mean, current
+heuristic, genre-only and simple length baselines, handles score ties fairly, and controls
+activation with predefined support/improvement gates. A failed gate retains
+current scoring rather than forcing a claimed improvement. The shortlist may
+favor author/genre/content variety only within a bounded score-quality window.
+These are ordering heuristics and retrospective comparisons, not calibrated
+enjoyment probabilities or proven future recommendation accuracy.
+
+Portability targets clean CPU-only Windows, macOS and Linux installations with
+supported Python/native-runtime wheels. Model identity/revision, file hashes and
+preprocessing are versioned; caches use atomic integrity-checked publication.
+Paths derive from the selected data directory, resource use is bounded, and
+credentials remain machine-local. Model/network failures are explicit and retain
+the last-good bundle. Offline `status` and helper-only `fetch` never initialize
+or download a model. Cross-platform CI and an opt-in real-model bootstrap check
+establish support; only platforms actually exercised may be called verified.
+
+The owner approved optional hardware-aware inference after reviewing L3M's local
+hardware/backend separation. Reuse that separation, not its generative coding
+models or Ollama daemon. Normal installation selects the CPU dependency profile;
+NVIDIA users can select an exclusive CUDA profile in a clean environment.
+Acceleration policy is auto/CPU/required-CUDA, with explicit effective-provider
+and fallback messages. CUDA 12/cuDNN 9 prerequisites are user-managed. Do not
+silently promote Azure/remote, CoreML or DirectML providers for the pinned graph.
+Runtime selection remains inside the adapter; domain scoring does not branch on
+hardware. Cache hits remain runtime-import/probe free, and runtime identity and
+policy separate incompatible vector representations. Real GPU speed/parity and
+other operating systems must not be claimed verified from injected CPU-host tests.
+
+### Learned ranking delivery evidence — 2026-11-04
+
+The default data directory now contains immutable report 7:
+`data\reports\report-7\library.pdf` (20 pages). Source-only acceptance explicitly
+disabled all metadata providers; it is not provider recovery or complete enrichment.
+All four stores, source identities, supplied CSVs, credentials and historical
+reports were preserved. Offline status leaves every database/sidecar byte unchanged.
+
+The learned scorer passed five connected-coauthor-held-out folds over 572 rated
+works in 304 components. Same-cohort NDCG@10 was **0.6242 learned**, versus
+**0.5262 mean / 0.5480 current and genre / 0.5616 simple length**. Top-ten
+high-rating precision was **26.0% / 11.0% / 14.3% / 16.3%**, respectively.
+These are retrospective ordering comparisons, not calibrated predictions.
+The fit assigned weight to shared categorical evidence and length, and zero to
+description similarity and publication era; do not claim embeddings improved
+rating prediction. Public-description neighbors remain descriptive context.
+
+Coverage increased from 539 ranked/274 abstained to **809 ranked/4 abstained**,
+with 10 shortlisted. The four abstentions preserve one possible-Read safeguard
+and three works without a supported nonzero-weight channel. All 483 description
+vectors were reused on the unchanged repeat, with zero encoder calls and no
+FastEmbed/ONNX imports. Provider wire counters remained Google 998 / Open Library
+1,421 / Wikidata 12. Schemas remain raw 3/library 4/metadata 1/analytics 3.
+
+Before the optional GPU extension, the gate passed 1,425 Python tests (one
+opt-in smoke skipped), 51 JavaScript tests, Ruff lint/format, strict mypy and
+sdist/wheel builds. Real CPU model inference and socket-blocked offline reuse
+passed on Windows. The final PDF was rendered and the shortlist/evidence pages
+visually inspected. Linux/macOS jobs are configured, not yet remotely verified.
+
+After the optional CUDA extension, the gate passed **1,444 Python tests** (two
+opt-in smoke checks skipped in the normal suite), 51 JavaScript tests, Ruff,
+strict mypy and both package builds. A clean CPU wheel and exclusive
+FastEmbed-GPU 0.9.1/ONNX Runtime GPU 1.26.0 installation passed dependency checks.
+With sockets blocked, real model inference passed on CPU and CUDA-profile CPU
+fallback; required-CUDA correctly rejected the CPU-only host. Fresh processes
+reused both caches without loading FastEmbed/ONNX or using the network.
+The existing CPU fingerprint remains unchanged. Native ONNX DLL messages can
+still appear alongside Booky's concise fallback; GPU hardware/speed remains
+unvalidated. No drivers, generative models, daemon or cloud inference were added.
+
+### Fresh post-reset provider-enabled acceptance — 2026-11-04
+
+The owner requested deletion of generated repository data/environment, while
+preserving CSVs, credentials, config and source/tests, then requested a real
+E2E rebuild. Reinstalled pinned CPU dependencies. Only genuine saved provider
+retry gates/counters were recovered from a verified validation copy; old catalog
+responses, library/analytics data, vectors and report caches were not restored.
+
+The normal provider-enabled pipeline completed in **25m 11s**, returning
+**partial (exit 3)**: all three imports and raw-byte/row-count checks passed,
+analytics ran in parallel, the pinned local model was downloaded/verified and
+encoded 31 descriptions, and PDF/JSON publication succeeded. Open Library made
+**1,420 new requests**, reviewing all 2,153 queued source records with 485 complete
+lookup outcomes and bounded/parked incomplete details. Google made **0** requests
+under its preserved quota gate (minimum retry 18:00:37 +05:30, not a reset
+promise); Wikidata made **1** request and deferred on HTTP-200 maxlag.
+
+The unchanged provider-enabled repeat completed in **33.8s**, again honestly
+partial. Taste/watchlist/recommendations reused; no encoder calls or model-runtime
+imports occurred. Open Library/Google made **0/0** new requests; Wikidata made
+**1 legitimate due retry** after its pause expired. This is not a whole-run
+zero-wire claim. Source identities, prior immutable bundle bytes and append-only
+log prefixes were unchanged.
+
+Current bundle is **`data\reports\report-2\library.pdf` (19 pages)**, with 436
+ranked/377 abstained and 10 shortlisted. Only 31 descriptions remain available
+after the reset (22 rated Read; none watchlist). Learned activation correctly
+failed its per-fold description-support gate; the earlier 809-ranked historical
+result cannot be presented as current coverage. Provider-disabled success was
+not substituted for this provider-enabled outcome.
+
+Verified all four stores comprehensively, all bundle hashes and common manifests/
+as-of, 2,153 source records, original CSV/config bytes, Monte Cristo's 1,276 pages,
+PDF text bounds/rendered shortlist pages and offline status byte preservation.
+This establishes a fresh Windows CPU pipeline, not complete enrichment, source
+account completeness, real GPU execution or Linux/macOS runtime acceptance.
+
+## Reader experience and saved-evidence repair — 2026-11-04
+
+The owner requested a more enjoyable PDF with deliberate page breaks, readable
+progress logs, and better use of the existing exports and downloaded catalog
+responses. This work does not introduce another command, source browser,
+scheduler or provider-enabled rebuild.
+
+- Keep calculation/layout identifiers in JSON rather than printed reader prose.
+  Use friendly report directories while retaining immutable historical bundles.
+  Keep chapter openings, summary tiles and charts coherent across page breaks;
+  preserve readable type rather than forcing a particular page count.
+- Explain stages, elapsed time, attempted versus completed catalog lookups and
+  report readiness in ordinary language. Append to existing logs, count every
+  issue, bound examples, and distinguish expected import notices from failures.
+- Reuse selected identity-valid Google descriptions and normalized genres even
+  when the provider records them on an edition. This descriptive reuse does not
+  transfer another edition's pages, language or publication date. Clipped
+  Goodreads previews do not satisfy the substantive-description core gap.
+- Recover strictly labeled grouped page counts and publication dates from the
+  unchanged Goodreads CSVs. Keep work first-publication and edition-publication
+  evidence separate; preserve conflicts and date precision. Publication dates
+  must not become personal reading dates.
+- Expand trusted provider genres through exact, versioned aliases only. Keep
+  browser genres/series unverified and StoryGraph's unrelated personal fields
+  raw-only. Do not change provider implementation versions merely to consume
+  already saved evidence.
+- Validate on verified database copies first, then refresh the existing local
+  data without resetting it. Explicitly disable both providers for acceptance;
+  preserve credentials, source bytes, identities, durable gates and wire counts.
+  Source-only success is not provider recovery or complete enrichment.
+
+  ### Approved complementary metadata and ranking integration
+
+  The owner approved a Wikidata adapter, recommendation/analytics improvements
+  with evaluation before activating richer ranking signals, and a real E2E run.
+
+  - Use the public API for complementary work evidence only. Distinguish a work
+    from an edition or namesake series; retain paired series IDs/labels/positions,
+    statement ranks, date precision and original-language scope. A short entity
+    description is not a book synopsis. Selected catalog-ID conflicts veto adoption.
+  - Keep existing Google/Open Library versions, retry gates and parked attempts.
+    Add independently configurable Wikidata acquisition and a bounded wire-request
+    allowance. Cache compatible settled responses, archive full public responses,
+    save completed prefixes and disclose remaining fresh targets.
+  - Reuse existing provider-tagged tables and immutable report storage; do not
+    rebuild databases or rewrite historical payloads. Validate legacy recommendation
+    policies/default-field compatibility under original checksums.
+  - Add verified series context and earlier eligible installment ordering. Do not
+    infer that an absent record was never read or invent missing positions. Improve
+    deterministic diversity only among equal-score shortlist choices.
+  - Evaluate mean/current/richer shadow scoring on the same held-out works with
+    connected coauthors grouped together and training-only profiles/vocabulary/
+    baselines. Keep the richer scorer inactive and disclose support/fallbacks.
+    Rating-error evaluation is not recommendation accuracy.
+  - Verify on backed-up real-data copies, then the existing default stores. Measure
+    incremental coverage and saved wire counters, prove settled-work cache reuse
+    separately from legitimate progress on never-attempted targets, and verify
+    coherent bundles, offline status, input/credential/history preservation.
+
+### Complementary integration acceptance
+
+- The final gate passed **1,361 Python tests and 51 JavaScript tests**, Ruff
+    lint/format, strict mypy and package builds. Distribution inspection confirmed
+    the Wikidata adapter and browser helper are packaged, without runtime
+    databases, configuration or credentials.
+- Provider-enabled real-data copies exposed two defects before publication:
+    HTTP-200 Wikidata API pauses lost their durable deadlines, and Goodreads
+    numbered-series display suffixes prevented title retrieval. Both were fixed
+    with focused regressions. API maxlag, Retry-After, identity/type/conflict checks
+    and existing provider gates remain enforced. Only Wikidata's implementation
+    version changed for the corrected query policy.
+- Fresh verified backups of all four default stores were created under
+    `data\backups\20261104T092955Z-*-wikidata-recommendation-e2e` (metadata/analytics
+    timestamp `092956Z`). Their existing raw/library/metadata/analytics schema
+    versions remain **3/4/1/3**; no database rebuild or schema migration was needed.
+- Default run 4 encountered Wikidata maxlag without adopting facts. The normal
+    repeat, run 5, saved four attempts and selected three works; one remains
+    unresolved and 2,149 targets were deferred. Across those runs Wikidata made
+    12 wire requests. Three subsequent settled-work checks made **zero** requests.
+    Google/Open Library wire totals remain **998/1,421**, with their durable gates
+    and parked outcomes retained. Acquisition is partial, not a completed sweep.
+- Read-series coverage increased **89 -> 90** (all works **100 -> 101**).
+    Other headline coverage remains at 483 substantive descriptions, 1,033 genre-
+    covered works, 1,516 first-publication years and 1,534 edition page counts.
+    Overlapping returned facts are retained as corroborating evidence, not counted
+    as newly filled fields. These small live samples do not measure accuracy.
+- Recommendation evaluation holds out the same 572 rated works in five folds
+    with 304 connected-author components. Training-mean/current-heuristic/shadow
+    MAE is **0.203635 / 0.227194 / 0.213340 stars**; the simple length baseline is
+    **0.224592**. Current/shadow mean fallbacks are **134/0**. The richer scorer
+    does not beat the mean and remains inactive. These are retrospective rating
+    errors, not measured watchlist recommendation accuracy.
+- `data\reports\report-5\library.pdf` is the coherent 20-page default bundle,
+    with 539 ranked works, 10 shortlisted and 274 abstentions. Original CSV/
+    credential/history bytes and all 2,153 source identities were preserved;
+    Monte Cristo remains 1,276 pages. All four stores passed comprehensive
+    integrity checks, bundle hashes/manifests/as-of and text frames passed, and
+    the final rendered report was inspected. Offline status preserved every
+    database/sidecar byte and created no sidecars.
+- Source import, analytics and product delivery succeeded, but overall runs
+    returned **partial (exit 3)** for metadata limits. No source browser, schedule,
+    manual correction requirement, database reset, commit or push was introduced.
+
+### Additional-source investigation
+
+A bounded public Wikidata pilot made seven requests for five title/author
+pairs, without modifying production metadata. Offline refinement of the same
+checksummed responses distinguished *The Poppy War* novel from its namesake
+series, yielding single compatible work candidates for it, *The Count of Monte
+Cristo* and *Know My Name*. Available statements include publication dates,
+genres, authors, original-work languages and catalog IDs, plus the Poppy War
+series and explicit position 1. *Orbital* was not found in the initial
+five-result title search, and *A Fate of Wrath & Flame* returned no candidate.
+This tests neither representative coverage nor matching accuracy. In particular,
+the Monte Cristo Open Library work ID differs from the currently selected
+catalog work: cross-catalog disagreement needs resolution before adoption.
+
+[Wikidata structured data is CC0](https://www.wikidata.org/wiki/Wikidata:Data_access).
+It is a candidate for complementary work evidence, not edition page counts or
+the language actually read. A production adapter would need robust retrieval,
+work/edition/series discrimination, identifier-conflict vetoes, claim-rank and
+precision handling, caching and measured incremental coverage. Wikipedia prose
+is not integrated: its [reuse terms](https://en.wikipedia.org/wiki/Wikipedia:Reusing_Wikipedia_content)
+and potential plot spoilers require separate treatment. Hardcover remains a
+future opt-in pilot with the reader's own API authorization.
+
+### Repair acceptance
+
+- The final code gate passed **1,264 Python tests and 51 JavaScript tests**,
+  Ruff lint/format, strict mypy and sdist/wheel builds. The literal-policy
+  checker remains enabled. The browser checks are fixtures, not live capture.
+- A fresh isolated copy of all four verified stores was reimported from the
+  exact configured CSVs with both providers explicitly disabled. It retained
+  730 Read works, 813 watchlist works, 572 linked personal ratings and all 2,153
+  source-record identity hashes. CSV/config/credential bytes, original database
+  copies and historical report files were preserved.
+- Compared with the saved baseline, recognized genres cover **791 -> 1,033**
+  works, first-publication years **1,345 -> 1,516**, edition-publication dates
+  **501 -> 1,539**, and page counts **1,529 -> 1,534**. The report uses **483
+  substantive descriptions**; nominal description coverage drops from 823
+  because clipped previews no longer count as full descriptions.
+- The new 20-page PDF identifies Monte Cristo's selected edition as **1,276
+  pages**. All pages were raster-inspected; extracted text runs passed body,
+  header and footer bounds. Genres, author-effect charts and chapter-opening
+  tile grids remain coherent without reducing the type size.
+- The coherent hash-verified bundle contains 228 findings, 539 ranked watchlist
+  works, ten shortlisted and 274 insufficient-evidence abstentions. These are
+  coverage/product outcomes, not improved matching or recommendation accuracy.
+- All four copied stores passed comprehensive integrity checks. Saved wire
+  counts stayed **Google 998 -> 998; Open Library 1,421 -> 1,421**, with the
+  metadata database and retry diagnostics byte-identical. This offline
+  acceptance does not demonstrate provider recovery or full enrichment.
+- After verified backups of all four default stores, the actual default refresh
+  completed as run 2 and its unchanged repeat as run 3. The repeat retained all
+  2,153 source records unchanged and reused taste, watchlist and recommendation
+  caches. The latest bundle is `data\reports\report-3\library.pdf`, with the same
+  20 visually accepted pages. Original inputs, configuration, credentials,
+  report/log history, provider counters and retry diagnostics were preserved.
+  All four default stores passed comprehensive verification. Offline status
+  reported the retained Google minimum cooldown and incomplete coverage, with
+  no database changes or sidecar creation.
+
 ## Production hardening — 2026-11-03
 
 ### Current implementation handoff — 2026-11-03
@@ -369,7 +655,7 @@ implementation work is not evidence that live collection or consent succeeded.
 | Pipeline | Responsibility | Stored output |
 |---|---|---|
 | **ingestion — now** | Exact configured CSV paths on plain sync; legacy explicit flags for advanced import/replay. Archive bytes before parsing; verify stored hashes, account/scope, and file completeness without claiming account completeness. Never silently replay missing configured paths. | Immutable source originals, source/account binding, capture time, content hash, and collection lineage. |
-| **processing — now** | Parse, validate, apply authority, conservatively match identities, and enrich through default-enabled Google Books and Open Library with a separate query cache. | Independently published source/scope snapshots, structured books/editions, Goodreads history/reviews/watchlist, StoryGraph personal ratings, and metadata provenance/coverage. |
+| **processing — now** | Parse, validate, apply authority, conservatively match identities, and enrich through default-enabled Google Books/Open Library plus optional complementary Wikidata with a separate query cache. | Independently published source/scope snapshots, structured books/editions, Goodreads history/reviews/watchlist, StoryGraph personal ratings, and metadata provenance/coverage. |
 | **analytics — now** | Read pinned compatible snapshots, confirmed work IDs and selected identity-valid metadata after enrichment. Calculate supported findings; reuse taste/watchlist components separately. | Saved reports, preference weights, capability/coverage evidence and exact input references in ignored `data\analytics.sqlite3`. |
 | **watchlist — now** | Conservatively filter the current Goodreads watchlist, use supported personal-rating signals and retain uncertainty/abstentions. | Deterministic ranking, varied shortlist, score components, evidence tiers and exact pinned inputs; no calibrated enjoyment probabilities. |
 
@@ -1070,7 +1356,7 @@ Produce a standalone Calendar Year in Books
 | StoryGraph access | Configured supplied CSV for personal ratings/identity; live acquisition deferred |
 | Goodreads access | Explicit console helper via `fetch`; configured split Read/to-read CSVs or alternative official whole-library CSV; never mix the modes |
 | Source authority | Goodreads watchlist/history; StoryGraph ratings and matching identity only; other StoryGraph fields remain raw-only |
-| Metadata | Google Books and Open Library enabled by default; API-key priority, automatic interactive OAuth setup when needed |
+| Metadata | Google Books/Open Library enabled by default; optional complementary Wikidata, enabled in this checkout; API-key priority, automatic interactive Google OAuth setup when needed |
 | Exports | Default configured input; preserve original bytes before parsing, never silently replay missing paths |
 | Refresh cadence | On-demand CSV processing now; weekly automatic acquisition requires later approval and evidence |
 | Normal reads | Use the database, not fresh scraping |
@@ -1410,7 +1696,8 @@ source snapshots happen to be latest when each query executes.
 ### Enrich metadata
 
 Fetch missing information using default-enabled Google Books and Open Library
-with bounded work and caching; honor advanced provider-disable configuration.
+plus optional complementary Wikidata with bounded work and caching; honor
+provider-disable configuration.
 Record incomplete coverage separately; the future
 input manifest pins the metadata observations used.
 
@@ -1696,13 +1983,15 @@ Keep historical membership observations rather than deleting the book itself.
 
 ## 14. Metadata enrichment and caching
 
-Google Books and Open Library are both enabled by default. Google Books uses
+Google Books and Open Library are both enabled by default; Wikidata is optional
+in package defaults and enabled in the versioned checkout configuration.
+Google Books uses
 an API key or valid/refreshed OAuth; first interactive sync handles normal
 client prompts/consent if required, while headless runs report needs-auth.
-Advanced configuration may disable a provider. Both serve processing only; they do not supply
+Advanced configuration may disable a provider. These serve processing only; they do not supply
 authoritative personal account facts. Retain their full HTTP responses in
-`data\raw.sqlite3` under separate provider source/type documents and use
-`data\metadata.sqlite3` for disposable query caching.
+`data\databases\raw.sqlite3` under separate provider source/type documents and use
+`data\databases\metadata.sqlite3` for disposable query caching.
 
 ### Google Books
 

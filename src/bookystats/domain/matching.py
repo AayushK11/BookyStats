@@ -333,6 +333,21 @@ def _open_library_work(candidate: MetadataCandidate) -> bool:
     )
 
 
+def _wikidata_work(candidate: MetadataCandidate) -> bool:
+    return (
+        candidate.provider == Source.WIKIDATA
+        and C.WIKIDATA_ENTITY_ID.fullmatch(candidate.provider_id) is not C.NONE
+        and candidate.work_id == candidate.provider_id
+        and candidate.edition_id is C.NONE
+        and not candidate.isbns
+        and candidate.url == S.WIKIDATA_WORK_URL.format(v0=candidate.provider_id)
+        and all(
+            item.scope == S.WORK and item.source_url == candidate.url
+            for item in candidate.observations
+        )
+    )
+
+
 def _article_free(key: str) -> str:
     article, _, rest = key.partition(S.SPACE)
     return rest if article in C.L1_ID_LEADING_ARTICLES and rest else key
@@ -383,10 +398,15 @@ def _strict_metadata_identity(book: BookRecord, candidate: MetadataCandidate) ->
     comparison = compare_books(book, candidate)
     if (
         comparison.kind != MatchKind.CONFLICTING
-        and _open_library_work(candidate)
+        and (_open_library_work(candidate) or _wikidata_work(candidate))
         and work_bibliography_compatible(book, candidate)
     ):
-        return MatchResult(MatchKind.CONFIRMED, S.MATCH_REPAIR_WORK_REASON)
+        return MatchResult(
+            MatchKind.CONFIRMED,
+            S.WIKIDATA_MATCH_REASON
+            if candidate.provider == Source.WIKIDATA
+            else S.MATCH_REPAIR_WORK_REASON,
+        )
     return comparison
 
 

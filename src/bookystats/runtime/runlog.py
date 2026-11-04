@@ -15,6 +15,10 @@ from bookystats.application.outcome import (
     explain_failure,
     format_duration,
     format_instant,
+    human_collection,
+    human_event,
+    human_issue,
+    human_source,
     readable_deadlines,
     utc_text,
 )
@@ -132,12 +136,14 @@ def _receipt_lines(receipt: SyncReceipt, secrets: Iterable[str], zone: tzinfo) -
         publication = source.publication
         if publication is C.NONE:
             text = S.OPLOG_SOURCE_UNPUBLISHED.format(
-                source=source.source.value, collection=source.collection, state=source.state.value
+                source=human_source(source.source.value),
+                collection=human_collection(source.collection),
+                state=source.state.value,
             )
         else:
             text = S.OPLOG_SOURCE_LINE.format(
-                source=source.source.value,
-                collection=source.collection,
+                source=human_source(source.source.value),
+                collection=human_collection(source.collection),
                 state=source.state.value,
                 records=source.records,
                 added=publication.added,
@@ -149,7 +155,7 @@ def _receipt_lines(receipt: SyncReceipt, secrets: Iterable[str], zone: tzinfo) -
     lines.extend(
         S.OPLOG_INDENT
         + S.OPLOG_CORE.format(
-            provider=metadata.provider.value,
+            provider=human_source(metadata.provider.value),
             unresolved=metadata.fallback_unresolved,
             skipped=metadata.skipped_by_strategy,
         )
@@ -229,7 +235,9 @@ def _issue_group_lines(
     lines: list[str] = []
     for code, count in sorted(counts.items()):
         template = S.OPLOG_ISSUE_COUNT_ONE if count == C.ONE else S.OPLOG_ISSUE_COUNT
-        lines.append(S.OPLOG_DEEP_INDENT + template.format(scope=scope, code=code, count=count))
+        lines.append(
+            S.OPLOG_DEEP_INDENT + template.format(scope=scope, code=human_issue(code), count=count)
+        )
         lines.extend(
             S.OPLOG_EXAMPLE_INDENT + S.OPLOG_ISSUE_EXAMPLE.format(message=sample)
             for sample in examples[code]
@@ -240,10 +248,12 @@ def _issue_group_lines(
 def _issue_summary_lines(receipt: SyncReceipt, secrets: Iterable[str], zone: tzinfo) -> list[str]:
     scopes: dict[str, list[Issue]] = {}
     for source in receipt.sources:
-        scope = source.source.value + S.SLASH + source.collection
+        scope = S.LOG3_SOURCE_NAME.format(
+            source=human_source(source.source.value), collection=human_collection(source.collection)
+        )
         scopes.setdefault(scope, []).extend(source.issues)
     for provider in receipt.metadata:
-        scopes.setdefault(provider.provider.value, []).extend(provider.issues)
+        scopes.setdefault(human_source(provider.provider.value), []).extend(provider.issues)
     if receipt.analytics is not C.NONE:
         scopes.setdefault(S.LOG_ANALYTICS_SCOPE, []).extend(receipt.analytics.issues)
     if receipt.products is not C.NONE:
@@ -372,13 +382,18 @@ class OperationalLog:
         if first.startswith(S.OPLOG_STAGE_PREFIX) or finished is not C.NONE:
             self._close_stage()
             if finished is C.NONE:
-                name = first.removeprefix(S.OPLOG_STAGE_PREFIX).removesuffix(S.OPLOG_PERIOD)
+                name = (
+                    human_event(first)
+                    .removeprefix(S.OPLOG_STAGE_PREFIX)
+                    .removesuffix(S.OPLOG_PERIOD)
+                )
                 self._open = (name, self._timer())
 
     def event(self, message: str) -> None:
         if self._finished:
             raise RuntimeError(S.LOG_ALREADY_FINISHED)
         self._track(message)
+        message = human_event(message)
         stamp = self._clock().isoformat(sep=S.SPACE, timespec=S.OUTCOME_SECONDS)
         lines = tuple(
             S.OPLOG_EVENT.format(stamp=stamp, message=line) for line in message.splitlines()
@@ -421,7 +436,7 @@ class OperationalLog:
             duration=format_duration(outcome.duration_seconds),
         )
         summary = [S.OPLOG_SUMMARY_HEADING, *body] if body else []
-        _append(self.directory, (*summary, *outcome.lines, end), self.secrets)
+        _append(self.directory, (*outcome.lines, *summary, end), self.secrets)
 
     def _save_summary(self, outcome: Outcome) -> None:
         gates: list[RunSummaryGate] = []
@@ -436,6 +451,7 @@ class OperationalLog:
                         error_code=_safe_text(gate.error_code, self.secrets)
                         if gate.error_code is not C.NONE
                         else C.NONE,
+                        daily_limit=gate.daily_limit,
                     )
                 )
         summary = RunSummary(
@@ -524,3 +540,15 @@ def write_failure_log(
         if log.problem is not C.NONE:
             raise RunLogError(log.problem)
         return log.path
+
+
+def write_report_refresh_event(
+    directory: Path, message: str, *, secrets: Iterable[str] = ()
+) -> Path:
+    # Caller holds SyncLock. This is not a sync boundary and never changes the saved run summary.
+    stamp = _system_now().isoformat(sep=S.SPACE, timespec=S.OUTCOME_SECONDS)
+    return _append(
+        directory,
+        (S.LOG3_OFFLINE_EVENT.format(stamp=stamp, message=line) for line in message.splitlines()),
+        secrets,
+    )

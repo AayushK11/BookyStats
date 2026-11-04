@@ -18,6 +18,7 @@ from bookystats.domain.models import (
     Source,
     SyncState,
 )
+from bookystats.persistence.library import _identity_hash
 from tests.support.exports import account, collect, csv_body, document, observation
 
 
@@ -501,6 +502,140 @@ def test_browser_export_recovers_labeled_metadata_without_inventing_personal_dat
     assert not book.reading_events
     assert snapshot.capabilities[S.COMMUNITY_RATING] == FieldState.PRESENT
     assert any(issue.code == S.IMPORT_BROWSER_SCOPE_NOTICE for issue in snapshot.issues)
+
+
+@pytest.mark.parametrize(S.METADATA_TEST_PAGE_FIELD_PARAMETERS, C.METADATA_TEST_PAGE_CASES)
+def test_browser_page_counts_accept_only_valid_integer_grouping(
+    details_pages: str, direct_pages: str, expected: int | None
+) -> None:
+    row = {
+        **C.TEST_BROWSER_EXPORT_ROW,
+        S.IMPORT_BROWSER_PAGES: direct_pages,
+        S.IMPORT_BROWSER_DETAILS: S.TEST_BROWSER_EXPORT_DETAILS.replace(
+            S.METADATA_TEST_PAGE_LABEL,
+            S.METADATA_TEST_PAGE_LABEL_TEMPLATE.format(pages=details_pages),
+        ),
+    }
+    raw = replace(document(csv_body(Source.GOODREADS, [row])), collection=S.READ)
+    snapshot = ExportConnector(raw).collect(account())
+    book = snapshot.records[C.ZERO]
+    pages = observation(book, S.PAGE_COUNT)
+    assert pages.value == expected
+    assert pages.scope == S.EDITION
+    if expected is C.NONE:
+        assert pages.state != FieldState.PRESENT
+    else:
+        assert pages.state == FieldState.PRESENT
+    if details_pages == S.TEST_IMPORT_ZERO:
+        assert pages.state == FieldState.UNAVAILABLE
+    assert book.raw_fields == row
+    assert pages.source_url == raw.origin
+    assert not book.reading_events
+
+
+def test_browser_grouped_pages_still_reject_conflicting_direct_and_labeled_counts() -> None:
+    row = {
+        **C.TEST_BROWSER_EXPORT_ROW,
+        S.IMPORT_BROWSER_PAGES: S.METADATA_TEST_GROUPED_PAGES,
+    }
+    raw = replace(document(csv_body(Source.GOODREADS, [row])), collection=S.READ)
+    with pytest.raises(ConnectorError):
+        ExportConnector(raw).collect(account())
+
+
+def test_browser_page_recovery_does_not_change_provider_or_matching_identity() -> None:
+    original = replace(
+        document(csv_body(Source.GOODREADS, [C.TEST_BROWSER_EXPORT_ROW])), collection=S.READ
+    )
+    before = ExportConnector(original).collect(account()).records[C.ZERO]
+    row = {
+        **C.TEST_BROWSER_EXPORT_ROW,
+        S.IMPORT_BROWSER_PAGES: S.EMPTY,
+        S.IMPORT_BROWSER_DETAILS: S.TEST_BROWSER_EXPORT_DETAILS.replace(
+            S.METADATA_TEST_PAGE_LABEL,
+            S.METADATA_TEST_PAGE_LABEL_TEMPLATE.format(pages=S.METADATA_TEST_GROUPED_PAGES),
+        ),
+    }
+    changed = replace(document(csv_body(Source.GOODREADS, [row])), collection=S.READ)
+    after = ExportConnector(changed).collect(account()).records[C.ZERO]
+    assert observation(after, S.PAGE_COUNT).value == C.METADATA_TEST_LONG_PAGES
+    assert _identity_hash(before) == _identity_hash(after)
+    assert compare_books(before, after).kind == MatchKind.CONFIRMED
+
+
+@pytest.mark.parametrize(S.METADATA_TEST_DATE_PARAMETERS, C.METADATA_TEST_DATE_CASES)
+def test_browser_catalog_dates_retain_scope_precision_and_optional_conflicts(
+    direct: str,
+    work: str,
+    edition: str,
+    expected_work: str | None,
+    expected_edition: str | None,
+    conflict: str | None,
+) -> None:
+    row = {
+        **C.TEST_BROWSER_EXPORT_ROW,
+        S.IMPORT_BROWSER_PUBLICATION: direct,
+        S.IMPORT_BROWSER_DETAILS: S.TEST_BROWSER_EXPORT_DETAILS.replace(
+            S.METADATA_TEST_DATE_LABELS,
+            S.METADATA_TEST_DATE_LABELS_TEMPLATE.format(work=work, edition=edition),
+        ),
+    }
+    raw = replace(document(csv_body(Source.GOODREADS, [row])), collection=S.READ)
+    snapshot = ExportConnector(raw).collect(account())
+    book = snapshot.records[C.ZERO]
+    assert snapshot.state == SyncState.COMPLETE
+    work_date = observation(book, S.IMPORT_BROWSER_FIRST_PUBLICATION)
+    edition_date = observation(book, S.PUBLICATION_DATE)
+    assert work_date.value == expected_work
+    assert work_date.scope == S.WORK
+    assert edition_date.value == expected_edition
+    assert edition_date.scope == S.EDITION
+    flags = [item for item in book.observations if item.field == S.METADATA_PUBLICATION_CONFLICT]
+    assert [item.value for item in flags] == ([conflict] if conflict is not C.NONE else [])
+    has_issue = any(issue.code == S.METADATA_PUBLICATION_CONFLICT for issue in snapshot.issues)
+    assert has_issue == bool(flags)
+    assert all(item.source_url == raw.origin for item in book.observations)
+    assert book.raw_fields == row
+    assert not book.reading_events
+    assert observation(book, S.READING_EVENTS).state == FieldState.UNSUPPORTED
+    if conflict is not C.NONE:
+        assert observation(book, conflict).state == FieldState.UNAVAILABLE
+        assert any(
+            item.field
+            in (S.METADATA_DIRECT_WORK_PUBLICATION, S.METADATA_DIRECT_EDITION_PUBLICATION)
+            and item.state == FieldState.PRESENT
+            for item in book.observations
+        )
+        assert any(
+            item.field in (S.METADATA_ROW_WORK_PUBLICATION, S.METADATA_ROW_EDITION_PUBLICATION)
+            and item.state == FieldState.PRESENT
+            for item in book.observations
+        )
+
+
+def test_ambiguous_or_missing_row_labels_do_not_create_catalog_dates() -> None:
+    for details in (
+        S.EMPTY,
+        S.TEST_BROWSER_EXPORT_DETAILS.replace(
+            S.METADATA_TEST_DATE_LABELS, S.METADATA_TEST_BAD_ROW_LABELS
+        ),
+        S.TEST_BROWSER_EXPORT_DETAILS + S.TEST_BROWSER_EXPORT_DETAILS,
+    ):
+        row = {
+            **C.TEST_BROWSER_EXPORT_ROW,
+            S.IMPORT_BROWSER_PUBLICATION: S.EMPTY,
+            S.IMPORT_BROWSER_DETAILS: details,
+        }
+        raw = replace(document(csv_body(Source.GOODREADS, [row])), collection=S.READ)
+        snapshot = ExportConnector(raw).collect(account())
+        book = snapshot.records[C.ZERO]
+        assert snapshot.state == SyncState.COMPLETE
+        assert observation(book, S.IMPORT_BROWSER_FIRST_PUBLICATION).state != FieldState.PRESENT
+        assert observation(book, S.PUBLICATION_DATE).state != FieldState.PRESENT
+        assert not book.reading_events
+        if not details:
+            assert observation(book, S.IMPORT_BROWSER_FIRST_PUBLICATION).state == FieldState.EMPTY
+            assert observation(book, S.PUBLICATION_DATE).state == FieldState.UNSUPPORTED
 
 
 @pytest.mark.parametrize(S.VALUE, C.DQ_CAPTURE_TEST_ROWS)
